@@ -1,0 +1,767 @@
+import {
+    SlateTheme,
+    SlateButton,
+    SlateBadge,
+    SlateInput,
+    SlateTextArea,
+    SlateSwitch,
+    SlateCheckbox,
+    SlateRadio,
+    SlateSlider,
+    SlateSegmentedControl,
+    SlateMetricCard,
+    SlateTable,
+    SlateTableRow,
+    SlateAlert,
+    SlateProgressBar,
+    SlateSkeleton,
+    SlateTabs,
+    SlateAvatar,
+    SlateAccordion,
+    SlateModal,
+    SlateWebAppLayout,
+    SlateWebCard,
+    SlateStatusPage
+} from "../../ui/index.slint";
+
+export { SlateTheme }
+
+export component WebMirrorWindow inherits Window {
+    title: "Fullstack Template — Component Showcase (Web Mirror)";
+    min-width: 1040px;
+    min-height: 720px;
+    preferred-width: 1160px;
+    preferred-height: 820px;
+    background: SlateTheme.background;
+    default-font-family: "Inter, Cantarell, Ubuntu, sans-serif";
+
+    // Callbacks to Rust
+    callback start-compute();
+    callback cancel-compute();
+    callback toggle-theme();
+
+    // Navigation and state
+    in-out property <int> active-tab: 0;
+    in-out property <bool> modal-open: false;
+
+    // Interactive Demo Properties
+    in-out property <string> demo-input-text: "dev@slate.internal";
+    in-out property <string> demo-textarea-text: "Declarative, high-performance UI components powered by Slint and Rust.";
+    in-out property <bool> demo-switch-1: true;
+    in-out property <bool> demo-switch-2: false;
+    in-out property <bool> demo-check-1: true;
+    in-out property <bool> demo-check-2: false;
+    in-out property <bool> demo-check-3: true;
+    in-out property <int> demo-radio-selection: 0;
+    in-out property <float> demo-slider-val: 68.0;
+    in-out property <int> demo-segmented-idx: 1;
+
+    // Async Compute State
+    in property <bool> compute-running: false;
+    in property <float> compute-progress: 0.0;
+    in property <string> compute-status: "Ready for task execution";
+    in property <string> compute-result: "No active calculation";
+
+    layout := SlateWebAppLayout {
+        active-tab <=> root.active-tab;
+
+        // Content Area inside Flickable for smooth vertical scrolling
+        Flickable {
+            vertical-stretch: 1;
+            content-height: content-column.preferred-height + 48px;
+
+            content-column := VerticalLayout {
+                spacing: SlateTheme.spacing-lg;
+                padding-bottom: SlateTheme.spacing-xl;
+
+                // ==========================================
+                // TAB 0: BUTTONS & BADGES
+                // ==========================================
+                if root.active-tab == 0 : VerticalLayout {
+                    spacing: SlateTheme.spacing-lg;
+
+                    SlateWebCard {
+                        title: "Button Variants";
+                        description: "6 variants: default, secondary, destructive, outline, ghost, link";
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-md;
+                            alignment: start;
+
+                            SlateButton { text: "Default"; variant: "primary"; }
+                            SlateButton { text: "Secondary"; variant: "secondary"; }
+                            SlateButton { text: "Destructive"; variant: "destructive"; }
+                            SlateButton { text: "Outline"; variant: "outline"; }
+                            SlateButton { text: "Ghost"; variant: "ghost"; }
+                            SlateButton { text: "Link"; variant: "link"; }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Button Sizes";
+                        description: "4 sizes: sm, default, lg, icon";
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-md;
+                            alignment: start;
+
+                            SlateButton { text: "Small"; variant: "secondary"; size: "sm"; }
+                            SlateButton { text: "Default"; variant: "primary"; size: "md"; }
+                            SlateButton { text: "Large"; variant: "secondary"; size: "lg"; }
+                            SlateButton { text: "⚙️"; variant: "outline"; size: "md"; }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Button with Icon & Loading";
+                        description: "Buttons with prefix icons and interactive loading spinner indicators";
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-md;
+                            alignment: start;
+
+                            SlateButton { text: "Email"; variant: "primary"; icon: "✉️"; }
+                            SlateButton { text: "Search"; variant: "secondary"; icon: "🔍"; }
+                            SlateButton { text: "Save Changes"; variant: "success"; icon: "💾"; }
+                            SlateButton { text: "Loading..."; variant: "primary"; loading: true; }
+                            SlateButton { text: "Disabled"; variant: "secondary"; enabled: false; }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Badge";
+                        description: "4 variants: default, secondary, destructive, outline";
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-md;
+                            alignment: start;
+
+                            SlateBadge { text: "Default"; variant: "default"; }
+                            SlateBadge { text: "Secondary"; variant: "secondary"; }
+                            SlateBadge { text: "Destructive"; variant: "destructive"; }
+                            SlateBadge { text: "Outline"; variant: "outline"; }
+                            SlateBadge { text: "Success"; variant: "success"; }
+                            SlateBadge { text: "Warning"; variant: "warning"; }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Toggle & Segmented Control";
+                        description: "Single & multi-state toggle groups for filters and view switching";
+
+                        VerticalLayout {
+                            spacing: SlateTheme.spacing-md;
+
+                            HorizontalLayout {
+                                spacing: SlateTheme.spacing-sm;
+                                alignment: start;
+
+                                SlateButton { text: "B"; variant: "primary"; size: "sm"; }
+                                SlateButton { text: "I"; variant: "secondary"; size: "sm"; }
+                                SlateButton { text: "U"; variant: "secondary"; size: "sm"; }
+                            }
+
+                            SlateSegmentedControl {
+                                options: ["Daily", "Weekly", "Monthly", "Quarterly"];
+                                selected-index <=> root.demo-segmented-idx;
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // TAB 1: FORMS & INPUTS
+                // ==========================================
+                if root.active-tab == 1 : VerticalLayout {
+                    spacing: SlateTheme.spacing-lg;
+
+                    SlateWebCard {
+                        title: "Input + Textarea + Label";
+                        description: "Standard text fields, labels, placeholders, and multiline editors";
+
+                        VerticalLayout {
+                            spacing: SlateTheme.spacing-md;
+
+                            SlateInput {
+                                label: "Email Address";
+                                placeholder: "name@example.com";
+                                leading-icon: "✉️";
+                                text <=> root.demo-input-text;
+                            }
+
+                            SlateTextArea {
+                                label: "Message";
+                                placeholder: "Type your message...";
+                                text <=> root.demo-textarea-text;
+                            }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Select + Checkbox + Switch + Radio Group";
+                        description: "Toggles, checkboxes, switch pills, and radio option sets";
+
+                        VerticalLayout {
+                            spacing: SlateTheme.spacing-md;
+
+                            HorizontalLayout {
+                                spacing: SlateTheme.spacing-xl;
+                                alignment: start;
+
+                                VerticalLayout {
+                                    spacing: SlateTheme.spacing-sm;
+
+                                    Text {
+                                        text: "Checkboxes";
+                                        font-size: 13px;
+                                        font-weight: 600;
+                                        color: SlateTheme.text-primary;
+                                    }
+
+                                    SlateCheckbox { text: "Accept terms and conditions"; checked <=> root.demo-check-1; }
+                                    SlateCheckbox { text: "Subscribe to security advisories"; checked <=> root.demo-check-2; }
+                                    SlateCheckbox { text: "Enable automatic cloud sync"; checked <=> root.demo-check-3; }
+                                }
+
+                                VerticalLayout {
+                                    spacing: SlateTheme.spacing-sm;
+
+                                    Text {
+                                        text: "Switches";
+                                        font-size: 13px;
+                                        font-weight: 600;
+                                        color: SlateTheme.text-primary;
+                                    }
+
+                                    SlateSwitch { text: "High Performance Mode"; checked <=> root.demo-switch-1; }
+                                    SlateSwitch { text: "Hardware Acceleration"; checked <=> root.demo-switch-2; }
+                                }
+
+                                VerticalLayout {
+                                    spacing: SlateTheme.spacing-sm;
+
+                                    Text {
+                                        text: "Radio Group";
+                                        font-size: 13px;
+                                        font-weight: 600;
+                                        color: SlateTheme.text-primary;
+                                    }
+
+                                    SlateRadio { text: "Default layout"; selected: root.demo-radio-selection == 0; toggled => { root.demo-radio-selection = 0; } }
+                                    SlateRadio { text: "Comfortable layout"; selected: root.demo-radio-selection == 1; toggled => { root.demo-radio-selection = 1; } }
+                                    SlateRadio { text: "Compact layout"; selected: root.demo-radio-selection == 2; toggled => { root.demo-radio-selection = 2; } }
+                                }
+                            }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Continuous Slider";
+                        description: "Draggable slider track with live value readout";
+
+                        VerticalLayout {
+                            spacing: SlateTheme.spacing-sm;
+
+                            HorizontalLayout {
+                                alignment: space-between;
+
+                                Text {
+                                    text: "Volume / Intensity";
+                                    font-size: 13px;
+                                    color: SlateTheme.text-secondary;
+                                }
+
+                                Text {
+                                    text: Math.round(root.demo-slider-val) + "%";
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: SlateTheme.text-primary;
+                                }
+                            }
+
+                            SlateSlider {
+                                minimum: 0.0;
+                                maximum: 100.0;
+                                value <=> root.demo-slider-val;
+                            }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Input OTP (6 Digits)";
+                        description: "One-time password verification code cells";
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-sm;
+                            alignment: start;
+
+                            for digit in ["4", "8", "2", "9", "1", "5"] : Rectangle {
+                                width: 44px;
+                                height: 48px;
+                                border-radius: SlateTheme.radius-md;
+                                border-width: 1px;
+                                border-color: SlateTheme.border-subtle;
+                                background: SlateTheme.surface-2;
+
+                                Text {
+                                    text: digit;
+                                    font-size: 18px;
+                                    font-weight: 700;
+                                    color: SlateTheme.text-primary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // TAB 2: DATA DISPLAY
+                // ==========================================
+                if root.active-tab == 2 : VerticalLayout {
+                    spacing: SlateTheme.spacing-lg;
+
+                    SlateWebCard {
+                        title: "Card + Avatar + Separator";
+                        description: "Identity components with avatars, presence status dots, and pill tags";
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-xl;
+                            alignment: start;
+
+                            HorizontalLayout {
+                                spacing: SlateTheme.spacing-md;
+                                alignment: center;
+
+                                SlateAvatar { initials: "AL"; status: "online"; }
+
+                                VerticalLayout {
+                                    alignment: center;
+                                    spacing: 2px;
+                                    Text { text: "Alice Müller"; font-size: 14px; font-weight: 600; color: SlateTheme.text-primary; }
+                                    Text { text: "alice@example.com"; font-size: 12px; color: SlateTheme.text-muted; }
+                                }
+
+                                SlateBadge { text: "Admin"; variant: "default"; }
+                            }
+
+                            // Vertical divider line
+                            Rectangle { width: 1px; height: 36px; background: SlateTheme.border-subtle; }
+
+                            HorizontalLayout {
+                                spacing: SlateTheme.spacing-md;
+                                alignment: center;
+
+                                SlateAvatar { initials: "BS"; status: "busy"; }
+
+                                VerticalLayout {
+                                    alignment: center;
+                                    spacing: 2px;
+                                    Text { text: "Bob Schmidt"; font-size: 14px; font-weight: 600; color: SlateTheme.text-primary; }
+                                    Text { text: "bob@example.com"; font-size: 12px; color: SlateTheme.text-muted; }
+                                }
+
+                                SlateBadge { text: "Editor"; variant: "secondary"; }
+                            }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Table (Standalone)";
+                        description: "Data grid with header row, alternating row backgrounds, and status badges";
+
+                        SlateTable {
+                            columns: ["Name", "Email", "Role", "Status"];
+                            rows: [
+                                { id: "1", name: "Alice Müller", category: "alice@example.com", status: "Active", status-variant: "default", value: "Admin" },
+                                { id: "2", name: "Bob Schmidt", category: "bob@example.com", status: "Syncing", status-variant: "secondary", value: "Editor" },
+                                { id: "3", name: "Carol Weber", category: "carol@example.com", status: "Warning", status-variant: "warning", value: "Viewer" },
+                                { id: "4", name: "David Fischer", category: "david@example.com", status: "Deprecated", status-variant: "destructive", value: "Editor" }
+                            ];
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Accordion & Collapsible";
+                        description: "Expandable sections with state chevrons and animated body reveal";
+
+                        VerticalLayout {
+                            spacing: SlateTheme.spacing-sm;
+
+                            SlateAccordion {
+                                title: "What is the Slate desktop framework?";
+                                expanded: true;
+
+                                Text {
+                                    text: "Slate is a high-performance desktop framework combining Rust for heavy background compute with Slint for beautiful, native Linux UI integration.";
+                                    font-size: SlateTheme.font-sm;
+                                    color: SlateTheme.text-secondary;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            SlateAccordion {
+                                title: "Is it production-ready?";
+                                expanded: false;
+
+                                Text {
+                                    text: "Yes. It includes unit tests, headless render verification, dark/light theme tokens, and asynchronous background worker integration.";
+                                    font-size: SlateTheme.font-sm;
+                                    color: SlateTheme.text-secondary;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // TAB 3: FEEDBACK
+                // ==========================================
+                if root.active-tab == 3 : VerticalLayout {
+                    spacing: SlateTheme.spacing-lg;
+
+                    SlateWebCard {
+                        title: "Alert Variants";
+                        description: "4 variants: default, destructive, success, info";
+
+                        VerticalLayout {
+                            spacing: SlateTheme.spacing-sm;
+
+                            SlateAlert {
+                                variant: "info";
+                                title: "Note";
+                                message: "System update scheduled tonight at 02:00 UTC. No downtime expected.";
+                            }
+
+                            SlateAlert {
+                                variant: "destructive";
+                                title: "Error";
+                                message: "Failed to synchronize with database replica. Retrying in 15 seconds.";
+                            }
+
+                            SlateAlert {
+                                variant: "success";
+                                title: "Success";
+                                message: "4,096 records ingested into data warehouse successfully.";
+                            }
+
+                            SlateAlert {
+                                variant: "warning";
+                                title: "Warning";
+                                message: "API key expires in 3 days. Please rotate credentials.";
+                            }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Progress";
+                        description: "Linear determinate progress indicator";
+
+                        VerticalLayout {
+                            spacing: SlateTheme.spacing-sm;
+
+                            HorizontalLayout {
+                                alignment: space-between;
+
+                                Text {
+                                    text: "Sync Progress";
+                                    font-size: 13px;
+                                    color: SlateTheme.text-secondary;
+                                }
+
+                                Text {
+                                    text: "60%";
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: SlateTheme.text-primary;
+                                }
+                            }
+
+                            SlateProgressBar {
+                                progress: 0.60;
+                            }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Skeleton Loading Placeholders";
+                        description: "Pulsing content skeletons while asynchronous resources load";
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-md;
+                            alignment: start;
+
+                            SlateSkeleton {
+                                width: 44px;
+                                height: 44px;
+                                border-radius: 22px;
+                            }
+
+                            VerticalLayout {
+                                spacing: SlateTheme.spacing-sm;
+                                alignment: center;
+
+                                SlateSkeleton { width: 280px; height: 16px; }
+                                SlateSkeleton { width: 180px; height: 12px; }
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // TAB 4: NAVIGATION
+                // ==========================================
+                if root.active-tab == 4 : VerticalLayout {
+                    spacing: SlateTheme.spacing-lg;
+
+                    SlateWebCard {
+                        title: "Breadcrumbs";
+                        description: "Hierarchical trail showing navigation context";
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-sm;
+                            alignment: start;
+
+                            Text { text: "Home"; font-size: 13px; color: SlateTheme.accent-primary; }
+                            Text { text: "/"; font-size: 13px; color: SlateTheme.text-muted; }
+                            Text { text: "Components"; font-size: 13px; color: SlateTheme.accent-primary; }
+                            Text { text: "/"; font-size: 13px; color: SlateTheme.text-muted; }
+                            Text { text: "Buttons & Badges"; font-size: 13px; font-weight: 600; color: SlateTheme.text-primary; }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Pagination Bar";
+                        description: "Page step controls with active page highlights and boundary chevrons";
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-xs;
+                            alignment: start;
+
+                            SlateButton { text: "« Prev"; variant: "outline"; size: "sm"; }
+                            SlateButton { text: "1"; variant: "primary"; size: "sm"; }
+                            SlateButton { text: "2"; variant: "secondary"; size: "sm"; }
+                            SlateButton { text: "3"; variant: "secondary"; size: "sm"; }
+                            SlateButton { text: "..."; variant: "ghost"; size: "sm"; enabled: false; }
+                            SlateButton { text: "10"; variant: "secondary"; size: "sm"; }
+                            SlateButton { text: "Next »"; variant: "outline"; size: "sm"; }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Menubar & Action Bar";
+                        description: "Top-level application menus with keyboard shortcuts and submenus";
+
+                        Rectangle {
+                            height: 36px;
+                            border-radius: SlateTheme.radius-sm;
+                            background: SlateTheme.surface-2;
+                            border-width: 1px;
+                            border-color: SlateTheme.border-subtle;
+
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 4px;
+                                alignment: start;
+
+                                SlateButton { text: "File"; variant: "ghost"; size: "sm"; }
+                                SlateButton { text: "Edit"; variant: "ghost"; size: "sm"; }
+                                SlateButton { text: "View"; variant: "ghost"; size: "sm"; }
+                                SlateButton { text: "Help"; variant: "ghost"; size: "sm"; }
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // TAB 5: OVERLAYS
+                // ==========================================
+                if root.active-tab == 5 : VerticalLayout {
+                    spacing: SlateTheme.spacing-lg;
+
+                    SlateWebCard {
+                        title: "Dialog / Modal Overlay";
+                        description: "Modal window overlay with dimmed backdrop and action controls";
+
+                        HorizontalLayout {
+                            alignment: start;
+
+                            SlateButton {
+                                text: "Launch Confirmation Modal";
+                                variant: "primary";
+                                icon: "🪟";
+                                clicked => { root.modal-open = true; }
+                            }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Drawer & Sheet Preview";
+                        description: "Slide-out panel container for contextual actions or inspectors";
+
+                        Rectangle {
+                            height: 72px;
+                            border-radius: SlateTheme.radius-md;
+                            background: SlateTheme.surface-2;
+                            border-width: 1px;
+                            border-color: SlateTheme.border-subtle;
+
+                            HorizontalLayout {
+                                padding: SlateTheme.spacing-md;
+                                alignment: space-between;
+
+                                VerticalLayout {
+                                    alignment: center;
+                                    spacing: 2px;
+                                    Text { text: "Slide-out Sheet Inspector"; font-size: 14px; font-weight: 600; color: SlateTheme.text-primary; }
+                                    Text { text: "Inspect element properties or perform secondary workflows."; font-size: 12px; color: SlateTheme.text-muted; }
+                                }
+
+                                SlateButton { text: "Open Drawer"; variant: "outline"; size: "sm"; }
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // TAB 6: COMPONENTS (KPIs & COMPUTE ENGINE)
+                // ==========================================
+                if root.active-tab == 6 : VerticalLayout {
+                    spacing: SlateTheme.spacing-lg;
+
+                    SlateWebCard {
+                        title: "High-Impact KPI Metric Cards";
+                        description: "Live system metrics, delta indicators, and status trends";
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-md;
+
+                            SlateMetricCard {
+                                title: "Compute Throughput";
+                                value: "148.5 TFLOPS";
+                                delta: "+24.8%";
+                                delta-positive: true;
+                                description: "Hardware accelerated";
+                            }
+
+                            SlateMetricCard {
+                                title: "Background Tasks";
+                                value: "2,420";
+                                delta: "+180";
+                                delta-positive: true;
+                                description: "Threads actively working";
+                            }
+
+                            SlateMetricCard {
+                                title: "Render Latency";
+                                value: "1.42 ms";
+                                delta: "-12.4%";
+                                delta-positive: true;
+                                description: "FemtoVG & Software";
+                            }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "Multi-threaded Background Calculation Engine";
+                        description: "High-performance compute executed on Rust background thread pool without blocking UI";
+
+                        VerticalLayout {
+                            spacing: SlateTheme.spacing-md;
+
+                            HorizontalLayout {
+                                spacing: SlateTheme.spacing-md;
+                                alignment: start;
+
+                                SlateButton {
+                                    text: "Start Heavy Calculation";
+                                    variant: "primary";
+                                    icon: "🚀";
+                                    enabled: !root.compute-running;
+                                    clicked => { root.start-compute(); }
+                                }
+
+                                SlateButton {
+                                    text: "Cancel";
+                                    variant: "destructive";
+                                    icon: "🛑";
+                                    enabled: root.compute-running;
+                                    clicked => { root.cancel-compute(); }
+                                }
+                            }
+
+                            if root.compute-running : VerticalLayout {
+                                spacing: SlateTheme.spacing-xs;
+
+                                HorizontalLayout {
+                                    alignment: space-between;
+                                    Text { text: "Compute Progress"; font-size: 12px; color: SlateTheme.text-secondary; }
+                                    Text { text: Math.round(root.compute-progress * 100.0) + "%"; font-size: 12px; font-weight: 600; color: SlateTheme.text-primary; }
+                                }
+
+                                SlateProgressBar { progress: root.compute-progress; }
+                            }
+
+                            Rectangle {
+                                border-radius: SlateTheme.radius-sm;
+                                background: SlateTheme.surface-2;
+                                border-width: 1px;
+                                border-color: SlateTheme.border-subtle;
+
+                                VerticalLayout {
+                                    padding: SlateTheme.spacing-md;
+                                    spacing: 4px;
+
+                                    Text {
+                                        text: "Status: " + root.compute-status;
+                                        font-size: 13px;
+                                        color: SlateTheme.text-primary;
+                                    }
+
+                                    Text {
+                                        text: "Result: " + root.compute-result;
+                                        font-size: 13px;
+                                        font-weight: 600;
+                                        color: SlateTheme.accent-primary;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    SlateWebCard {
+                        title: "System Status & Microservices";
+                        description: "Real-time health telemetry across the application infrastructure";
+
+                        SlateStatusPage {
+                            icon: "🚀";
+                            title: "Slate Engine Infrastructure";
+                            description: "All 4 clusters operational with 99.98% uptime across regions.";
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Modal Confirmation Dialog Overlay
+    SlateModal {
+        is-open: root.modal-open;
+        title: "Confirm Action";
+        description: "Are you sure you want to proceed with this operation? This will execute a synchronous job and synchronize changes across all nodes.";
+        confirm-text: "Proceed";
+        cancel-text: "Cancel";
+        confirmed => {
+            root.modal-open = false;
+        }
+        cancelled => {
+            root.modal-open = false;
+        }
+        closed => {
+            root.modal-open = false;
+        }
+    }
+}

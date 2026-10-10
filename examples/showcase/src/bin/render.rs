@@ -196,6 +196,68 @@ fn run_snapshots(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     compare_images(&tab0_dark, &tab0_light, &diff_buttons_path)?;
     copy_to_brain(&diff_buttons_path, "diff-buttons-theme.png");
 
+    // ==========================================
+    // WebApp Mirror Showcase Snapshots
+    // ==========================================
+    println!("\n🌐 Rendering WebApp Mirror Layout Snapshots...");
+    let web_window = WebMirrorWindow::new()?;
+    web_window.window().set_size(slint::PhysicalSize::new(1160, 800));
+    web_window.show()?;
+    web_window.global::<SlateTheme>().set_is_dark(true);
+
+    // Web Tab 0: Buttons & Badges
+    web_window.set_active_tab(0);
+    thread::sleep(Duration::from_millis(50));
+    let web_tab0 = out_dir.join("web-tab-buttons-dark.png");
+    capture_window(&web_window, &web_tab0)?;
+    copy_to_brain(&web_tab0, "web-tab-buttons-dark.png");
+
+    // Web Tab 1: Forms & Inputs
+    web_window.set_active_tab(1);
+    thread::sleep(Duration::from_millis(50));
+    let web_tab1 = out_dir.join("web-tab-forms-dark.png");
+    capture_window(&web_window, &web_tab1)?;
+    copy_to_brain(&web_tab1, "web-tab-forms-dark.png");
+
+    // Web Tab 2: Data Display
+    web_window.set_active_tab(2);
+    thread::sleep(Duration::from_millis(50));
+    let web_tab2 = out_dir.join("web-tab-data-dark.png");
+    capture_window(&web_window, &web_tab2)?;
+    copy_to_brain(&web_tab2, "web-tab-data-dark.png");
+
+    // Web Tab 3: Feedback
+    web_window.set_active_tab(3);
+    thread::sleep(Duration::from_millis(50));
+    let web_tab3 = out_dir.join("web-tab-feedback-dark.png");
+    capture_window(&web_window, &web_tab3)?;
+    copy_to_brain(&web_tab3, "web-tab-feedback-dark.png");
+
+    // Web Tab 4: Navigation
+    web_window.set_active_tab(4);
+    thread::sleep(Duration::from_millis(50));
+    let web_tab4 = out_dir.join("web-tab-navigation-dark.png");
+    capture_window(&web_window, &web_tab4)?;
+    copy_to_brain(&web_tab4, "web-tab-navigation-dark.png");
+
+    // Web Tab 5: Overlays
+    web_window.set_active_tab(5);
+    thread::sleep(Duration::from_millis(50));
+    let web_tab5 = out_dir.join("web-tab-overlays-dark.png");
+    capture_window(&web_window, &web_tab5)?;
+    copy_to_brain(&web_tab5, "web-tab-overlays-dark.png");
+
+    // Web Tab 6: Components & Compute
+    web_window.set_active_tab(6);
+    web_window.set_compute_running(true);
+    web_window.set_compute_progress(0.72);
+    web_window.set_compute_status("Computing... (72%)".into());
+    web_window.set_compute_result("14,400,000 / 20,000,000 samples".into());
+    thread::sleep(Duration::from_millis(50));
+    let web_tab6 = out_dir.join("web-tab-components-dark.png");
+    capture_window(&web_window, &web_tab6)?;
+    copy_to_brain(&web_tab6, "web-tab-components-dark.png");
+
     println!("\n✨ Render Pipeline Complete! All snapshots generated in: {}", out_dir.display());
     Ok(())
 }

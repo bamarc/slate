@@ -1,0 +1,512 @@
+import { SlateTheme } from "../components/theme.slint";
+
+export component SlateWebCard {
+    in property <string> title: "";
+    in property <string> description: "";
+
+    Rectangle {
+        background: SlateTheme.surface-1;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: SlateTheme.border-subtle;
+
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+
+            if root.title != "" || root.description != "" : VerticalLayout {
+                spacing: 4px;
+                if root.title != "" : Text {
+                    text: root.title;
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: SlateTheme.text-primary;
+                }
+                if root.description != "" : Text {
+                    text: root.description;
+                    font-size: 14px;
+                    color: SlateTheme.text-muted;
+                }
+            }
+
+            @children
+        }
+    }
+}
+
+export component SlateWebAppLayout {
+    in property <string> app-name: "Fullstack Template";
+    in property <string> app-description: "React + Vite + Tailwind + FastAPI";
+    in property <string> user-name: "Test Developer";
+    in property <string> user-role: "Administrator";
+    in property <string> user-initials: "TD";
+    in property <string> page-title: "Component Showcase";
+    in property <string> page-badge: "44+ components";
+
+    in-out property <int> active-nav: 2; // 0: Dashboard, 1: Admin, 2: Komponenten
+    in-out property <int> active-tab: 0;
+    in property <[string]> tabs: [
+        "Buttons & Badges",
+        "Forms & Inputs",
+        "Data Display",
+        "Feedback",
+        "Navigation",
+        "Overlays",
+        "Components"
+    ];
+
+    callback tab-selected(int);
+    callback nav-selected(int);
+    callback toggle-design();
+
+    width: 100%;
+    height: 100%;
+
+    VerticalLayout {
+        width: 100%;
+        height: 100%;
+        spacing: 0px;
+
+        // 1. Top App Header (64px) matching web AppLayout
+        Rectangle {
+            height: 64px;
+            vertical-stretch: 0;
+            background: SlateTheme.surface-1; // #181b24
+            border-width: 0px;
+
+            // Bottom border divider
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: SlateTheme.border-subtle;
+            }
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-xl;
+                padding-right: SlateTheme.spacing-xl;
+                alignment: space-between;
+
+                // Left: Logo & Brand + Top Nav
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-xl;
+                    alignment: start;
+
+                    // Brand: Logo + Title + Subtitle
+                    HorizontalLayout {
+                        spacing: SlateTheme.spacing-sm + 4px;
+                        alignment: center;
+
+                        Rectangle {
+                            width: 40px;
+                            height: 40px;
+                            border-radius: SlateTheme.radius-md;
+                            background: SlateTheme.accent-primary;
+
+                            Text {
+                                text: "T";
+                                color: SlateTheme.accent-text;
+                                font-size: 18px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 2px;
+
+                            Text {
+                                text: root.app-name;
+                                font-size: 17px;
+                                font-weight: 700;
+                                color: SlateTheme.text-primary;
+                            }
+
+                            Text {
+                                text: root.app-description;
+                                font-size: 12px;
+                                color: SlateTheme.text-muted;
+                            }
+                        }
+                    }
+
+                    // Top Horizontal Nav Links
+                    HorizontalLayout {
+                        spacing: 4px;
+                        alignment: center;
+
+                        // Nav 0: Dashboard
+                        nav-dash := Rectangle {
+                            height: 34px;
+                            border-radius: SlateTheme.radius-sm;
+                            background: root.active-nav == 0 ? SlateTheme.surface-2
+                                : dash-touch.has-hover ? SlateTheme.surface-hover : Colors.transparent;
+
+                            dash-touch := TouchArea {
+                                clicked => {
+                                    root.active-nav = 0;
+                                    root.nav-selected(0);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 6px;
+                                alignment: center;
+
+                                Text {
+                                    text: "🏠";
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+
+                                Text {
+                                    text: "Dashboard";
+                                    font-size: 13px;
+                                    font-weight: 500;
+                                    color: root.active-nav == 0 ? SlateTheme.text-primary : SlateTheme.text-secondary;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Nav 1: Admin
+                        nav-admin := Rectangle {
+                            height: 34px;
+                            border-radius: SlateTheme.radius-sm;
+                            background: root.active-nav == 1 ? SlateTheme.surface-2
+                                : admin-touch.has-hover ? SlateTheme.surface-hover : Colors.transparent;
+
+                            admin-touch := TouchArea {
+                                clicked => {
+                                    root.active-nav = 1;
+                                    root.nav-selected(1);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 6px;
+                                alignment: center;
+
+                                Text {
+                                    text: "🛡️";
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+
+                                Text {
+                                    text: "Admin";
+                                    font-size: 13px;
+                                    font-weight: 500;
+                                    color: root.active-nav == 1 ? SlateTheme.text-primary : SlateTheme.text-secondary;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Nav 2: Komponenten (Active)
+                        nav-comp := Rectangle {
+                            height: 34px;
+                            border-radius: SlateTheme.radius-sm;
+                            background: root.active-nav == 2 ? SlateTheme.surface-2
+                                : comp-touch.has-hover ? SlateTheme.surface-hover : Colors.transparent;
+
+                            comp-touch := TouchArea {
+                                clicked => {
+                                    root.active-nav = 2;
+                                    root.nav-selected(2);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 6px;
+                                alignment: center;
+
+                                Text {
+                                    text: "🧩";
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                }
+
+                                Text {
+                                    text: "Komponenten";
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: root.active-nav == 2 ? SlateTheme.text-primary : SlateTheme.text-secondary;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Right: Design switch + User Profile
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-md;
+                    alignment: center;
+
+                    // Design switch: [🎨 envia | Standard]
+                    Rectangle {
+                        height: 32px;
+                        border-radius: SlateTheme.radius-sm;
+                        border-width: 1px;
+                        border-color: SlateTheme.border-subtle;
+                        background: SlateTheme.background;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 4px;
+                            spacing: 6px;
+                            alignment: center;
+
+                            Text {
+                                text: "🎨";
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle {
+                                height: 24px;
+                                border-radius: 4px;
+                                background: SlateTheme.surface-2;
+
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 8px;
+                                    alignment: center;
+
+                                    Text {
+                                        text: "envia";
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: SlateTheme.text-primary;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                height: 24px;
+                                border-radius: 4px;
+                                background: Colors.transparent;
+
+                                HorizontalLayout {
+                                    padding-left: 6px;
+                                    padding-right: 6px;
+                                    alignment: center;
+
+                                    Text {
+                                        text: "Standard";
+                                        font-size: 11px;
+                                        font-weight: 500;
+                                        color: SlateTheme.text-muted;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // User Profile Button
+                    Rectangle {
+                        height: 38px;
+                        border-radius: SlateTheme.radius-sm;
+                        background: user-touch.has-hover ? SlateTheme.surface-hover : Colors.transparent;
+
+                        user-touch := TouchArea {}
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 8px;
+                            alignment: center;
+
+                            // Avatar Circle
+                            Rectangle {
+                                width: 32px;
+                                height: 32px;
+                                border-radius: 16px;
+                                background: SlateTheme.accent-primary;
+
+                                Text {
+                                    text: root.user-initials;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    color: SlateTheme.accent-text;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 1px;
+
+                                Text {
+                                    text: root.user-name;
+                                    font-size: 13px;
+                                    font-weight: 500;
+                                    color: SlateTheme.text-primary;
+                                }
+
+                                Text {
+                                    text: root.user-role;
+                                    font-size: 11px;
+                                    color: SlateTheme.text-muted;
+                                }
+                            }
+
+                            Text {
+                                text: "▾";
+                                font-size: 11px;
+                                color: SlateTheme.text-muted;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Subheader / Page Title bar (48px) matching web Component Showcase header
+        Rectangle {
+            height: 48px;
+            vertical-stretch: 0;
+            background: SlateTheme.background;
+
+            // Bottom border divider
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: SlateTheme.border-subtle;
+            }
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-xl;
+                padding-right: SlateTheme.spacing-xl;
+                alignment: space-between;
+
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-md;
+                    alignment: center;
+
+                    Text {
+                        text: root.page-title;
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                    }
+
+                    // Badge pill "44+ components"
+                    Rectangle {
+                        height: 22px;
+                        border-radius: 11px;
+                        background: SlateTheme.surface-2;
+                        border-width: 1px;
+                        border-color: SlateTheme.border-subtle;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            alignment: center;
+
+                            Text {
+                                text: root.page-badge;
+                                font-size: 11px;
+                                font-weight: 500;
+                                color: SlateTheme.text-secondary;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                // Quick Switch info indicator
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 6px;
+
+                    Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 4px;
+                        background: SlateTheme.status-success;
+                    }
+
+                    Text {
+                        text: "Web Mirror Mode";
+                        font-size: 11px;
+                        color: SlateTheme.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // 3. Tab Bar & Main Scrollable Content Area
+        Rectangle {
+            background: SlateTheme.background;
+            vertical-stretch: 1;
+            clip: true;
+
+            VerticalLayout {
+                padding: SlateTheme.spacing-lg;
+                spacing: SlateTheme.spacing-md;
+
+                // Horizontal Shadcn/Radix Tabs List Container
+                Rectangle {
+                    height: 40px;
+                    vertical-stretch: 0;
+                    border-radius: SlateTheme.radius-md;
+                    background: SlateTheme.surface-1;
+                    border-width: 1px;
+                    border-color: SlateTheme.border-subtle;
+
+                    HorizontalLayout {
+                        padding: 4px;
+                        spacing: 4px;
+                        alignment: start;
+
+                        for tab-name[idx] in root.tabs : Rectangle {
+                            height: 32px;
+                            border-radius: SlateTheme.radius-sm;
+                            background: root.active-tab == idx ? SlateTheme.surface-2
+                                : tab-touch.has-hover ? SlateTheme.surface-hover : Colors.transparent;
+
+                            tab-touch := TouchArea {
+                                clicked => {
+                                    root.active-tab = idx;
+                                    root.tab-selected(idx);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 14px;
+                                padding-right: 14px;
+                                alignment: center;
+
+                                Text {
+                                    text: tab-name;
+                                    font-size: 13px;
+                                    font-weight: root.active-tab == idx ? 600 : 500;
+                                    color: root.active-tab == idx ? SlateTheme.text-primary : SlateTheme.text-secondary;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Main Content View Slot
+                @children
+            }
+        }
+    }
+}

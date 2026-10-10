@@ -22,12 +22,16 @@ check:
 test:
     cargo test --workspace
 
-# Launch the interactive Slate desktop showcase application
+# Launch the interactive Slate desktop showcase application (Desktop layout)
 run:
     cargo run -p slate-showcase
 
 # Alias for run
 showcase: run
+
+# Launch the interactive Slate WebApp mirror showcase (Web layout matching webapp 1:1)
+web-mirror:
+    cargo run -p slate-showcase --bin web_mirror
 
 # Render offline pixel-perfect PNG snapshots of all views into the output directory
 render out_dir="renders":
