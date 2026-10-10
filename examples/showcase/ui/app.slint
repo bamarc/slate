@@ -147,6 +147,20 @@ export component MainWindow inherits Window {
                 }
 
                 SlateCard {
+                    title: "Button Sizing Tiers";
+                    subtitle: "Native desktop scale: compact (28px), standard (32px), prominent (38px)";
+
+                    HorizontalLayout {
+                        spacing: SlateTheme.spacing-md;
+                        alignment: start;
+
+                        SlateButton { text: "Small (28px)"; variant: "secondary"; size: "sm"; }
+                        SlateButton { text: "Default (32px)"; variant: "primary"; size: "md"; }
+                        SlateButton { text: "Large (38px)"; variant: "secondary"; size: "lg"; }
+                    }
+                }
+
+                SlateCard {
                     title: "Status Badges";
                     subtitle: "Compact pill badges for states, categories, and metrics";
 
@@ -652,11 +666,15 @@ export component MainWindow inherits Window {
                             color: SlateTheme.text-secondary;
                         }
 
-                        SlateButton {
-                            text: "Launch Confirmation Modal";
-                            variant: "primary";
-                            icon: "🪟";
-                            clicked => { root.modal-open = true; }
+                        HorizontalLayout {
+                            alignment: start;
+
+                            SlateButton {
+                                text: "Launch Confirmation Modal";
+                                variant: "primary";
+                                icon: "🪟";
+                                clicked => { root.modal-open = true; }
+                            }
                         }
                     }
                 }

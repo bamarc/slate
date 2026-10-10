@@ -3,14 +3,19 @@ import { SlateTheme } from "theme.slint";
 export component SlateButton {
     in property <string> text: "Button";
     in property <string> variant: "secondary"; // "primary" | "secondary" | "destructive" | "outline" | "ghost" | "link" | "success"
+    in property <string> size: "md"; // "sm" | "md" | "lg"
     in property <bool> enabled: true;
     in property <bool> primary: false;
     in property <string> icon: "";
     in property <bool> loading: false;
     callback clicked();
 
-    min-height: 36px;
+    property <bool> is-sm: size == "sm";
+    property <bool> is-lg: size == "lg";
+
+    height: is-sm ? 28px : is-lg ? 38px : 32px;
     horizontal-stretch: 0;
+    vertical-stretch: 0;
 
     property <bool> is-primary: primary || variant == "primary";
     property <bool> is-destructive: variant == "destructive";
@@ -18,6 +23,15 @@ export component SlateButton {
     property <bool> is-ghost: variant == "ghost";
     property <bool> is-link: variant == "link";
     property <bool> is-success: variant == "success";
+
+    property <length> horizontal-padding: is-link ? 4px
+        : is-sm ? 8px
+        : is-lg ? 16px
+        : 12px;
+
+    property <length> btn-font-size: is-sm ? SlateTheme.font-xs
+        : is-lg ? SlateTheme.font-md
+        : SlateTheme.font-sm;
 
     touch := TouchArea {
         enabled: root.enabled && !root.loading;
@@ -43,20 +57,20 @@ export component SlateButton {
             : (touch.has-hover ? SlateTheme.border-strong : SlateTheme.border-subtle);
 
         HorizontalLayout {
-            padding-left: root.is-link ? 4px : SlateTheme.spacing-md;
-            padding-right: root.is-link ? 4px : SlateTheme.spacing-md;
+            padding-left: root.horizontal-padding;
+            padding-right: root.horizontal-padding;
             alignment: center;
-            spacing: SlateTheme.spacing-sm;
+            spacing: SlateTheme.spacing-xs;
 
             if root.loading : Text {
                 text: "⏳";
-                font-size: SlateTheme.font-sm;
+                font-size: root.btn-font-size;
                 vertical-alignment: center;
             }
 
             if root.icon != "" && !root.loading : Text {
                 text: root.icon;
-                font-size: SlateTheme.font-sm;
+                font-size: root.btn-font-size;
                 vertical-alignment: center;
                 color: !root.enabled ? SlateTheme.text-muted
                     : (root.is-primary || root.is-destructive || root.is-success) ? SlateTheme.accent-text
@@ -66,7 +80,7 @@ export component SlateButton {
 
             if root.text != "" : txt := Text {
                 text: root.loading ? "Loading..." : root.text;
-                font-size: SlateTheme.font-sm;
+                font-size: root.btn-font-size;
                 font-weight: (root.is-primary || root.is-success) ? 600 : 500;
                 vertical-alignment: center;
                 color: !root.enabled ? SlateTheme.text-muted

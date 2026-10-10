@@ -31,7 +31,7 @@ export component SlateNavigationSplitView {
                 alignment: start;
 
                 for item[idx] in root.items : Rectangle {
-                    height: 40px;
+                    height: 34px;
                     border-radius: SlateTheme.radius-sm;
                     background: root.current-index == idx ? SlateTheme.accent-primary
                         : nav-touch.has-hover ? SlateTheme.surface-hover : Colors.transparent;
@@ -45,14 +45,14 @@ export component SlateNavigationSplitView {
                     }
 
                     HorizontalLayout {
-                        padding-left: SlateTheme.spacing-md;
-                        padding-right: SlateTheme.spacing-md;
+                        padding-left: SlateTheme.spacing-sm + 4px;
+                        padding-right: SlateTheme.spacing-sm + 4px;
                         spacing: SlateTheme.spacing-sm;
                         alignment: center;
 
                         if item.icon != "" : Text {
                             text: item.icon;
-                            font-size: SlateTheme.font-md;
+                            font-size: SlateTheme.font-sm;
                             vertical-alignment: center;
                         }
 
