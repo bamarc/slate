@@ -10,10 +10,46 @@ export struct SlateTableRow {
     value: string,
 }
 
+// Table with a fixed header and a scrolling body. Row cells map to the first four
+// columns (name, category, status, value); extra `columns` entries are ignored and
+// fewer than four simply hide the trailing cells. Column widths follow `column-weights`.
 export component SlateTable {
     in property <[string]> columns: ["Item", "Category", "Status", "Metrics"];
     in property <[SlateTableRow]> rows: [];
+    in property <[float]> column-weights: [35, 25, 20, 20];
+    // Rows shown before the body starts scrolling.
+    in property <int> max-visible-rows: 8;
     callback row-clicked(int, SlateTableRow);
+
+    property <length> header-height: 40px;
+    property <length> row-height: 44px;
+    property <length> cell-padding: SlateTheme.spacing-md;
+    property <length> content-width: max(0px, root.width - 2 * root.cell-padding);
+    // Number of rendered columns (rows only carry four fields).
+    property <int> n-cols: Math.min(root.columns.length, 4);
+
+    // Natural height: header + up to `max-visible-rows` rows. min == preferred so enclosing
+    // layouts (e.g. inside a scrolling page) never squash the table; set an explicit
+    // `height` / `max-visible-rows` to get a shorter, internally scrolling table.
+    property <length> natural-height: root.header-height + root.row-height * Math.min(root.rows.length, root.max-visible-rows) + 2px;
+    preferred-height: root.natural-height;
+    min-height: root.natural-height;
+
+    // Weight of column `i`, 0 when the column is not shown.
+    pure function weight(i: int) -> float {
+        return (i >= 0 && i < root.n-cols && i < root.column-weights.length) ? Math.max(0.0, root.column-weights[i]) : 0.0;
+    }
+    pure function total-weight() -> float {
+        return Math.max(0.001, root.weight(0) + root.weight(1) + root.weight(2) + root.weight(3));
+    }
+    pure function col-width(i: int) -> length {
+        return root.content-width * (root.weight(i) / root.total-weight());
+    }
+    pure function col-x(i: int) -> length {
+        return root.cell-padding + root.content-width * (
+            (i > 0 ? root.weight(0) : 0.0) + (i > 1 ? root.weight(1) : 0.0) + (i > 2 ? root.weight(2) : 0.0) + (i > 3 ? root.weight(3) : 0.0)
+        ) / root.total-weight();
+    }
 
     Rectangle {
         background: SlateTheme.surface-1;
@@ -25,46 +61,20 @@ export component SlateTable {
         VerticalLayout {
             // Header Row
             Rectangle {
-                height: 40px;
+                height: root.header-height;
                 background: SlateTheme.surface-2;
 
-                HorizontalLayout {
-                    padding-left: SlateTheme.spacing-md;
-                    padding-right: SlateTheme.spacing-md;
-                    alignment: center;
-
-                    Text {
-                        width: 35%;
-                        text: root.columns[0];
-                        font-size: SlateTheme.font-xs;
-                        font-weight: 700;
-                        color: SlateTheme.text-secondary;
-                        vertical-alignment: center;
-                    }
-                    Text {
-                        width: 25%;
-                        text: root.columns[1];
-                        font-size: SlateTheme.font-xs;
-                        font-weight: 700;
-                        color: SlateTheme.text-secondary;
-                        vertical-alignment: center;
-                    }
-                    Text {
-                        width: 20%;
-                        text: root.columns[2];
-                        font-size: SlateTheme.font-xs;
-                        font-weight: 700;
-                        color: SlateTheme.text-secondary;
-                        vertical-alignment: center;
-                    }
-                    Text {
-                        width: 20%;
-                        text: root.columns[3];
-                        font-size: SlateTheme.font-xs;
-                        font-weight: 700;
-                        color: SlateTheme.text-secondary;
-                        vertical-alignment: center;
-                    }
+                for col[i] in root.columns : Text {
+                    visible: i < root.n-cols;
+                    x: root.col-x(i);
+                    width: root.col-width(i);
+                    height: parent.height;
+                    text: col;
+                    font-size: SlateTheme.font-xs;
+                    font-weight: 700;
+                    color: SlateTheme.text-secondary;
+                    vertical-alignment: center;
+                    overflow: elide;
                 }
 
                 // Header bottom divider
@@ -75,27 +85,33 @@ export component SlateTable {
                 }
             }
 
-            // Data Rows
-            for row[idx] in root.rows : row-rect := Rectangle {
-                height: 44px;
-                background: row-touch.has-hover ? SlateTheme.surface-hover
-                    : Math.mod(idx, 2) == 1 ? SlateTheme.surface-2.transparentize(60%)
-                    : Colors.transparent;
-                animate background { duration: 80ms; }
+            // Data Rows (scrollable)
+            Flickable {
+                vertical-stretch: 1;
+                min-height: root.row-height;
+                content-width: self.width;
+                content-height: root.row-height * root.rows.length;
 
-                row-touch := TouchArea {
-                    clicked => {
-                        root.row-clicked(idx, row);
+                for row[idx] in root.rows : row-rect := Rectangle {
+                    y: idx * root.row-height;
+                    width: parent.width;
+                    height: root.row-height;
+                    background: row-touch.has-hover ? SlateTheme.surface-hover
+                        : Math.mod(idx, 2) == 1 ? SlateTheme.surface-2.transparentize(60%)
+                        : Colors.transparent;
+                    animate background { duration: 80ms; }
+
+                    row-touch := TouchArea {
+                        clicked => {
+                            root.row-clicked(idx, row);
+                        }
                     }
-                }
-
-                HorizontalLayout {
-                    padding-left: SlateTheme.spacing-md;
-                    padding-right: SlateTheme.spacing-md;
-                    alignment: center;
 
                     Text {
-                        width: 35%;
+                        visible: root.n-cols > 0;
+                        x: root.col-x(0);
+                        width: root.col-width(0);
+                        height: parent.height;
                         text: row.name;
                         font-size: SlateTheme.font-sm;
                         font-weight: 500;
@@ -104,14 +120,19 @@ export component SlateTable {
                         overflow: elide;
                     }
                     Text {
-                        width: 25%;
+                        visible: root.n-cols > 1;
+                        x: root.col-x(1);
+                        width: root.col-width(1);
+                        height: parent.height;
                         text: row.category;
                         font-size: SlateTheme.font-sm;
                         color: SlateTheme.text-secondary;
                         vertical-alignment: center;
+                        overflow: elide;
                     }
-                    HorizontalLayout {
-                        width: 20%;
+                    if root.n-cols > 2 : HorizontalLayout {
+                        x: root.col-x(2);
+                        width: root.col-width(2);
                         alignment: start;
 
                         VerticalLayout {
@@ -123,19 +144,23 @@ export component SlateTable {
                         }
                     }
                     Text {
-                        width: 20%;
+                        visible: root.n-cols > 3;
+                        x: root.col-x(3);
+                        width: root.col-width(3);
+                        height: parent.height;
                         text: row.value;
                         font-size: SlateTheme.font-sm;
                         color: SlateTheme.text-secondary;
                         vertical-alignment: center;
+                        overflow: elide;
                     }
-                }
 
-                // Row separator
-                Rectangle {
-                    y: parent.height - 1px;
-                    height: 1px;
-                    background: SlateTheme.border-subtle;
+                    // Row separator
+                    Rectangle {
+                        y: parent.height - 1px;
+                        height: 1px;
+                        background: SlateTheme.border-subtle;
+                    }
                 }
             }
         }

@@ -1,0 +1,83 @@
+// Building blocks shared by the desktop (app.slint) and web mirror (web_mirror.slint) showcases.
+
+import { SlateTheme, SlateBadge, SlateAvatar } from "../../ui/index.slint";
+
+// Page title on the left, badge on the right.
+export component ShowcasePageHeader inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> badge;
+    in property <string> badge-variant: "info";
+
+    Text {
+        text: root.title;
+        font-size: SlateTheme.font-xl;
+        font-weight: 700;
+        color: SlateTheme.text-primary;
+        vertical-alignment: center;
+    }
+    Rectangle { horizontal-stretch: 1; }
+    SlateBadge { text: root.badge; variant: root.badge-variant; }
+}
+
+// One bullet line of descriptive text.
+export component ShowcaseBullet inherits Text {
+    font-size: SlateTheme.font-sm;
+    color: SlateTheme.text-secondary;
+}
+
+// Small heading above a group of controls.
+export component ShowcaseGroupLabel inherits Text {
+    font-size: SlateTheme.font-sm;
+    font-weight: 600;
+    color: SlateTheme.text-primary;
+}
+
+// "Label ........ value" row, e.g. above a slider or progress bar.
+export component ShowcaseValueRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+    in property <length> font-size: SlateTheme.font-sm;
+
+    alignment: space-between;
+
+    Text {
+        text: root.label;
+        font-size: root.font-size;
+        color: SlateTheme.text-secondary;
+    }
+    Text {
+        text: root.value;
+        font-size: root.font-size;
+        font-weight: 600;
+        color: SlateTheme.text-primary;
+    }
+}
+
+// Avatar with name, e-mail and role badge.
+export component ShowcasePerson inherits HorizontalLayout {
+    in property <string> initials;
+    in property <string> status;
+    in property <string> name;
+    in property <string> email;
+    in property <string> role;
+    in property <string> role-variant: "default";
+
+    // Web design sizes without a SlateTheme token
+    property <length> name-size: 14px;
+    property <length> email-size: 12px;
+    property <length> line-gap: 2px;
+
+    spacing: SlateTheme.spacing-md;
+    alignment: center;
+
+    SlateAvatar { initials: root.initials; status: root.status; }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: root.line-gap;
+        Text { text: root.name; font-size: root.name-size; font-weight: 600; color: SlateTheme.text-primary; }
+        Text { text: root.email; font-size: root.email-size; color: SlateTheme.text-muted; }
+    }
+
+    SlateBadge { text: root.role; variant: root.role-variant; }
+}

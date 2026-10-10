@@ -1,4 +1,5 @@
 import { SlateTheme } from "theme.slint";
+import { SlateCheckIcon, SlateMinusIcon } from "icons.slint";
 
 export component SlateCheckbox {
     in-out property <bool> checked: false;
@@ -9,16 +10,39 @@ export component SlateCheckbox {
 
     horizontal-stretch: 0;
 
+    accessible-role: checkbox;
+    accessible-label: root.text;
+    accessible-checked: root.checked;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { root.toggle(); }
+
+    function toggle() {
+        if (!root.enabled) { return; }
+        if root.indeterminate {
+            root.indeterminate = false;
+            root.checked = true;
+        } else {
+            root.checked = !root.checked;
+        }
+        root.toggled(root.checked);
+    }
+
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == Key.Return) {
+                root.toggle();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
     touch := TouchArea {
         enabled: root.enabled;
         clicked => {
-            if root.indeterminate {
-                root.indeterminate = false;
-                root.checked = true;
-            } else {
-                root.checked = !root.checked;
-            }
-            root.toggled(root.checked);
+            fs.focus();
+            root.toggle();
         }
     }
 
@@ -38,22 +62,26 @@ export component SlateCheckbox {
                 : (touch.has-hover ? SlateTheme.border-strong : SlateTheme.border-subtle);
             animate background { duration: 100ms; }
 
-            if root.checked && !root.indeterminate : Text {
-                text: "✓";
-                font-size: 12px;
-                font-weight: 700;
-                color: #ffffff;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+            if root.checked && !root.indeterminate : SlateCheckIcon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 12px;
+                height: 12px;
+                icon-color: SlateTheme.accent-text;
             }
 
-            if root.indeterminate : Text {
-                text: "—";
-                font-size: 11px;
-                font-weight: 700;
-                color: #ffffff;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+            if root.indeterminate : SlateMinusIcon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 12px;
+                height: 12px;
+                icon-color: SlateTheme.accent-text;
+            }
+
+            if fs.has-focus : Rectangle {
+                border-radius: SlateTheme.radius-xs;
+                border-width: 2px;
+                border-color: SlateTheme.focus-ring;
             }
         }
 

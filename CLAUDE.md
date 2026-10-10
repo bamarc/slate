@@ -1,3 +1,47 @@
+# Slate — Claude Code Project Rules
+
+Slate is a declarative desktop UI framework for **Rust + [Slint](https://slint.dev)**, inspired by
+Libadwaita/Kirigami and mirroring a web-app design language 1:1.
+
+## Workspace
+
+| Path | Crate | Purpose |
+|------|-------|---------|
+| `core/` | `slate-core` | Theme modes, background tasks (`spawn_compute`, `TaskCancellation`) |
+| `utils/` | `slate-utils` | Formatting and color helpers |
+| `extensions/` | `slate-extensions` | Platform detection (system dark mode), plugins |
+| `lib/` | `slate` | Public facade: re-exports the crates above and the generated Slint types; `AppBuilder` |
+| `test/` | `slate-tests` | Cross-crate tests |
+| `examples/showcase/` | `slate-showcase` | `slate-showcase` (desktop), `web_mirror` and `render` binaries |
+| `ui/` | – | Slint components (`components/`), layouts (`layouts/`), registry `index.slint` |
+
+`lib/build.rs` compiles a small generated entry that exports only the code-generating items
+(`SlateTheme`, `SlateWindow`, enums/structs). Widgets are used from `.slint` via `ui/index.slint`.
+The showcase compiles `examples/showcase/ui/app.slint`, which imports `../../ui`.
+
+## Just recipes
+
+| Recipe | What it does |
+|--------|--------------|
+| `just build` / `check` / `test` / `fmt` | cargo build / check / test / fmt for the workspace |
+| `just run` (`showcase`) | Desktop showcase |
+| `just web-mirror` | Web-layout mirror showcase |
+| `just render [dir]` | Offline PNG snapshots (software renderer) into `renders/` |
+| `just compare a b [diff] [threshold]` | Pixel diff of two PNGs; non-zero exit above threshold % |
+| `just optical-check` | Render to a temp dir and compare with `examples/showcase/golden/`; fails if none exist |
+| `just optical-bless` | Regenerate the golden images (review before committing) |
+
+Conventions: Conventional Commits with DCO sign-off (`git commit -s`), no new dependencies without
+approval, never edit generated code. `.cargo/config.toml` is local and gitignored (see
+`.cargo/config.toml.example`).
+
+---
+
+## Legacy webapp stack (preserved, not the Slate framework)
+
+The remainder of this file describes the original Python/React webapp template that still lives in
+`backend/`, `frontend/`, `api/`, `infrastructure/`.
+
 # CLAUDE.md — Claude Code Project Rules
 
 > Claude Code reads this file at session start. Keep it short and link out for detail.

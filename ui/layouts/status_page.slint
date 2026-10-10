@@ -1,5 +1,5 @@
 import { SlateTheme } from "../components/theme.slint";
-import { SlateButton } from "../components/button.slint";
+import { SlateButton, SlateButtonVariant } from "../components/button.slint";
 
 export component SlateStatusPage {
     in property <string> icon: "📦";
@@ -39,7 +39,7 @@ export component SlateStatusPage {
             alignment: center;
             SlateButton {
                 text: root.action-text;
-                variant: "primary";
+                variant: SlateButtonVariant.primary;
                 clicked => { root.action-clicked(); }
             }
         }

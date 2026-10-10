@@ -4,19 +4,54 @@ export component SlateSlider {
     in-out property <float> value: 50.0;
     in property <float> minimum: 0.0;
     in property <float> maximum: 100.0;
+    // Amount changed by Left/Right arrow keys.
+    in property <float> step: 1.0;
     in property <string> label: "";
     in property <bool> enabled: true;
     in property <bool> show-value: true;
     callback changed(float);
 
+    property <length> thumb-size: 18px;
     property <float> ratio: Math.max(0.0, Math.min(1.0, (root.value - root.minimum) / Math.max(0.001, (root.maximum - root.minimum))));
 
+    accessible-role: slider;
+    accessible-label: root.label;
+    accessible-value: "\{Math.round(root.value)}";
+    accessible-value-minimum: root.minimum;
+    accessible-value-maximum: root.maximum;
+    accessible-value-step: root.step;
+    accessible-enabled: root.enabled;
+
+    function set-value(v: float) {
+        if (!root.enabled) { return; }
+        let clamped = Math.max(root.minimum, Math.min(root.maximum, v));
+        if (clamped != root.value) {
+            root.value = clamped;
+            root.changed(root.value);
+        }
+    }
+
+    // The thumb centre travels over [thumb-size/2, width - thumb-size/2].
     function update-from-pos(x-pos: length) {
-        if (!root.enabled || track-box.width <= 0px) { return; }
-        let clamped = Math.max(0px, Math.min(track-box.width, x-pos));
-        let r = clamped / track-box.width;
-        root.value = root.minimum + r * (root.maximum - root.minimum);
-        root.changed(root.value);
+        let travel = track-box.width - root.thumb-size;
+        if (!root.enabled || travel <= 0px) { return; }
+        let r = Math.max(0.0, Math.min(1.0, (x-pos - root.thumb-size / 2) / travel));
+        root.set-value(root.minimum + r * (root.maximum - root.minimum));
+    }
+
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.LeftArrow || event.text == Key.DownArrow) {
+                root.set-value(root.value - root.step);
+                return accept;
+            }
+            if (event.text == Key.RightArrow || event.text == Key.UpArrow) {
+                root.set-value(root.value + root.step);
+                return accept;
+            }
+            return reject;
+        }
     }
 
     VerticalLayout {
@@ -31,7 +66,7 @@ export component SlateSlider {
             }
             Rectangle { horizontal-stretch: 1; }
             if root.show-value : Text {
-                text: Math.round(root.value);
+                text: "\{Math.round(root.value)}";
                 font-size: SlateTheme.font-xs;
                 font-weight: 600;
                 color: SlateTheme.text-primary;
@@ -48,11 +83,11 @@ export component SlateSlider {
                 border-radius: SlateTheme.radius-full;
                 background: SlateTheme.surface-3;
 
-                // Active filled portion
+                // Active filled portion (ends under the thumb centre)
                 fill := Rectangle {
                     x: 0px;
                     y: 0px;
-                    width: parent.width * root.ratio;
+                    width: root.thumb-size / 2 + (parent.width - root.thumb-size) * root.ratio;
                     height: 100%;
                     border-radius: SlateTheme.radius-full;
                     background: !root.enabled ? SlateTheme.text-muted : SlateTheme.accent-primary;
@@ -63,10 +98,10 @@ export component SlateSlider {
             thumb := Rectangle {
                 x: (parent.width - self.width) * root.ratio;
                 y: (parent.height - self.height) / 2;
-                width: 18px;
-                height: 18px;
+                width: root.thumb-size;
+                height: root.thumb-size;
                 border-radius: SlateTheme.radius-full;
-                background: !root.enabled ? SlateTheme.surface-2 : #ffffff;
+                background: !root.enabled ? SlateTheme.surface-2 : SlateTheme.thumb;
                 border-width: 2px;
                 border-color: !root.enabled ? SlateTheme.border-subtle : SlateTheme.accent-primary;
                 drop-shadow-blur: 4px;
@@ -74,15 +109,28 @@ export component SlateSlider {
                 drop-shadow-offset-y: 1px;
             }
 
+            if fs.has-focus : Rectangle {
+                x: thumb.x - 3px;
+                y: thumb.y - 3px;
+                width: thumb.width + 6px;
+                height: thumb.height + 6px;
+                border-radius: SlateTheme.radius-full;
+                border-width: 2px;
+                border-color: SlateTheme.focus-ring.transparentize(50%);
+            }
+
             touch := TouchArea {
                 enabled: root.enabled;
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.down) {
+                        fs.focus();
+                        root.update-from-pos(self.mouse-x);
+                    }
+                }
                 moved => {
                     if (self.pressed) {
                         root.update-from-pos(self.mouse-x);
                     }
-                }
-                clicked => {
-                    root.update-from-pos(self.mouse-x);
                 }
             }
         }

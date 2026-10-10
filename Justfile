@@ -37,14 +37,29 @@ web-mirror:
 render out_dir="renders":
     SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- snapshot {{out_dir}}
 
-# Optically compare two snapshots and generate a visual diff heatmap: `just compare img_a.png img_b.png diff.png`
-compare img_a img_b diff_out="renders/optical-diff.png":
-    SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- compare {{img_a}} {{img_b}} {{diff_out}}
+# Optically compare two snapshots and generate a visual diff heatmap: `just compare a.png b.png diff.png [threshold%]`; exits non-zero above threshold
+compare img_a img_b diff_out="renders/optical-diff.png" threshold="0.0":
+    SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- compare {{img_a}} {{img_b}} {{diff_out}} --threshold {{threshold}}
 
-# Optical verification: render views and verify diff metrics
+# Optical regression gate: render to a temp dir and compare against examples/showcase/golden/
 optical-check:
-    @just render renders/
-    @echo "✓ Slate optical render pipeline completed successfully."
+    #!/usr/bin/env bash
+    set -euo pipefail
+    golden=examples/showcase/golden
+    if [ ! -d "$golden" ] || [ -z "$(ls -A "$golden" 2>/dev/null)" ]; then
+        echo "✗ No golden images in $golden — nothing to compare against."
+        echo "  Run 'just optical-bless' to generate them, review them, and commit."
+        exit 1
+    fi
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    SLINT_BACKEND=software cargo run -q -p slate-showcase --bin render -- snapshot "$tmp"
+    SLINT_BACKEND=software cargo run -q -p slate-showcase --bin render -- check "$golden" "$tmp"
+
+# Regenerate golden images from the current UI (review them before committing!)
+optical-bless:
+    SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- snapshot examples/showcase/golden
+    @echo "⚠ Golden images regenerated in examples/showcase/golden — review before committing."
 
 # Format Rust code across all workspace crates
 fmt:

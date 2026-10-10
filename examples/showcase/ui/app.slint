@@ -1,6 +1,8 @@
 import {
     SlateTheme,
     SlateButton,
+    SlateButtonVariant,
+    SlateButtonSize,
     SlateCard,
     SlateBadge,
     SlateActionRow,
@@ -22,11 +24,18 @@ import {
     SlateAvatar,
     SlateAccordion,
     SlateModal,
+    SlateToastHost,
+    SlateToastVariant,
+    SlatePagination,
+    SlateMenubar,
+    SlateMenu,
+    SlateDrawer,
     SlateNavigationSplitView,
     NavItem,
     SlatePreferencesGroup,
     SlateStatusPage
 } from "../../ui/index.slint";
+import { ShowcasePageHeader, ShowcaseBullet } from "sections.slint";
 
 export { SlateTheme }
 export { WebMirrorWindow } from "web_mirror.slint";
@@ -38,7 +47,7 @@ export component MainWindow inherits Window {
     preferred-width: 1040px;
     preferred-height: 720px;
     background: SlateTheme.background;
-    default-font-family: "Inter, Cantarell, Ubuntu, sans-serif";
+    default-font-family: SlateTheme.font-family;
 
     // Callbacks to Rust
     callback start-compute();
@@ -48,6 +57,45 @@ export component MainWindow inherits Window {
     // Navigation and state
     in-out property <int> active-tab: 0;
     in-out property <bool> modal-open: false;
+    in-out property <bool> drawer-open: false;
+    in-out property <int> demo-page: 3;
+    in-out property <bool> demo-drawer-notify: true;
+    in-out property <string> demo-drawer-name: "Alice Müller";
+
+    // Fires one toast of each of three variants (used by the render pipeline and demos).
+    public function show-demo-toasts() {
+        toast-host.show("Changes saved", "Your settings were stored successfully.", SlateToastVariant.success);
+        toast-host.show("Sync failed", "Could not reach the database replica.", SlateToastVariant.error);
+        toast-host.show("Heads up", "API key expires in 3 days.", SlateToastVariant.warning);
+    }
+
+    property <[SlateMenu]> demo-menus: [
+        { title: "File", items: [
+            { label: "New", shortcut: "Ctrl+N" },
+            { label: "Open", shortcut: "Ctrl+O" },
+            { label: "Save", shortcut: "Ctrl+S" },
+            { separator: true },
+            { label: "Exit", shortcut: "Ctrl+Q" },
+        ] },
+        { title: "Edit", items: [
+            { label: "Undo", shortcut: "Ctrl+Z" },
+            { label: "Redo", shortcut: "Ctrl+Shift+Z" },
+            { separator: true },
+            { label: "Cut", shortcut: "Ctrl+X" },
+            { label: "Copy", shortcut: "Ctrl+C" },
+            { label: "Paste", shortcut: "Ctrl+V" },
+        ] },
+        { title: "View", items: [
+            { label: "Zoom In", shortcut: "Ctrl++" },
+            { label: "Zoom Out", shortcut: "Ctrl+-" },
+            { separator: true },
+            { label: "Toggle Sidebar", shortcut: "Ctrl+B" },
+        ] },
+        { title: "Help", items: [
+            { label: "Docs" },
+            { label: "About" },
+        ] },
+    ];
 
     // Interactive Demo Properties
     in-out property <string> demo-input-text: "dev@slate.internal";
@@ -102,17 +150,7 @@ export component MainWindow inherits Window {
                 padding: SlateTheme.spacing-lg;
                 spacing: SlateTheme.spacing-lg;
 
-                HorizontalLayout {
-                    Text {
-                        text: "Buttons & Badges";
-                        font-size: SlateTheme.font-xl;
-                        font-weight: 700;
-                        color: SlateTheme.text-primary;
-                        vertical-alignment: center;
-                    }
-                    Rectangle { horizontal-stretch: 1; }
-                    SlateBadge { text: "Desktop Primitives"; variant: "info"; }
-                }
+                ShowcasePageHeader { title: "Buttons & Badges"; badge: "Desktop Primitives"; badge-variant: "info"; }
 
                 SlateCard {
                     title: "Button Variants";
@@ -122,13 +160,13 @@ export component MainWindow inherits Window {
                         spacing: SlateTheme.spacing-sm;
                         alignment: start;
 
-                        SlateButton { text: "Primary"; variant: "primary"; }
-                        SlateButton { text: "Secondary"; variant: "secondary"; }
-                        SlateButton { text: "Outline"; variant: "outline"; }
-                        SlateButton { text: "Ghost"; variant: "ghost"; }
-                        SlateButton { text: "Destructive"; variant: "destructive"; }
-                        SlateButton { text: "Success"; variant: "success"; }
-                        SlateButton { text: "Link Action"; variant: "link"; }
+                        SlateButton { text: "Primary"; variant: SlateButtonVariant.primary; }
+                        SlateButton { text: "Secondary"; variant: SlateButtonVariant.secondary; }
+                        SlateButton { text: "Outline"; variant: SlateButtonVariant.outline; }
+                        SlateButton { text: "Ghost"; variant: SlateButtonVariant.ghost; }
+                        SlateButton { text: "Destructive"; variant: SlateButtonVariant.destructive; }
+                        SlateButton { text: "Success"; variant: SlateButtonVariant.success; }
+                        SlateButton { text: "Link Action"; variant: SlateButtonVariant.link; }
                     }
                 }
 
@@ -140,10 +178,10 @@ export component MainWindow inherits Window {
                         spacing: SlateTheme.spacing-md;
                         alignment: start;
 
-                        SlateButton { text: "With Icon"; variant: "primary"; icon: "⚡"; }
-                        SlateButton { text: "Download"; variant: "secondary"; icon: "📥"; }
-                        SlateButton { text: "Processing"; variant: "primary"; loading: true; }
-                        SlateButton { text: "Disabled"; variant: "secondary"; enabled: false; }
+                        SlateButton { text: "With Icon"; variant: SlateButtonVariant.primary; icon: "⚡"; }
+                        SlateButton { text: "Download"; variant: SlateButtonVariant.secondary; icon: "📥"; }
+                        SlateButton { text: "Processing"; variant: SlateButtonVariant.primary; loading: true; }
+                        SlateButton { text: "Disabled"; variant: SlateButtonVariant.secondary; enabled: false; }
                     }
                 }
 
@@ -155,9 +193,9 @@ export component MainWindow inherits Window {
                         spacing: SlateTheme.spacing-md;
                         alignment: start;
 
-                        SlateButton { text: "Small (28px)"; variant: "secondary"; size: "sm"; }
-                        SlateButton { text: "Default (32px)"; variant: "primary"; size: "md"; }
-                        SlateButton { text: "Large (38px)"; variant: "secondary"; size: "lg"; }
+                        SlateButton { text: "Small (28px)"; variant: SlateButtonVariant.secondary; size: SlateButtonSize.sm; }
+                        SlateButton { text: "Default (32px)"; variant: SlateButtonVariant.primary; size: SlateButtonSize.md; }
+                        SlateButton { text: "Large (38px)"; variant: SlateButtonVariant.secondary; size: SlateButtonSize.lg; }
                     }
                 }
 
@@ -204,17 +242,7 @@ export component MainWindow inherits Window {
                 padding: SlateTheme.spacing-lg;
                 spacing: SlateTheme.spacing-lg;
 
-                HorizontalLayout {
-                    Text {
-                        text: "Forms & Inputs";
-                        font-size: SlateTheme.font-xl;
-                        font-weight: 700;
-                        color: SlateTheme.text-primary;
-                        vertical-alignment: center;
-                    }
-                    Rectangle { horizontal-stretch: 1; }
-                    SlateBadge { text: "Interactive"; variant: "success"; }
-                }
+                ShowcasePageHeader { title: "Forms & Inputs"; badge: "Interactive"; badge-variant: "success"; }
 
                 SlateCard {
                     title: "Text Inputs";
@@ -358,17 +386,7 @@ export component MainWindow inherits Window {
                 padding: SlateTheme.spacing-lg;
                 spacing: SlateTheme.spacing-lg;
 
-                HorizontalLayout {
-                    Text {
-                        text: "Data Display & Tables";
-                        font-size: SlateTheme.font-xl;
-                        font-weight: 700;
-                        color: SlateTheme.text-primary;
-                        vertical-alignment: center;
-                    }
-                    Rectangle { horizontal-stretch: 1; }
-                    SlateBadge { text: "High Density"; variant: "secondary"; }
-                }
+                ShowcasePageHeader { title: "Data Display & Tables"; badge: "High Density"; badge-variant: "secondary"; }
 
                 // Metric KPI Cards Row
                 HorizontalLayout {
@@ -430,21 +448,9 @@ export component MainWindow inherits Window {
                             VerticalLayout {
                                 spacing: SlateTheme.spacing-xs;
 
-                                Text {
-                                    text: "• Memory Allocator: jemalloc v5.3";
-                                    font-size: SlateTheme.font-sm;
-                                    color: SlateTheme.text-secondary;
-                                }
-                                Text {
-                                    text: "• Event Loop: slint-backend-winit";
-                                    font-size: SlateTheme.font-sm;
-                                    color: SlateTheme.text-secondary;
-                                }
-                                Text {
-                                    text: "• SIMD Vectorization: AVX-512 enabled";
-                                    font-size: SlateTheme.font-sm;
-                                    color: SlateTheme.text-secondary;
-                                }
+                                ShowcaseBullet { text: "• Memory Allocator: jemalloc v5.3"; }
+                                ShowcaseBullet { text: "• Event Loop: slint-backend-winit"; }
+                                ShowcaseBullet { text: "• SIMD Vectorization: AVX-512 enabled"; }
                             }
                         }
                     }
@@ -478,17 +484,7 @@ export component MainWindow inherits Window {
                 padding: SlateTheme.spacing-lg;
                 spacing: SlateTheme.spacing-lg;
 
-                HorizontalLayout {
-                    Text {
-                        text: "Feedback & Status";
-                        font-size: SlateTheme.font-xl;
-                        font-weight: 700;
-                        color: SlateTheme.text-primary;
-                        vertical-alignment: center;
-                    }
-                    Rectangle { horizontal-stretch: 1; }
-                    SlateBadge { text: "Alerts & Progress"; variant: "info"; }
-                }
+                ShowcasePageHeader { title: "Feedback & Status"; badge: "Alerts & Progress"; badge-variant: "info"; }
 
                 SlateCard {
                     title: "Alert Callout Banners";
@@ -554,6 +550,22 @@ export component MainWindow inherits Window {
                 }
 
                 SlateCard {
+                    title: "Toast Notifications";
+                    subtitle: "Press a button to pop a toast in the bottom-right corner; it auto-dismisses after 4 seconds";
+
+                    HorizontalLayout {
+                        spacing: SlateTheme.spacing-md;
+                        alignment: start;
+
+                        SlateButton { text: "Default toast"; variant: SlateButtonVariant.outline; clicked => { toast-host.show("Notification", "This is a default toast message.", SlateToastVariant.default); } }
+                        SlateButton { text: "Success"; variant: SlateButtonVariant.secondary; clicked => { toast-host.show("Success", "Operation completed successfully.", SlateToastVariant.success); } }
+                        SlateButton { text: "Error"; variant: SlateButtonVariant.destructive; clicked => { toast-host.show("Error", "Something went wrong. Please try again.", SlateToastVariant.error); } }
+                        SlateButton { text: "Warning"; variant: SlateButtonVariant.secondary; clicked => { toast-host.show("Warning", "Your session expires in 5 minutes.", SlateToastVariant.warning); } }
+                        SlateButton { text: "Info"; variant: SlateButtonVariant.secondary; clicked => { toast-host.show("Info", "A new version is available.", SlateToastVariant.info); } }
+                    }
+                }
+
+                SlateCard {
                     title: "Skeleton Loading Placeholders";
                     subtitle: "Placeholder shimmer blocks while asynchronous data loads";
 
@@ -614,6 +626,48 @@ export component MainWindow inherits Window {
                 }
 
                 SlateCard {
+                    title: "Pagination";
+                    subtitle: "Interactive page stepper bound to state";
+
+                    VerticalLayout {
+                        spacing: SlateTheme.spacing-md;
+
+                        SlatePagination {
+                            current-page <=> root.demo-page;
+                            total-pages: 10;
+                        }
+
+                        Text {
+                            text: "Page " + root.demo-page + " of 10  ·  Showing items " + ((root.demo-page - 1) * 8 + 1) + "–" + Math.min(root.demo-page * 8, 78) + " of 78";
+                            font-size: SlateTheme.font-sm;
+                            color: SlateTheme.text-secondary;
+                        }
+                    }
+                }
+
+                SlateCard {
+                    title: "Menubar";
+                    subtitle: "Click a menu, then pick an item";
+
+                    VerticalLayout {
+                        spacing: SlateTheme.spacing-md;
+
+                        menubar := SlateMenubar {
+                            z: 100;
+                            menus: root.demo-menus;
+                        }
+
+                        Text {
+                            text: menubar.last-action == "" ? "Last action: (none yet)" : "Last action: " + menubar.last-action;
+                            font-size: SlateTheme.font-sm;
+                            color: SlateTheme.text-secondary;
+                        }
+
+                        Rectangle { height: 140px; }
+                    }
+                }
+
+                SlateCard {
                     title: "Action Row List";
                     subtitle: "Preferences-style action rows with title, description, and action slots";
 
@@ -629,7 +683,7 @@ export component MainWindow inherits Window {
                         SlateActionRow {
                             title: "Telemetry Level";
                             subtitle: "Diagnostic logs verbosity";
-                            SlateButton { text: "Configure..."; variant: "outline"; }
+                            SlateButton { text: "Configure..."; variant: SlateButtonVariant.outline; }
                         }
                     }
                 }
@@ -672,10 +726,25 @@ export component MainWindow inherits Window {
 
                             SlateButton {
                                 text: "Launch Confirmation Modal";
-                                variant: "primary";
+                                variant: SlateButtonVariant.primary;
                                 icon: "🪟";
                                 clicked => { root.modal-open = true; }
                             }
+                        }
+                    }
+                }
+
+                SlateCard {
+                    title: "Drawer";
+                    subtitle: "Slide-in side panel for contextual forms and inspectors";
+
+                    HorizontalLayout {
+                        alignment: start;
+
+                        SlateButton {
+                            text: "Open drawer";
+                            variant: SlateButtonVariant.outline;
+                            clicked => { root.drawer-open = true; }
                         }
                     }
                 }
@@ -687,21 +756,9 @@ export component MainWindow inherits Window {
                     VerticalLayout {
                         spacing: SlateTheme.spacing-xs;
 
-                        Text {
-                            text: "• Backdrop dimming via SlateTheme.overlay-backdrop token";
-                            font-size: SlateTheme.font-sm;
-                            color: SlateTheme.text-secondary;
-                        }
-                        Text {
-                            text: "• Centered elevated surface with soft drop-shadow blur";
-                            font-size: SlateTheme.font-sm;
-                            color: SlateTheme.text-secondary;
-                        }
-                        Text {
-                            text: "• Keyboard and backdrop click dismissal support";
-                            font-size: SlateTheme.font-sm;
-                            color: SlateTheme.text-secondary;
-                        }
+                        ShowcaseBullet { text: "• Backdrop dimming via SlateTheme.overlay-backdrop token"; }
+                        ShowcaseBullet { text: "• Centered elevated surface with soft drop-shadow blur"; }
+                        ShowcaseBullet { text: "• Keyboard and backdrop click dismissal support"; }
                     }
                 }
 
@@ -762,7 +819,7 @@ export component MainWindow inherits Window {
 
                             SlateButton {
                                 text: root.compute-running ? "Running..." : "Run Compute Benchmark";
-                                variant: "primary";
+                                variant: SlateButtonVariant.primary;
                                 icon: "⚡";
                                 enabled: !root.compute-running;
                                 clicked => { root.start-compute(); }
@@ -770,7 +827,7 @@ export component MainWindow inherits Window {
 
                             if root.compute-running : SlateButton {
                                 text: "Cancel";
-                                variant: "destructive";
+                                variant: SlateButtonVariant.destructive;
                                 clicked => { root.cancel-compute(); }
                             }
                         }
@@ -806,7 +863,7 @@ export component MainWindow inherits Window {
 
                         SlateButton {
                             text: SlateTheme.is-dark ? "☀️ Switch to Light" : "🌙 Switch to Dark";
-                            variant: "secondary";
+                            variant: SlateButtonVariant.secondary;
                             clicked => { root.toggle-theme(); }
                         }
                     }
@@ -853,7 +910,7 @@ export component MainWindow inherits Window {
         description: "Are you sure you want to promote cluster node-4 to primary leader? This action will rebalance active connections.";
         confirm-text: "Promote Node";
         cancel-text: "Dismiss";
-        confirm-variant: "primary";
+        confirm-variant: SlateButtonVariant.primary;
         confirmed => {
             root.modal-open = false;
         }
@@ -886,4 +943,44 @@ export component MainWindow inherits Window {
             }
         }
     }
+
+    SlateDrawer {
+        open <=> root.drawer-open;
+        title: "Edit profile";
+        description: "Update the display name and notification preferences.";
+        panel-width: 380px;
+
+        VerticalLayout {
+            spacing: SlateTheme.spacing-md;
+            alignment: start;
+
+            SlateInput {
+                label: "Display name";
+                placeholder: "Your name";
+                text <=> root.demo-drawer-name;
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                SlateSwitch {
+                    text: "Email notifications";
+                    checked <=> root.demo-drawer-notify;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: SlateTheme.spacing-sm;
+                alignment: end;
+
+                SlateButton { text: "Cancel"; variant: SlateButtonVariant.outline; clicked => { root.drawer-open = false; } }
+                SlateButton { text: "Save"; variant: SlateButtonVariant.primary; clicked => {
+                    root.drawer-open = false;
+                    toast-host.show("Profile saved", "Changes were applied.", SlateToastVariant.success);
+                } }
+            }
+        }
+    }
+
+    // Must be the last child so toasts paint above everything else
+    toast-host := SlateToastHost { }
 }

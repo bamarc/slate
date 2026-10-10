@@ -9,6 +9,11 @@ pub use slate_extensions as extensions;
 pub use slate_utils as utils;
 pub use slint;
 
+pub mod controller;
+pub mod demo;
+
+pub use controller::ComputeController;
+
 use slate_core::theme::ThemeMode;
 
 /// High-level application configuration builder
@@ -31,20 +36,35 @@ impl AppBuilder {
         self
     }
 
-    /// Returns the resolved theme mode given system preferences
-    pub fn is_dark(&self) -> bool {
-        let system_dark = slate_extensions::platform::detect_system_dark_mode();
-        self.theme_mode.is_dark(system_dark)
+    /// Application title.
+    pub fn title(&self) -> &str {
+        &self.title
     }
 
-    /// Initialize the framework logger and theme
+    /// Resolves the configured mode against the system preference.
+    /// Only queries the system when the mode is `System`.
+    pub fn is_dark(&self) -> bool {
+        match self.theme_mode {
+            ThemeMode::System => self
+                .theme_mode
+                .is_dark(slate_extensions::platform::detect_system_dark_mode()),
+            mode => mode.is_dark(false),
+        }
+    }
+
+    /// Initializes the logger (idempotent) and logs the resolved theme.
+    /// Apply [`AppBuilder::is_dark`] to the generated `SlateTheme` global.
     pub fn init(&self) {
-        let _ = env_logger::try_init();
-        log::info!("Initializing Slate UI framework: '{}'", self.title);
+        init();
+        log::info!(
+            "Initializing Slate UI framework: '{}' (dark theme: {})",
+            self.title,
+            self.is_dark()
+        );
     }
 }
 
 /// Convenience initialization function
 pub fn init() {
-    let _ = env_logger::try_init();
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).try_init();
 }

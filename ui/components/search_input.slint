@@ -1,4 +1,5 @@
 import { SlateTheme } from "theme.slint";
+import { SlateCloseIcon, SlateSearchIcon } from "icons.slint";
 
 export component SlateSearchInput {
     in-out property <string> text: "";
@@ -19,30 +20,40 @@ export component SlateSearchInput {
         HorizontalLayout {
             padding-left: SlateTheme.spacing-sm;
             padding-right: SlateTheme.spacing-sm;
-            alignment: center;
             spacing: SlateTheme.spacing-sm;
 
-            Text {
-                text: "🔍";
-                font-size: SlateTheme.font-sm;
-                vertical-alignment: center;
+            VerticalLayout {
+                alignment: center;
+                SlateSearchIcon { icon-color: SlateTheme.text-muted; }
             }
 
-            input := TextInput {
-                text <=> root.text;
-                font-size: SlateTheme.font-sm;
-                color: SlateTheme.text-primary;
-                vertical-alignment: center;
-                single-line: true;
-                edited => { root.edited(root.text); }
-                accepted => { root.accepted(root.text); }
-            }
+            input-area := Rectangle {
+                horizontal-stretch: 1;
+                height: 100%;
 
-            if root.text == "" && !input.has-focus : Text {
-                text: root.placeholder;
-                font-size: SlateTheme.font-sm;
-                color: SlateTheme.text-muted;
-                vertical-alignment: center;
+                if root.text == "" && !input.has-focus : Text {
+                    width: 100%;
+                    height: 100%;
+                    text: root.placeholder;
+                    font-size: SlateTheme.font-sm;
+                    color: SlateTheme.text-muted;
+                    vertical-alignment: center;
+                }
+
+                input := TextInput {
+                    width: 100%;
+                    height: 100%;
+                    text <=> root.text;
+                    accessible-role: text-input;
+                    accessible-label: root.placeholder;
+                    accessible-placeholder-text: root.placeholder;
+                    font-size: SlateTheme.font-sm;
+                    color: SlateTheme.text-primary;
+                    vertical-alignment: center;
+                    single-line: true;
+                    edited => { root.edited(root.text); }
+                    accepted => { root.accepted(root.text); }
+                }
             }
 
             if root.text != "" : TouchArea {
@@ -51,12 +62,15 @@ export component SlateSearchInput {
                     root.text = "";
                     root.edited("");
                 }
-                Text {
-                    text: "✕";
-                    font-size: 11px;
-                    color: SlateTheme.text-muted;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
+                accessible-role: button;
+                accessible-label: "Clear";
+                accessible-action-default => {
+                    root.text = "";
+                    root.edited("");
+                }
+                VerticalLayout {
+                    alignment: center;
+                    SlateCloseIcon { icon-color: SlateTheme.text-muted; }
                 }
             }
         }

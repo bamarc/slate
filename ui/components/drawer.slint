@@ -1,0 +1,141 @@
+import { SlateTheme } from "theme.slint";
+import { SlateCloseIcon } from "icons.slint";
+
+export enum SlateDrawerSide { right, left }
+
+// Slide-in side panel (Sheet). Place it as the LAST child of the window so it paints on top.
+//
+// `open` is `in-out`: the drawer writes `false` when dismissed (Escape, backdrop, X). Use a
+// two-way binding (`open <=> root.drawer-open;`) to keep the parent in sync, OR bind one-way
+// (`open: root.drawer-open;`) and reset your state in the `closed` handler (a write breaks a
+// one-way binding otherwise). Same caveat as SlateModal.
+// While open it takes keyboard focus (Escape closes; other keys are swallowed except Tab).
+export component SlateDrawer {
+    in-out property <bool> open: false;
+    in property <SlateDrawerSide> side: SlateDrawerSide.right;
+    in property <string> title: "Drawer";
+    in property <string> description: "";
+    in property <length> panel-width: 360px;
+    callback closed();
+
+    property <length> shown-width: Math.min(root.panel-width, root.width - 24px);
+    property <bool> at-right: side == SlateDrawerSide.right;
+
+    function dismiss() {
+        root.open = false;
+        root.closed();
+    }
+
+    changed open => {
+        if (root.open) { fs.focus(); }
+    }
+
+    x: 0px;
+    y: 0px;
+    width: 100%;
+    height: 100%;
+    // Stay in the tree while the slide-out animation runs.
+    visible: root.open || backdrop.opacity > 0.01;
+
+    fs := FocusScope {
+        width: 100%;
+        height: 100%;
+        enabled: root.open;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.dismiss();
+                return accept;
+            }
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                return reject;
+            }
+            return accept;
+        }
+
+        backdrop := Rectangle {
+            width: 100%;
+            height: 100%;
+            background: SlateTheme.overlay-backdrop;
+            opacity: root.open ? 1 : 0;
+            animate opacity { duration: 200ms; easing: ease-in-out; }
+
+            TouchArea {
+                enabled: root.open;
+                clicked => { root.dismiss(); }
+            }
+        }
+
+        panel := Rectangle {
+            width: root.shown-width;
+            height: 100%;
+            x: root.at-right
+                ? (root.open ? parent.width - self.width : parent.width)
+                : (root.open ? 0px : -self.width);
+            animate x { duration: 200ms; easing: ease-in-out; }
+            background: SlateTheme.surface-1;
+            border-width: 1px;
+            border-color: SlateTheme.border-strong;
+            drop-shadow-blur: 32px;
+            drop-shadow-color: #000000a0;
+            drop-shadow-offset-x: root.at-right ? -8px : 8px;
+
+            accessible-role: groupbox;
+            accessible-label: root.title;
+            accessible-description: root.description;
+
+            // Block clicks on the panel from dismissing via the backdrop
+            TouchArea {}
+
+            VerticalLayout {
+                padding: SlateTheme.spacing-lg;
+                spacing: SlateTheme.spacing-md;
+
+                HorizontalLayout {
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+
+                        Text {
+                            text: root.title;
+                            font-size: SlateTheme.font-lg;
+                            font-weight: 700;
+                            color: SlateTheme.text-primary;
+                            horizontal-alignment: left;
+                        }
+
+                        if root.description != "" : Text {
+                            text: root.description;
+                            font-size: SlateTheme.font-sm;
+                            color: SlateTheme.text-secondary;
+                            wrap: word-wrap;
+                            horizontal-alignment: left;
+                        }
+                    }
+
+                    TouchArea {
+                        width: 28px;
+                        height: 28px;
+                        accessible-role: button;
+                        accessible-label: "Close";
+                        accessible-action-default => { root.dismiss(); }
+                        clicked => { root.dismiss(); }
+
+                        Rectangle {
+                            border-radius: SlateTheme.radius-xs;
+                            background: parent.has-hover ? SlateTheme.surface-hover : Colors.transparent;
+
+                            SlateCloseIcon {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                icon-color: SlateTheme.text-muted;
+                            }
+                        }
+                    }
+                }
+
+                // Content slot
+                @children
+            }
+        }
+    }
+}

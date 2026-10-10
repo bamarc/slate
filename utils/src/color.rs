@@ -16,6 +16,10 @@ impl Rgba {
     /// Parse hex color like "#RRGGBB" or "#RRGGBBAA"
     pub fn from_hex(hex: &str) -> Option<Self> {
         let hex = hex.strip_prefix('#').unwrap_or(hex);
+        // Byte slicing below is only valid for ASCII input.
+        if !hex.is_ascii() {
+            return None;
+        }
         match hex.len() {
             6 => {
                 let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
@@ -78,5 +82,15 @@ mod tests {
         let black = Rgba::from_hex("#000000").unwrap();
         assert_eq!(black, Rgba::new(0.0, 0.0, 0.0, 1.0));
         assert!(white.contrast_ratio(&black) >= 20.0);
+    }
+
+    #[test]
+    fn test_hex_rejects_non_ascii_and_bad_input() {
+        // 6 bytes but multi-byte chars: must not panic.
+        assert_eq!(Rgba::from_hex("ééé"), None);
+        assert_eq!(Rgba::from_hex("#ff00é"), None);
+        assert_eq!(Rgba::from_hex("#12345"), None);
+        assert_eq!(Rgba::from_hex("#gggggg"), None);
+        assert!(Rgba::from_hex("#ff000080").is_some());
     }
 }

@@ -8,6 +8,29 @@ export component SlateSegmentedControl {
     height: 36px;
     horizontal-stretch: 0;
 
+    accessible-role: tab-list;
+
+    function select(idx: int) {
+        if (idx >= 0 && idx < root.options.length && idx != root.selected-index) {
+            root.selected-index = idx;
+            root.selected(idx, root.options[idx]);
+        }
+    }
+
+    fs := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.LeftArrow) {
+                root.select(root.selected-index - 1);
+                return accept;
+            }
+            if (event.text == Key.RightArrow) {
+                root.select(root.selected-index + 1);
+                return accept;
+            }
+            return reject;
+        }
+    }
+
     Rectangle {
         border-radius: SlateTheme.radius-sm;
         background: SlateTheme.surface-2;
@@ -27,11 +50,23 @@ export component SlateSegmentedControl {
                 border-color: root.selected-index == idx ? SlateTheme.border-strong : Colors.transparent;
                 animate background { duration: 100ms; }
 
+                accessible-role: radio-button;
+                accessible-label: opt;
+                accessible-checked: root.selected-index == idx;
+                accessible-action-default => { root.select(idx); }
+
                 seg-touch := TouchArea {
                     clicked => {
+                        fs.focus();
                         root.selected-index = idx;
                         root.selected(idx, opt);
                     }
+                }
+
+                if fs.has-focus && root.selected-index == idx : Rectangle {
+                    border-radius: SlateTheme.radius-xs;
+                    border-width: 2px;
+                    border-color: SlateTheme.focus-ring;
                 }
 
                 HorizontalLayout {

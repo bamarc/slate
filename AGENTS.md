@@ -1,5 +1,8 @@
 # AGENTS.md — Project Instructions
 
+> **Note:** The active project is the Slate Rust/Slint workspace — see the top of `README.md`/`CLAUDE.md` for crates and `just` recipes. The rest of this file covers the legacy webapp stack.
+
+
 Project-wide instructions for GitHub Copilot, Kilo Code, and other compatible
 coding assistants. GitHub Copilot remains supported through the `.github/skills/`
 and `.github/agents/` configuration.

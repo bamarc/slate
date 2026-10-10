@@ -1,6 +1,6 @@
 //! Formatting helpers for developer experience.
 
-/// Formats byte quantities into human-readable strings (KB, MB, GB).
+/// Formats byte quantities into human-readable strings using binary units (B, KiB, MiB, GiB).
 pub fn format_bytes(bytes: u64) -> String {
     const KIB: u64 = 1024;
     const MIB: u64 = KIB * 1024;

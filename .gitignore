@@ -59,7 +59,11 @@ target/
 renders/
 **/*.rs.bk
 !**/src/bin/
-Cargo.lock
+
+# Local, user-owned material
+old/
+.cargo/config.toml
+webapp-template-python-react-main.zip
 
 # OS files
 .DS_Store

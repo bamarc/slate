@@ -1,9 +1,15 @@
 import { SlateTheme } from "theme.slint";
+import { SlateChevronIcon } from "icons.slint";
 
 export component SlateAccordion {
     in property <string> title: "Accordion Item";
     in-out property <bool> expanded: false;
     callback toggled(bool);
+
+    function toggle() {
+        root.expanded = !root.expanded;
+        root.toggled(root.expanded);
+    }
 
     Rectangle {
         background: SlateTheme.surface-1;
@@ -15,10 +21,26 @@ export component SlateAccordion {
             header := Rectangle {
                 height: 44px;
 
+                accessible-role: button;
+                accessible-label: root.title;
+                accessible-expandable: true;
+                accessible-expanded: root.expanded;
+                accessible-action-default => { root.toggle(); }
+
+                fs := FocusScope {
+                    key-pressed(event) => {
+                        if (event.text == " " || event.text == Key.Return) {
+                            root.toggle();
+                            return accept;
+                        }
+                        return reject;
+                    }
+                }
+
                 touch := TouchArea {
                     clicked => {
-                        root.expanded = !root.expanded;
-                        root.toggled(root.expanded);
+                        fs.focus();
+                        root.toggle();
                     }
                 }
 
@@ -35,27 +57,43 @@ export component SlateAccordion {
                         vertical-alignment: center;
                     }
 
-                    Text {
-                        text: root.expanded ? "▼" : "▶";
-                        font-size: 11px;
-                        color: SlateTheme.text-muted;
-                        vertical-alignment: center;
+                    VerticalLayout {
+                        alignment: center;
+                        SlateChevronIcon {
+                            expanded: root.expanded;
+                            icon-color: SlateTheme.text-muted;
+                        }
                     }
+                }
+
+                if fs.has-focus : Rectangle {
+                    border-radius: SlateTheme.radius-sm;
+                    border-width: 2px;
+                    border-color: SlateTheme.focus-ring;
                 }
             }
 
-            content-container := VerticalLayout {
+            // @children cannot live inside `if`, so collapse by constraining the height to 0
+            // (and hiding, which also disables input for the collapsed content).
+            content-container := Rectangle {
+                clip: true;
                 visible: root.expanded;
+                vertical-stretch: 0;
+                min-height: 0px;
+                preferred-height: root.expanded ? content-layout.preferred-height : 0px;
+                max-height: root.expanded ? content-layout.preferred-height : 0px;
 
-                // Divider line
-                Rectangle {
-                    height: 1px;
-                    background: SlateTheme.border-subtle;
-                }
+                content-layout := VerticalLayout {
+                    // Divider line
+                    Rectangle {
+                        height: 1px;
+                        background: SlateTheme.border-subtle;
+                    }
 
-                VerticalLayout {
-                    padding: SlateTheme.spacing-md;
-                    @children
+                    VerticalLayout {
+                        padding: SlateTheme.spacing-md;
+                        @children
+                    }
                 }
             }
         }

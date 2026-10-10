@@ -1,28 +1,36 @@
 import { SlateTheme } from "theme.slint";
+import { SlateSpinner } from "icons.slint";
+
+export enum SlateButtonVariant { primary, secondary, destructive, outline, ghost, link, success }
+export enum SlateButtonSize { sm, md, lg }
 
 export component SlateButton {
     in property <string> text: "Button";
-    in property <string> variant: "secondary"; // "primary" | "secondary" | "destructive" | "outline" | "ghost" | "link" | "success"
-    in property <string> size: "md"; // "sm" | "md" | "lg"
+    in property <SlateButtonVariant> variant: SlateButtonVariant.secondary;
+    in property <SlateButtonSize> size: SlateButtonSize.md;
     in property <bool> enabled: true;
+    // DEPRECATED alias for `variant: SlateButtonVariant.primary`. It is OR-ed with
+    // `variant`, so it can only ever force primary styling; prefer `variant`.
     in property <bool> primary: false;
     in property <string> icon: "";
     in property <bool> loading: false;
     callback clicked();
 
-    property <bool> is-sm: size == "sm";
-    property <bool> is-lg: size == "lg";
+    property <bool> is-sm: size == SlateButtonSize.sm;
+    property <bool> is-lg: size == SlateButtonSize.lg;
 
     height: is-sm ? 28px : is-lg ? 38px : 32px;
     horizontal-stretch: 0;
     vertical-stretch: 0;
 
-    property <bool> is-primary: primary || variant == "primary";
-    property <bool> is-destructive: variant == "destructive";
-    property <bool> is-outline: variant == "outline";
-    property <bool> is-ghost: variant == "ghost";
-    property <bool> is-link: variant == "link";
-    property <bool> is-success: variant == "success";
+    property <bool> is-primary: primary || variant == SlateButtonVariant.primary;
+    property <bool> is-destructive: variant == SlateButtonVariant.destructive;
+    property <bool> is-outline: variant == SlateButtonVariant.outline;
+    property <bool> is-ghost: variant == SlateButtonVariant.ghost;
+    property <bool> is-link: variant == SlateButtonVariant.link;
+    property <bool> is-success: variant == SlateButtonVariant.success;
+    property <bool> active: root.enabled && !root.loading;
+    property <bool> filled: is-primary || is-destructive || is-success;
 
     property <length> horizontal-padding: is-link ? 4px
         : is-sm ? 8px
@@ -33,9 +41,37 @@ export component SlateButton {
         : is-lg ? SlateTheme.font-md
         : SlateTheme.font-sm;
 
+    property <color> fg: !root.enabled ? SlateTheme.text-muted
+        : root.filled ? SlateTheme.accent-text
+        : root.is-link ? (touch.has-hover ? SlateTheme.accent-primary-hover : SlateTheme.accent-primary)
+        : (touch.has-hover ? SlateTheme.text-primary : SlateTheme.text-secondary);
+
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.active;
+    accessible-action-default => { if (root.active) { root.clicked(); } }
+
+    function trigger() {
+        if (root.active) { root.clicked(); }
+    }
+
+    fs := FocusScope {
+        enabled: root.active;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == Key.Return) {
+                root.trigger();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
     touch := TouchArea {
-        enabled: root.enabled && !root.loading;
-        clicked => { root.clicked(); }
+        enabled: root.active;
+        clicked => {
+            fs.focus();
+            root.clicked();
+        }
     }
 
     rect := Rectangle {
@@ -43,16 +79,16 @@ export component SlateButton {
         border-width: (root.is-ghost || root.is-link) ? 0px : 1px;
         animate background { duration: 120ms; easing: ease-in-out; }
 
-        background: !root.enabled ? (SlateTheme.is-dark ? #222634 : #e2e8f0)
+        background: !root.enabled ? SlateTheme.disabled-bg
             : root.is-primary ? (touch.pressed ? SlateTheme.accent-primary-active : touch.has-hover ? SlateTheme.accent-primary-hover : SlateTheme.accent-primary)
-            : root.is-destructive ? (touch.pressed ? #b91c1c : touch.has-hover ? #dc2626 : SlateTheme.status-error)
-            : root.is-success ? (touch.pressed ? #047857 : touch.has-hover ? #059669 : SlateTheme.status-success)
+            : root.is-destructive ? (touch.pressed ? SlateTheme.status-error-active : touch.has-hover ? SlateTheme.status-error-hover : SlateTheme.status-error)
+            : root.is-success ? (touch.pressed ? SlateTheme.status-success-active : touch.has-hover ? SlateTheme.status-success-hover : SlateTheme.status-success)
             : (root.is-ghost || root.is-link) ? (touch.pressed ? SlateTheme.surface-active : touch.has-hover ? SlateTheme.surface-hover : Colors.transparent)
             : root.is-outline ? (touch.pressed ? SlateTheme.surface-active : touch.has-hover ? SlateTheme.surface-hover : Colors.transparent)
             : (touch.pressed ? SlateTheme.surface-active : touch.has-hover ? SlateTheme.surface-hover : SlateTheme.surface-2);
 
-        border-color: !root.enabled ? SlateTheme.border-subtle
-            : (root.is-primary || root.is-destructive || root.is-success || root.is-ghost || root.is-link) ? Colors.transparent
+        border-color: !root.enabled ? SlateTheme.disabled-border
+            : (root.filled || root.is-ghost || root.is-link) ? Colors.transparent
             : root.is-outline ? (touch.has-hover ? SlateTheme.accent-primary : SlateTheme.border-strong)
             : (touch.has-hover ? SlateTheme.border-strong : SlateTheme.border-subtle);
 
@@ -62,32 +98,35 @@ export component SlateButton {
             alignment: center;
             spacing: SlateTheme.spacing-xs;
 
-            if root.loading : Text {
-                text: "⏳";
-                font-size: root.btn-font-size;
-                vertical-alignment: center;
+            if root.loading : VerticalLayout {
+                alignment: center;
+                SlateSpinner {
+                    width: root.btn-font-size;
+                    height: root.btn-font-size;
+                    icon-color: root.fg;
+                }
             }
 
             if root.icon != "" && !root.loading : Text {
                 text: root.icon;
                 font-size: root.btn-font-size;
                 vertical-alignment: center;
-                color: !root.enabled ? SlateTheme.text-muted
-                    : (root.is-primary || root.is-destructive || root.is-success) ? SlateTheme.accent-text
-                    : root.is-link ? SlateTheme.accent-primary
-                    : (touch.has-hover ? SlateTheme.text-primary : SlateTheme.text-secondary);
+                color: root.fg;
             }
 
-            if root.text != "" : txt := Text {
-                text: root.loading ? "Loading..." : root.text;
+            if root.text != "" : Text {
+                text: root.text;
                 font-size: root.btn-font-size;
                 font-weight: (root.is-primary || root.is-success) ? 600 : 500;
                 vertical-alignment: center;
-                color: !root.enabled ? SlateTheme.text-muted
-                    : (root.is-primary || root.is-destructive || root.is-success) ? SlateTheme.accent-text
-                    : root.is-link ? (touch.has-hover ? SlateTheme.accent-primary-hover : SlateTheme.accent-primary)
-                    : (touch.has-hover ? SlateTheme.text-primary : SlateTheme.text-secondary);
+                color: root.fg;
             }
+        }
+
+        if fs.has-focus : Rectangle {
+            border-radius: SlateTheme.radius-sm;
+            border-width: 2px;
+            border-color: SlateTheme.focus-ring;
         }
     }
 }

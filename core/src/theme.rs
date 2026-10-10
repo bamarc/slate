@@ -9,7 +9,8 @@ pub enum ThemeMode {
 }
 
 impl ThemeMode {
-    pub fn is_dark(&self, system_prefers_dark: bool) -> bool {
+    /// Resolves whether the dark palette applies, given the system preference.
+    pub fn is_dark(self, system_prefers_dark: bool) -> bool {
         match self {
             Self::Dark => true,
             Self::Light => false,
@@ -17,7 +18,8 @@ impl ThemeMode {
         }
     }
 
-    pub fn toggle(&self, system_prefers_dark: bool) -> Self {
+    /// Returns the explicit mode that flips the currently resolved appearance.
+    pub fn toggle(self, system_prefers_dark: bool) -> Self {
         if self.is_dark(system_prefers_dark) {
             Self::Light
         } else {
@@ -32,9 +34,17 @@ mod tests {
 
     #[test]
     fn test_theme_mode() {
-        assert_eq!(ThemeMode::Light.is_dark(true), false);
-        assert_eq!(ThemeMode::Dark.is_dark(false), true);
-        assert_eq!(ThemeMode::System.is_dark(true), true);
-        assert_eq!(ThemeMode::System.is_dark(false), false);
+        assert!(!ThemeMode::Light.is_dark(true));
+        assert!(ThemeMode::Dark.is_dark(false));
+        assert!(ThemeMode::System.is_dark(true));
+        assert!(!ThemeMode::System.is_dark(false));
+    }
+
+    #[test]
+    fn test_toggle() {
+        assert_eq!(ThemeMode::System.toggle(true), ThemeMode::Light);
+        assert_eq!(ThemeMode::System.toggle(false), ThemeMode::Dark);
+        assert_eq!(ThemeMode::Dark.toggle(false), ThemeMode::Light);
+        assert_eq!(ThemeMode::Light.toggle(true), ThemeMode::Dark);
     }
 }

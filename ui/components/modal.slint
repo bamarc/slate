@@ -1,16 +1,38 @@
 import { SlateTheme } from "theme.slint";
-import { SlateButton } from "button.slint";
+import { SlateButton, SlateButtonVariant } from "button.slint";
+import { SlateCloseIcon } from "icons.slint";
 
+// Modal dialog overlay. Place it as the LAST child of the window so it paints on top.
+//
+// `is-open` is `in-out`: the modal writes `false` when dismissed (Escape, backdrop, X,
+// Cancel, Confirm). Use a two-way binding (`is-open <=> root.modal-open;`) to keep the
+// parent in sync, OR bind one-way (`is-open: root.modal-open;`) and reset your state in
+// the `closed` / `close-requested` handler (a write breaks the one-way binding otherwise).
+//
+// While open the modal takes keyboard focus (Escape closes it and key events are
+// swallowed so controls behind it receive no keystrokes). Tab traversal is not trapped.
 export component SlateModal {
     in-out property <bool> is-open: false;
     in property <string> title: "Dialog Title";
     in property <string> description: "Dialog description goes here.";
     in property <string> confirm-text: "Confirm";
     in property <string> cancel-text: "Cancel";
-    in property <string> confirm-variant: "primary";
+    in property <SlateButtonVariant> confirm-variant: SlateButtonVariant.primary;
     callback confirmed();
     callback cancelled();
     callback closed();
+    // Emitted whenever the user asks to dismiss (Escape, backdrop, X, Cancel), before `closed`.
+    callback close-requested();
+
+    function dismiss() {
+        root.is-open = false;
+        root.close-requested();
+        root.closed();
+    }
+
+    changed is-open => {
+        if (root.is-open) { fs.focus(); }
+    }
 
     x: 0px;
     y: 0px;
@@ -18,111 +40,125 @@ export component SlateModal {
     height: 100%;
     visible: root.is-open;
 
-    // Full backdrop
-    backdrop := Rectangle {
+    fs := FocusScope {
         width: 100%;
         height: 100%;
-        background: SlateTheme.overlay-backdrop;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.dismiss();
+                return accept;
+            }
+            // Let Tab / Shift+Tab traverse the dialog's buttons; swallow everything else.
+            if (event.text == Key.Tab || event.text == Key.Backtab) {
+                return reject;
+            }
+            return accept;
+        }
 
-        TouchArea {
-            clicked => {
-                root.is-open = false;
-                root.closed();
+        // Full backdrop
+        backdrop := Rectangle {
+            width: 100%;
+            height: 100%;
+            background: SlateTheme.overlay-backdrop;
+
+            TouchArea {
+                clicked => { root.dismiss(); }
             }
         }
-    }
 
-    // Centered Modal Window
-    dialog := Rectangle {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        width: Math.min(parent.width - 48px, 480px);
-        height: dialog-layout.preferred-height;
-        background: SlateTheme.surface-1;
-        border-radius: SlateTheme.radius-lg;
-        border-width: 1px;
-        border-color: SlateTheme.border-strong;
-        drop-shadow-blur: 32px;
-        drop-shadow-color: #000000a0;
-        drop-shadow-offset-y: 12px;
-        clip: true;
+        // Centered Modal Window
+        dialog := Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: Math.min(parent.width - 48px, 480px);
+            height: dialog-layout.preferred-height;
+            background: SlateTheme.surface-1;
+            border-radius: SlateTheme.radius-lg;
+            border-width: 1px;
+            border-color: SlateTheme.border-strong;
+            drop-shadow-blur: 32px;
+            drop-shadow-color: #000000a0;
+            drop-shadow-offset-y: 12px;
+            clip: true;
 
-        // Block clicks on dialog from triggering backdrop dismiss
-        TouchArea {}
+            accessible-role: groupbox;
+            accessible-label: root.title;
+            accessible-description: root.description;
 
-        dialog-layout := VerticalLayout {
-            padding: SlateTheme.spacing-lg;
-            spacing: SlateTheme.spacing-md;
+            // Block clicks on dialog from triggering backdrop dismiss
+            TouchArea {}
 
-            // Header
-            HorizontalLayout {
-                VerticalLayout {
-                    horizontal-stretch: 1;
-                    spacing: 4px;
+            dialog-layout := VerticalLayout {
+                padding: SlateTheme.spacing-lg;
+                spacing: SlateTheme.spacing-md;
 
-                    Text {
-                        text: root.title;
-                        font-size: SlateTheme.font-lg;
-                        font-weight: 700;
-                        color: SlateTheme.text-primary;
-                    }
-
-                    if root.description != "" : Text {
-                        text: root.description;
-                        font-size: SlateTheme.font-sm;
-                        color: SlateTheme.text-secondary;
-                        wrap: word-wrap;
-                    }
-                }
-
-                TouchArea {
-                    width: 28px;
-                    height: 28px;
-                    clicked => {
-                        root.is-open = false;
-                        root.closed();
-                    }
-
-                    Rectangle {
-                        border-radius: SlateTheme.radius-xs;
-                        background: parent.has-hover ? SlateTheme.surface-hover : Colors.transparent;
+                // Header
+                HorizontalLayout {
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
 
                         Text {
-                            text: "✕";
+                            text: root.title;
+                            font-size: SlateTheme.font-lg;
+                            font-weight: 700;
+                            color: SlateTheme.text-primary;
+                        }
+
+                        if root.description != "" : Text {
+                            text: root.description;
                             font-size: SlateTheme.font-sm;
-                            color: SlateTheme.text-muted;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
+                            color: SlateTheme.text-secondary;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    TouchArea {
+                        width: 28px;
+                        height: 28px;
+                        accessible-role: button;
+                        accessible-label: "Close";
+                        accessible-action-default => { root.dismiss(); }
+                        clicked => { root.dismiss(); }
+
+                        Rectangle {
+                            border-radius: SlateTheme.radius-xs;
+                            background: parent.has-hover ? SlateTheme.surface-hover : Colors.transparent;
+
+                            SlateCloseIcon {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                icon-color: SlateTheme.text-muted;
+                            }
                         }
                     }
                 }
-            }
 
-            // Content slot
-            @children
+                // Content slot
+                @children
 
-            // Actions Footer
-            HorizontalLayout {
-                spacing: SlateTheme.spacing-sm;
-                alignment: end;
+                // Actions Footer
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-sm;
+                    alignment: end;
 
-                SlateButton {
-                    text: root.cancel-text;
-                    variant: "outline";
-                    clicked => {
-                        root.is-open = false;
-                        root.cancelled();
-                        root.closed();
+                    SlateButton {
+                        text: root.cancel-text;
+                        variant: SlateButtonVariant.outline;
+                        clicked => {
+                            root.cancelled();
+                            root.dismiss();
+                        }
                     }
-                }
 
-                SlateButton {
-                    text: root.confirm-text;
-                    variant: root.confirm-variant;
-                    clicked => {
-                        root.is-open = false;
-                        root.confirmed();
-                        root.closed();
+                    SlateButton {
+                        text: root.confirm-text;
+                        variant: root.confirm-variant;
+                        clicked => {
+                            root.is-open = false;
+                            root.confirmed();
+                            root.closed();
+                        }
                     }
                 }
             }

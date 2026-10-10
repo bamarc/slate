@@ -1,0 +1,239 @@
+import { SlateTheme } from "theme.slint";
+
+export struct SlateMenuItem {
+    label: string,
+    shortcut: string,
+    separator: bool,
+    disabled: bool,
+}
+
+export struct SlateMenu {
+    title: string,
+    items: [SlateMenuItem],
+}
+
+// Desktop-style menubar. Click a title to open its dropdown; with one open, hovering another
+// title switches menus. Escape / click-away closes; Left/Right switch menus, Up/Down move the
+// highlight, Enter activates. The dropdowns overflow the bar's bounds, so set `z: 100;` on the
+// instance to paint them above later siblings in the same parent (z set inside a component
+// root does not apply to the instance).
+export component SlateMenubar {
+    in property <[SlateMenu]> menus: [
+        { title: "File", items: [
+            { label: "New", shortcut: "Ctrl+N" },
+            { label: "Open…", shortcut: "Ctrl+O" },
+            { separator: true },
+            { label: "Save", shortcut: "Ctrl+S" },
+            { label: "Quit", shortcut: "Ctrl+Q" },
+        ] },
+        { title: "Edit", items: [
+            { label: "Undo", shortcut: "Ctrl+Z" },
+            { label: "Redo", shortcut: "Ctrl+Shift+Z", disabled: true },
+            { separator: true },
+            { label: "Cut", shortcut: "Ctrl+X" },
+            { label: "Copy", shortcut: "Ctrl+C" },
+            { label: "Paste", shortcut: "Ctrl+V" },
+        ] },
+        { title: "View", items: [
+            { label: "Zoom In", shortcut: "Ctrl++" },
+            { label: "Zoom Out", shortcut: "Ctrl+-" },
+            { separator: true },
+            { label: "Full Screen", shortcut: "F11" },
+        ] },
+        { title: "Help", items: [
+            { label: "Documentation" },
+            { label: "About" },
+        ] },
+    ];
+    // Index of the open menu, -1 when closed.
+    in-out property <int> open-menu: -1;
+    // "<menu title> › <item label>" of the most recent activation.
+    out property <string> last-action: "";
+    callback item-selected(int, int);
+
+    property <int> highlight: -1;
+    property <length> menu-width: 220px;
+
+    function open(i: int) {
+        root.open-menu = i;
+        root.highlight = -1;
+    }
+    function close() {
+        root.open-menu = -1;
+        root.highlight = -1;
+    }
+    function choose(m: int, j: int) {
+        if (root.menus[m].items[j].disabled || root.menus[m].items[j].separator) { return; }
+        root.last-action = root.menus[m].title + " › " + root.menus[m].items[j].label;
+        root.item-selected(m, j);
+        root.close();
+    }
+    pure function ok(m: int, k: int) -> bool {
+        return k >= 0 && k < root.menus[m].items.length && !root.menus[m].items[k].separator && !root.menus[m].items[k].disabled;
+    }
+    // Next selectable item index after `from` in direction `dir` (+1/-1); `from` if none.
+    // (Slint has no loops: skips at most 5 consecutive separators / disabled items.)
+    pure function step(m: int, from: int, dir: int) -> int {
+        return ok(m, from + dir) ? from + dir
+            : ok(m, from + 2 * dir) ? from + 2 * dir
+            : ok(m, from + 3 * dir) ? from + 3 * dir
+            : ok(m, from + 4 * dir) ? from + 4 * dir
+            : ok(m, from + 5 * dir) ? from + 5 * dir
+            : from;
+    }
+
+    height: 36px;
+    min-width: 200px;
+    accessible-role: tab-list;
+    accessible-label: "Menu bar";
+
+    // Click-away layer: extends far beyond the bar so a click anywhere else closes the menu.
+    if root.open-menu >= 0 : TouchArea {
+        x: -4000px;
+        y: -4000px;
+        width: 8000px;
+        height: 8000px;
+        clicked => { root.close(); }
+    }
+
+    fs := FocusScope {
+        key-pressed(event) => {
+            if (root.open-menu < 0) {
+                if (event.text == Key.DownArrow) { root.open(0); return accept; }
+                return reject;
+            }
+            if (event.text == Key.Escape) { root.close(); return accept; }
+            if (event.text == Key.LeftArrow) { root.open(Math.max(0, root.open-menu - 1)); return accept; }
+            if (event.text == Key.RightArrow) { root.open(Math.min(root.menus.length - 1, root.open-menu + 1)); return accept; }
+            if (event.text == Key.DownArrow) { root.highlight = root.step(root.open-menu, root.highlight, 1); return accept; }
+            if (event.text == Key.UpArrow) {
+                root.highlight = root.highlight <= 0 ? root.step(root.open-menu, root.menus[root.open-menu].items.length, -1) : root.step(root.open-menu, root.highlight, -1);
+                return accept;
+            }
+            if (event.text == Key.Return || event.text == " ") {
+                if (root.highlight >= 0) { root.choose(root.open-menu, root.highlight); }
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    Rectangle {
+        background: SlateTheme.surface-1;
+        border-radius: SlateTheme.radius-sm;
+        border-width: 1px;
+        border-color: SlateTheme.border-subtle;
+    }
+
+    HorizontalLayout {
+        padding: 4px;
+        spacing: 2px;
+        alignment: start;
+
+        for menu[i] in root.menus : title := Rectangle {
+            width: label.preferred-width + 2 * (SlateTheme.spacing-sm + 4px);
+            border-radius: SlateTheme.radius-xs;
+            background: (root.open-menu == i || (touch.has-hover && root.open-menu < 0)) ? SlateTheme.surface-2
+                : touch.has-hover ? SlateTheme.surface-2 : Colors.transparent;
+
+            accessible-role: button;
+            accessible-label: menu.title;
+            accessible-expanded: root.open-menu == i;
+            accessible-action-default => { root.open(root.open-menu == i ? -1 : i); }
+
+            label := Text {
+                text: menu.title;
+                font-size: SlateTheme.font-sm;
+                font-weight: 500;
+                color: (root.open-menu == i || touch.has-hover) ? SlateTheme.text-primary : SlateTheme.text-secondary;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            touch := TouchArea {
+                clicked => {
+                    fs.focus();
+                    if (root.open-menu == i) { root.close(); } else { root.open(i); }
+                }
+                changed has-hover => {
+                    if (self.has-hover && root.open-menu >= 0 && root.open-menu != i) { root.open(i); }
+                }
+            }
+
+            if root.open-menu == i : dropdown := Rectangle {
+                x: 0px;
+                y: parent.height + 4px;
+                width: root.menu-width;
+                height: items-layout.preferred-height;
+                background: SlateTheme.surface-1;
+                border-radius: SlateTheme.radius-sm;
+                border-width: 1px;
+                border-color: SlateTheme.border-strong;
+                drop-shadow-blur: 24px;
+                drop-shadow-color: #00000080;
+                drop-shadow-offset-y: 8px;
+
+                accessible-role: groupbox;
+                accessible-label: menu.title + " menu";
+
+                // swallow clicks on the panel padding
+                TouchArea {}
+
+                items-layout := VerticalLayout {
+                    padding: 4px;
+                    for item[j] in menu.items : Rectangle {
+                        height: item.separator ? 9px : 28px;
+
+                        if item.separator : Rectangle {
+                            y: 4px;
+                            height: 1px;
+                            background: SlateTheme.border-subtle;
+                        }
+
+                        if !item.separator : Rectangle {
+                            border-radius: SlateTheme.radius-xs;
+                            background: (!item.disabled && (item-touch.has-hover || root.highlight == j)) ? SlateTheme.surface-hover : Colors.transparent;
+
+                            accessible-role: button;
+                            accessible-label: item.label;
+                            accessible-enabled: !item.disabled;
+                            accessible-action-default => { root.choose(i, j); }
+
+                            HorizontalLayout {
+                                padding-left: SlateTheme.spacing-sm;
+                                padding-right: SlateTheme.spacing-sm;
+                                spacing: SlateTheme.spacing-md;
+                                Text {
+                                    text: item.label;
+                                    font-size: SlateTheme.font-sm;
+                                    color: item.disabled ? SlateTheme.text-muted : SlateTheme.text-primary;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                    horizontal-alignment: left;
+                                }
+                                if item.shortcut != "" : Text {
+                                    text: item.shortcut;
+                                    font-size: SlateTheme.font-xs;
+                                    color: SlateTheme.text-muted;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: right;
+                                }
+                            }
+
+                            item-touch := TouchArea {
+                                enabled: !item.disabled;
+                                clicked => { root.choose(i, j); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if fs.has-focus && root.open-menu < 0 : Rectangle {
+        border-radius: SlateTheme.radius-sm;
+        border-width: 2px;
+        border-color: SlateTheme.focus-ring;
+    }
+}

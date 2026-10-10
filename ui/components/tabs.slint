@@ -7,6 +7,29 @@ export component SlateTabs {
 
     height: 42px;
 
+    accessible-role: tab-list;
+
+    function select(idx: int) {
+        if (idx >= 0 && idx < root.tabs.length && idx != root.current-tab) {
+            root.current-tab = idx;
+            root.tab-selected(idx, root.tabs[idx]);
+        }
+    }
+
+    fs := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.LeftArrow) {
+                root.select(root.current-tab - 1);
+                return accept;
+            }
+            if (event.text == Key.RightArrow) {
+                root.select(root.current-tab + 1);
+                return accept;
+            }
+            return reject;
+        }
+    }
+
     Rectangle {
         // Bottom divider line
         Rectangle {
@@ -19,11 +42,16 @@ export component SlateTabs {
             spacing: SlateTheme.spacing-xs;
             alignment: start;
 
-            for tab[idx] in root.tabs : tab-item := Rectangle {
+            for tab-title[idx] in root.tabs : tab-item := Rectangle {
+                accessible-role: tab;
+                accessible-label: tab-title;
+                accessible-action-default => { root.select(idx); }
+
                 touch := TouchArea {
                     clicked => {
+                        fs.focus();
                         root.current-tab = idx;
-                        root.tab-selected(idx, tab);
+                        root.tab-selected(idx, tab-title);
                     }
                 }
 
@@ -33,7 +61,7 @@ export component SlateTabs {
                     alignment: center;
 
                     Text {
-                        text: tab;
+                        text: tab-title;
                         font-size: SlateTheme.font-sm;
                         font-weight: root.current-tab == idx ? 600 : 500;
                         color: root.current-tab == idx ? SlateTheme.text-primary
@@ -41,6 +69,12 @@ export component SlateTabs {
                             : SlateTheme.text-secondary;
                         vertical-alignment: center;
                     }
+                }
+
+                if fs.has-focus && root.current-tab == idx : Rectangle {
+                    border-radius: SlateTheme.radius-xs;
+                    border-width: 2px;
+                    border-color: SlateTheme.focus-ring;
                 }
 
                 // Active indicator line

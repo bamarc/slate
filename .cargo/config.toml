@@ -1,6 +1,0 @@
-[target.'cfg(all())']
-rustflags = ["-L", "/home/developer/.local/lib"]
-
-[env]
-PKG_CONFIG_PATH = "/home/developer/.local/lib/pkgconfig"
-LD_LIBRARY_PATH = "/home/developer/.local/lib"

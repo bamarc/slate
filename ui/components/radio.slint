@@ -8,13 +8,35 @@ export component SlateRadio {
 
     horizontal-stretch: 0;
 
+    accessible-role: radio-button;
+    accessible-label: root.text;
+    accessible-checked: root.selected;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { root.select(); }
+
+    function select() {
+        if (root.enabled && !root.selected) {
+            root.selected = true;
+            root.toggled(true);
+        }
+    }
+
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == Key.Return) {
+                root.select();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
     touch := TouchArea {
         enabled: root.enabled;
         clicked => {
-            if !root.selected {
-                root.selected = true;
-                root.toggled(true);
-            }
+            fs.focus();
+            root.select();
         }
     }
 
@@ -31,6 +53,16 @@ export component SlateRadio {
             border-color: root.selected ? SlateTheme.accent-primary
                 : (touch.has-hover ? SlateTheme.border-strong : SlateTheme.border-subtle);
             animate border-color { duration: 100ms; }
+
+            if fs.has-focus : Rectangle {
+                x: -3px;
+                y: -3px;
+                width: parent.width + 6px;
+                height: parent.height + 6px;
+                border-radius: SlateTheme.radius-full;
+                border-width: 2px;
+                border-color: SlateTheme.focus-ring.transparentize(40%);
+            }
 
             if root.selected : Rectangle {
                 width: 8px;

@@ -1,0 +1,137 @@
+import { SlateTheme } from "theme.slint";
+
+component SlatePageButton {
+    in property <string> text;
+    in property <bool> selected: false;
+    in property <bool> enabled: true;
+    in property <string> label: root.text;
+    callback clicked();
+
+    height: 32px;
+    min-width: 32px;
+    horizontal-stretch: 0;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-checkable: true;
+    accessible-checked: root.selected;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
+
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == Key.Return) {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            fs.focus();
+            root.clicked();
+        }
+    }
+
+    Rectangle {
+        border-radius: SlateTheme.radius-sm;
+        border-width: 1px;
+        animate background { duration: 120ms; }
+        background: root.selected ? SlateTheme.surface-2
+            : (touch.has-hover && root.enabled) ? SlateTheme.surface-hover : Colors.transparent;
+        border-color: root.selected ? SlateTheme.border-strong : Colors.transparent;
+
+        HorizontalLayout {
+            padding-left: SlateTheme.spacing-sm + 2px;
+            padding-right: SlateTheme.spacing-sm + 2px;
+            alignment: center;
+            Text {
+                text: root.text;
+                font-size: SlateTheme.font-sm;
+                font-weight: root.selected ? 600 : 500;
+                vertical-alignment: center;
+                color: !root.enabled ? SlateTheme.text-muted
+                    : (root.selected || touch.has-hover) ? SlateTheme.text-primary : SlateTheme.text-secondary;
+            }
+        }
+
+        if fs.has-focus : Rectangle {
+            border-radius: SlateTheme.radius-sm;
+            border-width: 2px;
+            border-color: SlateTheme.focus-ring;
+        }
+    }
+}
+
+// Page navigation: Previous, numbered pages with ellipsis, Next.
+// `current-page` is 1-based and in-out (two-way bind or react to `page-changed`).
+export component SlatePagination {
+    in-out property <int> current-page: 1;
+    in property <int> total-pages: 1;
+    callback page-changed(int);
+
+    // Slot value: page number, 0 = ellipsis, -1 = unused. Up to 7 slots.
+    pure function slot(i: int) -> int {
+        if (total-pages <= 7) {
+            return i < total-pages ? i + 1 : -1;
+        }
+        if (current-page <= 4) {
+            return i < 5 ? i + 1 : i == 5 ? 0 : total-pages;
+        }
+        if (current-page >= total-pages - 3) {
+            return i == 0 ? 1 : i == 1 ? 0 : total-pages - 6 + i;
+        }
+        return i == 0 ? 1 : i == 1 ? 0 : i == 5 ? 0 : i == 6 ? total-pages : current-page + i - 3;
+    }
+
+    function go(page: int) {
+        if (page < 1 || page > root.total-pages || page == root.current-page) { return; }
+        root.current-page = page;
+        root.page-changed(page);
+    }
+
+    height: 32px;
+    accessible-role: groupbox;
+    accessible-label: "Pagination";
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: 2px;
+
+        SlatePageButton {
+            text: "‹ Previous";
+            label: "Previous page";
+            enabled: root.current-page > 1;
+            clicked => { root.go(root.current-page - 1); }
+        }
+
+        for i in 7 : HorizontalLayout {
+            if root.slot(i) > 0 : SlatePageButton {
+                text: root.slot(i);
+                label: "Page " + root.slot(i);
+                selected: root.slot(i) == root.current-page;
+                clicked => { root.go(root.slot(i)); }
+            }
+            if root.slot(i) == 0 : Rectangle {
+                width: 32px;
+                Text {
+                    text: "…";
+                    font-size: SlateTheme.font-sm;
+                    color: SlateTheme.text-muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        SlatePageButton {
+            text: "Next ›";
+            label: "Next page";
+            enabled: root.current-page < root.total-pages;
+            clicked => { root.go(root.current-page + 1); }
+        }
+    }
+}

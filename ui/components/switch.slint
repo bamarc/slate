@@ -9,11 +9,35 @@ export component SlateSwitch {
 
     horizontal-stretch: 0;
 
+    accessible-role: switch;
+    accessible-label: root.text;
+    accessible-description: root.description;
+    accessible-checked: root.checked;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { root.toggle(); }
+
+    function toggle() {
+        if (!root.enabled) { return; }
+        root.checked = !root.checked;
+        root.toggled(root.checked);
+    }
+
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == Key.Return) {
+                root.toggle();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
     touch := TouchArea {
         enabled: root.enabled;
         clicked => {
-            root.checked = !root.checked;
-            root.toggled(root.checked);
+            fs.focus();
+            root.toggle();
         }
     }
 
@@ -34,6 +58,16 @@ export component SlateSwitch {
             animate background { duration: 150ms; easing: ease-out; }
             animate border-color { duration: 150ms; }
 
+            if fs.has-focus : Rectangle {
+                x: -3px;
+                y: -3px;
+                width: parent.width + 6px;
+                height: parent.height + 6px;
+                border-radius: SlateTheme.radius-full;
+                border-width: 2px;
+                border-color: SlateTheme.focus-ring;
+            }
+
             // Sliding thumb
             thumb := Rectangle {
                 x: root.checked ? (parent.width - self.width - 2px) : 2px;
@@ -41,7 +75,7 @@ export component SlateSwitch {
                 width: 16px;
                 height: 16px;
                 border-radius: SlateTheme.radius-full;
-                background: !root.enabled ? SlateTheme.text-muted : #ffffff;
+                background: !root.enabled ? SlateTheme.text-muted : SlateTheme.thumb;
                 animate x { duration: 140ms; easing: ease-out; }
             }
         }

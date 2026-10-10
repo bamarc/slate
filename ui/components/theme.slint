@@ -28,9 +28,17 @@ export global SlateTheme {
     out property <color> accent-primary-subtle: is-dark ? #1e293b : #eff6ff;
     out property <color> accent-secondary: #8b5cf6;      // Modern Purple
     out property <color> accent-text: #ffffff;
+    out property <color> focus-ring: accent-primary;
+    out property <color> thumb: #ffffff;
     out property <color> overlay-backdrop: is-dark ? #000000b0 : #00000060;
 
     // Semantic Status Colors
+    out property <color> status-error-hover: #dc2626;
+    out property <color> status-error-active: #b91c1c;
+    out property <color> status-success-hover: #059669;
+    out property <color> status-success-active: #047857;
+    out property <color> disabled-bg: is-dark ? #222634 : #e2e8f0;
+    out property <color> disabled-border: is-dark ? #262c3d : #e2e8f0;
     out property <color> status-success: #10b981;
     out property <color> status-success-bg: is-dark ? #064e3b : #d1fae5;
     out property <color> status-warning: #f59e0b;
@@ -46,6 +54,9 @@ export global SlateTheme {
     out property <length> radius-md: 12px;
     out property <length> radius-lg: 16px;
     out property <length> radius-full: 9999px;
+
+    // Typography: Slint accepts ONE family name (not a CSS list)
+    out property <string> font-family: "Inter";
 
     // Font Sizes
     out property <length> font-xs: 11px;

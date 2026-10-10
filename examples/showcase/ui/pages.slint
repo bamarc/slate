@@ -1,0 +1,172 @@
+import {
+    SlateTheme,
+    SlateBadge,
+    SlateSwitch,
+    SlateMetricCard,
+    SlateTable,
+    SlateProgressBar,
+    SlateWebCard
+} from "../../ui/index.slint";
+
+// Dashboard page: key metrics, system health and a recent activity table.
+export component DashboardPage inherits Flickable {
+    content-height: column.preferred-height + SlateTheme.spacing-xl;
+
+    column := VerticalLayout {
+        spacing: SlateTheme.spacing-lg;
+        padding-bottom: SlateTheme.spacing-xl;
+
+        HorizontalLayout {
+            spacing: SlateTheme.spacing-md;
+
+            SlateMetricCard { title: "Active users"; value: "1,284"; delta: "+12.5%"; description: "vs. last week"; }
+            SlateMetricCard { title: "Requests / min"; value: "3,920"; delta: "+4.1%"; description: "p95 latency 182 ms"; }
+            SlateMetricCard { title: "Error rate"; value: "0.42%"; delta: "-0.08%"; description: "last 24 hours"; }
+            SlateMetricCard { title: "Storage used"; value: "68 GB"; delta: "+2.3%"; delta-positive: false; description: "of 100 GB quota"; }
+        }
+
+        HorizontalLayout {
+            spacing: SlateTheme.spacing-md;
+
+            SlateWebCard {
+                horizontal-stretch: 1;
+                title: "Recent activity";
+                description: "Latest events across the application";
+
+                SlateTable {
+                    columns: ["Event", "Source", "Status", "Time"];
+                    column-weights: [38, 24, 20, 18];
+                    max-visible-rows: 6;
+                    rows: [
+                        { id: "1", name: "User login", category: "Auth service", status: "Success", status-variant: "success", value: "2 min ago" },
+                        { id: "2", name: "File uploaded", category: "Storage", status: "Success", status-variant: "success", value: "9 min ago" },
+                        { id: "3", name: "Database migration", category: "Backend", status: "Running", status-variant: "info", value: "21 min ago" },
+                        { id: "4", name: "Rate limit reached", category: "API gateway", status: "Warning", status-variant: "warning", value: "47 min ago" },
+                        { id: "5", name: "Backup failed", category: "Scheduler", status: "Error", status-variant: "error", value: "1 h ago" },
+                        { id: "6", name: "Role updated", category: "Admin", status: "Success", status-variant: "success", value: "3 h ago" }
+                    ];
+                }
+            }
+
+            SlateWebCard {
+                width: 340px;
+                title: "System health";
+                description: "Resource usage of the cluster";
+
+                VerticalLayout {
+                    spacing: SlateTheme.spacing-md;
+                    alignment: start;
+
+                    for item in [
+                        { label: "CPU", value: 0.42 },
+                        { label: "Memory", value: 0.68 },
+                        { label: "Disk", value: 0.31 },
+                        { label: "Network", value: 0.87 },
+                    ] : VerticalLayout {
+                        spacing: SlateTheme.spacing-xs;
+                        alignment: start;
+
+                        HorizontalLayout {
+                            Text {
+                                text: item.label;
+                                font-size: SlateTheme.font-sm;
+                                color: SlateTheme.text-secondary;
+                            }
+                            Text {
+                                text: round(item.value * 100) + "%";
+                                font-size: SlateTheme.font-sm;
+                                color: SlateTheme.text-primary;
+                                horizontal-alignment: right;
+                            }
+                        }
+
+                        SlateProgressBar { progress: item.value; variant: item.value > 0.8 ? "warning" : "primary"; }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Admin page: user management table with role badges and a few application settings.
+export component AdminPage inherits Flickable {
+    in-out property <bool> setting-registration: true;
+    in-out property <bool> setting-maintenance: false;
+    in-out property <bool> setting-audit-log: true;
+    in-out property <bool> setting-email-notifications: false;
+
+    content-height: column.preferred-height + SlateTheme.spacing-xl;
+
+    column := VerticalLayout {
+        spacing: SlateTheme.spacing-lg;
+        padding-bottom: SlateTheme.spacing-xl;
+
+        HorizontalLayout {
+            spacing: SlateTheme.spacing-md;
+
+            SlateWebCard {
+                horizontal-stretch: 1;
+                title: "Users";
+                description: "Accounts and their roles";
+
+                SlateTable {
+                    columns: ["Name", "Email", "Role", "Last login"];
+                    column-weights: [28, 34, 16, 22];
+                    max-visible-rows: 8;
+                    rows: [
+                        { id: "1", name: "Test Developer", category: "dev@example.com", status: "Admin", status-variant: "default", value: "Today" },
+                        { id: "2", name: "Alice Müller", category: "alice@example.com", status: "Admin", status-variant: "default", value: "Today" },
+                        { id: "3", name: "Bob Schmidt", category: "bob@example.com", status: "Editor", status-variant: "secondary", value: "Yesterday" },
+                        { id: "4", name: "Carol Weber", category: "carol@example.com", status: "Viewer", status-variant: "outline", value: "3 days ago" },
+                        { id: "5", name: "David Fischer", category: "david@example.com", status: "Editor", status-variant: "secondary", value: "Last week" },
+                        { id: "6", name: "Eva Wagner", category: "eva@example.com", status: "Viewer", status-variant: "outline", value: "Last month" }
+                    ];
+                }
+            }
+
+            SlateWebCard {
+                width: 340px;
+                title: "Settings";
+                description: "Application-wide switches";
+
+                VerticalLayout {
+                    spacing: SlateTheme.spacing-md;
+                    alignment: start;
+
+                    HorizontalLayout {
+                        alignment: start;
+                        SlateSwitch {
+                            text: "Open registration";
+                            description: "Allow new users to sign up";
+                            checked <=> root.setting-registration;
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        SlateSwitch {
+                            text: "Maintenance mode";
+                            description: "Show a notice to non-admins";
+                            checked <=> root.setting-maintenance;
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        SlateSwitch {
+                            text: "Audit log";
+                            description: "Record administrative actions";
+                            checked <=> root.setting-audit-log;
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        SlateSwitch {
+                            text: "Email notifications";
+                            description: "Send alerts to administrators";
+                            checked <=> root.setting-email-notifications;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
