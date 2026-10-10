@@ -44,12 +44,14 @@ export component MainWindow inherits Window {
     callback start-compute();
     callback cancel-compute();
     callback toggle-theme();
+    callback increment-counter();
 
     // Navigation and state
     in-out property <int> active-tab: 0;
     in-out property <bool> modal-open: false;
 
     // Interactive Demo Properties
+    in-out property <int> counter: 0;
     in-out property <string> demo-input-text: "dev@slate.internal";
     in-out property <string> demo-textarea-text: "Declarative, high-performance UI components powered by Slint and Rust.";
     in-out property <bool> demo-switch-1: true;
@@ -112,6 +114,23 @@ export component MainWindow inherits Window {
                     }
                     Rectangle { horizontal-stretch: 1; }
                     SlateBadge { text: "Desktop Primitives"; variant: "info"; }
+                }
+
+                SlateCard {
+                    title: "Interactive Counter (Agent Remote Control)";
+                    subtitle: "Click manually or dispatch agent commands to increment state";
+
+                    HorizontalLayout {
+                        spacing: SlateTheme.spacing-md;
+                        alignment: start;
+
+                        SlateButton {
+                            text: "Count: " + root.counter;
+                            variant: "primary";
+                            icon: "🔢";
+                            clicked => { root.increment-counter(); }
+                        }
+                    }
                 }
 
                 SlateCard {
