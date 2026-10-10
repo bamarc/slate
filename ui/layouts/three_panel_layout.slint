@@ -1,0 +1,372 @@
+import { SlateTheme } from "../components/theme.slint";
+import { SlateButton, SlateButtonVariant, SlateButtonSize } from "../components/button.slint";
+import { SlateBadge } from "../components/badge.slint";
+import { SlateResizableHandle } from "resizable_panel_group.slint";
+
+/// Dynamic 3-Panel Workspace Layout:
+/// - Left side panel (scalable, collapsible to 0 width / invisible, or maximizable)
+/// - Center base panel (primary content that scales down dynamically or can maximize to 100%)
+/// - Right side panel (scalable, collapsible to 0 width / invisible, or maximizable)
+export component SlateThreePanelLayout {
+    // Sizing & Constraints
+    in-out property <length> left-width: 240px;
+    in-out property <length> right-width: 260px;
+    in property <length> left-min-width: 140px;
+    in property <length> left-max-width: 480px;
+    in property <length> right-min-width: 160px;
+    in property <length> right-max-width: 480px;
+
+    // States
+    in-out property <bool> left-collapsed: false;
+    in-out property <bool> right-collapsed: false;
+    in-out property <bool> left-maximized: false;
+    in-out property <bool> center-maximized: false;
+    in-out property <bool> right-maximized: false;
+    in property <bool> show-toolbar: true;
+
+    // Titles & Labels
+    in property <string> left-title: "Explorer";
+    in property <string> center-title: "Main Workspace";
+    in property <string> right-title: "Inspector";
+
+    // Callbacks
+    callback toggle-left();
+    callback toggle-right();
+    callback toggle-center-maximized();
+    callback reset-layout();
+
+    // Effective display widths based on collapse/maximize states
+    property <length> effective-left-width: 
+        (root.center-maximized || root.right-maximized || root.left-collapsed) ? 0px :
+        Math.max(root.left-min-width, Math.min(root.left-width, root.left-max-width));
+
+    property <length> effective-right-width: 
+        (root.center-maximized || root.left-maximized || root.right-collapsed) ? 0px :
+        Math.max(root.right-min-width, Math.min(root.right-width, root.right-max-width));
+
+    property <bool> is-left-active: root.effective-left-width > 0px;
+    property <bool> is-right-active: root.effective-right-width > 0px;
+    property <bool> is-center-active: !root.left-maximized && !root.right-maximized;
+
+    width: 100%;
+    height: 100%;
+
+    VerticalLayout {
+        spacing: 0px;
+        padding: 0px;
+
+        // Top Workspace Control Bar
+        if root.show-toolbar : Rectangle {
+            height: 38px;
+            background: SlateTheme.surface-1;
+
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                width: 100%;
+                background: SlateTheme.border-subtle;
+            }
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-md;
+                padding-right: SlateTheme.spacing-md;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                spacing: SlateTheme.spacing-sm;
+                alignment: space-between;
+
+                // Left Panel Controls
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-xs;
+                    alignment: start;
+
+                    SlateButton {
+                        text: root.left-collapsed ? "◧ Show Left" : "◩ Hide Left";
+                        variant: root.left-collapsed ? SlateButtonVariant.outline : SlateButtonVariant.ghost;
+                        size: SlateButtonSize.sm;
+                        clicked => {
+                            if root.left-maximized { root.left-maximized = false; }
+                            root.left-collapsed = !root.left-collapsed;
+                            root.toggle-left();
+                        }
+                    }
+
+                    if !root.left-collapsed : SlateButton {
+                        text: root.left-maximized ? "Restore Left" : "⛶ Max Left";
+                        variant: root.left-maximized ? SlateButtonVariant.primary : SlateButtonVariant.ghost;
+                        size: SlateButtonSize.sm;
+                        clicked => {
+                            root.left-maximized = !root.left-maximized;
+                            if root.left-maximized {
+                                root.center-maximized = false;
+                                root.right-maximized = false;
+                            }
+                        }
+                    }
+                }
+
+                // Center / Global Layout Controls
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-sm;
+                    alignment: center;
+
+                    Text {
+                        text: root.left-maximized ? "Left Panel (Maximized)" :
+                              root.right-maximized ? "Right Panel (Maximized)" :
+                              root.center-maximized ? "Center Panel (Maximized)" :
+                              "3-Panel Workspace";
+                        color: SlateTheme.text-muted;
+                        font-size: SlateTheme.font-sm;
+                        vertical-alignment: center;
+                    }
+
+                    SlateButton {
+                        text: root.center-maximized ? "Restore Center" : "⛶ Max Center";
+                        variant: root.center-maximized ? SlateButtonVariant.primary : SlateButtonVariant.outline;
+                        size: SlateButtonSize.sm;
+                        clicked => {
+                            root.center-maximized = !root.center-maximized;
+                            if root.center-maximized {
+                                root.left-maximized = false;
+                                root.right-maximized = false;
+                            }
+                            root.toggle-center-maximized();
+                        }
+                    }
+
+                    SlateButton {
+                        text: "Reset All";
+                        variant: SlateButtonVariant.ghost;
+                        size: SlateButtonSize.sm;
+                        clicked => {
+                            root.left-collapsed = false;
+                            root.right-collapsed = false;
+                            root.left-maximized = false;
+                            root.center-maximized = false;
+                            root.right-maximized = false;
+                            root.left-width = 240px;
+                            root.right-width = 260px;
+                            root.reset-layout();
+                        }
+                    }
+                }
+
+                // Right Panel Controls
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-xs;
+                    alignment: end;
+
+                    if !root.right-collapsed : SlateButton {
+                        text: root.right-maximized ? "Restore Right" : "⛶ Max Right";
+                        variant: root.right-maximized ? SlateButtonVariant.primary : SlateButtonVariant.ghost;
+                        size: SlateButtonSize.sm;
+                        clicked => {
+                            root.right-maximized = !root.right-maximized;
+                            if root.right-maximized {
+                                root.left-maximized = false;
+                                root.center-maximized = false;
+                            }
+                        }
+                    }
+
+                    SlateButton {
+                        text: root.right-collapsed ? "◨ Show Right" : "◪ Hide Right";
+                        variant: root.right-collapsed ? SlateButtonVariant.outline : SlateButtonVariant.ghost;
+                        size: SlateButtonSize.sm;
+                        clicked => {
+                            if root.right-maximized { root.right-maximized = false; }
+                            root.right-collapsed = !root.right-collapsed;
+                            root.toggle-right();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Main Horizontal Resizable Area
+        HorizontalLayout {
+            spacing: 0px;
+            vertical-stretch: 1;
+
+            // 1. LEFT PANEL
+            left-panel := Rectangle {
+                width: root.effective-left-width;
+                visible: root.is-left-active;
+                clip: true;
+                background: SlateTheme.surface-1;
+                animate width { duration: 120ms; }
+
+                Rectangle {
+                    x: parent.width - 1px;
+                    width: 1px;
+                    height: 100%;
+                    background: SlateTheme.border-subtle;
+                }
+
+                VerticalLayout {
+                    padding: SlateTheme.spacing-md;
+                    spacing: SlateTheme.spacing-md;
+
+                    // Left Header
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: root.left-title;
+                            font-size: SlateTheme.font-md;
+                            font-weight: 600;
+                            color: SlateTheme.text-primary;
+                            vertical-alignment: center;
+                        }
+                        SlateBadge {
+                            text: "Left";
+                            variant: "default";
+                        }
+                    }
+
+                    // Content slot / body
+                    @children
+                }
+            }
+
+            // Left Splitter Handle (only visible and interactive when neither panel is maximized and left is active)
+            if root.is-left-active && root.is-center-active : SlateResizableHandle {
+                dragged(delta) => {
+                    root.left-width = Math.max(root.left-min-width, Math.min(root.left-width + delta, root.left-max-width));
+                }
+                double-clicked => {
+                    root.left-width = 240px;
+                }
+            }
+
+            // 2. CENTER BASE PANEL (scales down dynamically as left/right grow)
+            center-panel := Rectangle {
+                horizontal-stretch: 1;
+                visible: root.is-center-active;
+                clip: true;
+                background: SlateTheme.background;
+
+                VerticalLayout {
+                    padding: SlateTheme.spacing-lg;
+                    spacing: SlateTheme.spacing-md;
+
+                    // Center Header
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: root.center-title;
+                            font-size: SlateTheme.font-lg;
+                            font-weight: 700;
+                            color: SlateTheme.text-primary;
+                            vertical-alignment: center;
+                        }
+                        SlateBadge {
+                            text: root.center-maximized ? "Maximized Base" : "Fluid Base Canvas";
+                            variant: root.center-maximized ? "success" : "info";
+                        }
+                    }
+
+                    // Center Body
+                    Rectangle {
+                        vertical-stretch: 1;
+                        border-radius: SlateTheme.radius-md;
+                        border-width: 1px;
+                        border-color: SlateTheme.border-subtle;
+                        background: SlateTheme.surface-1;
+                        clip: true;
+
+                        VerticalLayout {
+                            padding: SlateTheme.spacing-lg;
+                            spacing: SlateTheme.spacing-sm;
+
+                            Text {
+                                text: "Base Canvas Area";
+                                font-size: SlateTheme.font-md;
+                                font-weight: 600;
+                                color: SlateTheme.text-primary;
+                            }
+                            Text {
+                                text: "This base panel automatically flexes and scales down as the side panels expand. It can also be maximized to 100% width, collapsing both side panels to 0.";
+                                color: SlateTheme.text-muted;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Right Splitter Handle
+            if root.is-right-active && root.is-center-active : SlateResizableHandle {
+                dragged(delta) => {
+                    root.right-width = Math.max(root.right-min-width, Math.min(root.right-width - delta, root.right-max-width));
+                }
+                double-clicked => {
+                    root.right-width = 260px;
+                }
+            }
+
+            // 3. RIGHT PANEL
+            right-panel := Rectangle {
+                width: root.effective-right-width;
+                visible: root.is-right-active;
+                clip: true;
+                background: SlateTheme.surface-1;
+                animate width { duration: 120ms; }
+
+                Rectangle {
+                    x: 0px;
+                    width: 1px;
+                    height: 100%;
+                    background: SlateTheme.border-subtle;
+                }
+
+                VerticalLayout {
+                    padding: SlateTheme.spacing-md;
+                    spacing: SlateTheme.spacing-md;
+
+                    // Right Header
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: root.right-title;
+                            font-size: SlateTheme.font-md;
+                            font-weight: 600;
+                            color: SlateTheme.text-primary;
+                            vertical-alignment: center;
+                        }
+                        SlateBadge {
+                            text: "Right";
+                            variant: "default";
+                        }
+                    }
+
+                    // Right Content Placeholder
+                    Rectangle {
+                        vertical-stretch: 1;
+                        border-radius: SlateTheme.radius-sm;
+                        border-width: 1px;
+                        border-color: SlateTheme.border-subtle;
+                        background: SlateTheme.surface-2;
+
+                        VerticalLayout {
+                            padding: SlateTheme.spacing-md;
+                            spacing: SlateTheme.spacing-xs;
+
+                            Text {
+                                text: "Inspector / Properties";
+                                font-size: SlateTheme.font-sm;
+                                font-weight: 600;
+                                color: SlateTheme.text-primary;
+                            }
+                            Text {
+                                text: "Can scale down to 0 width or maximize.";
+                                font-size: SlateTheme.font-xs;
+                                color: SlateTheme.text-muted;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,155 @@
+import { SlateTheme } from "theme.slint";
+import { SlateButton, SlateButtonVariant, SlateButtonSize } from "button.slint";
+
+/// Off-canvas slide-over drawer modal (`position: "right" | "left" | "bottom" | "top"`).
+export component SlateSheet {
+    in-out property <bool> is-open: false;
+    in property <string> side: "right"; // "right", "left", "bottom", "top"
+    in property <length> sheet-size: 380px;
+    in property <string> title: "Drawer Sheet";
+    in property <string> description: "Inspect properties and configure settings.";
+    in property <string> confirm-text: "Apply Changes";
+    in property <string> cancel-text: "Close";
+    in property <bool> show-footer: true;
+
+    callback confirmed();
+    callback cancelled();
+    callback closed();
+
+    x: 0px;
+    y: 0px;
+    width: 100%;
+    height: 100%;
+    visible: root.is-open;
+
+    // Full window dimmed backdrop
+    backdrop := Rectangle {
+        width: 100%;
+        height: 100%;
+        background: SlateTheme.overlay-backdrop;
+
+        TouchArea {
+            clicked => {
+                root.is-open = false;
+                root.closed();
+            }
+        }
+    }
+
+    // Sliding drawer surface
+    drawer := Rectangle {
+        x: root.side == "left" ? 0px :
+           root.side == "right" ? (parent.width - self.width) : 0px;
+        y: root.side == "top" ? 0px :
+           root.side == "bottom" ? (parent.height - self.height) : 0px;
+        width: (root.side == "left" || root.side == "right") ? Math.min(root.sheet-size, parent.width) : parent.width;
+        height: (root.side == "top" || root.side == "bottom") ? Math.min(root.sheet-size, parent.height) : parent.height;
+
+        background: SlateTheme.surface-1;
+        border-width: 1px;
+        border-color: SlateTheme.border-strong;
+        drop-shadow-blur: 32px;
+        drop-shadow-color: #000000a0;
+        clip: true;
+
+        // Block clicks inside drawer from dismissing backdrop
+        TouchArea {}
+
+        VerticalLayout {
+            padding: SlateTheme.spacing-lg;
+            spacing: SlateTheme.spacing-md;
+
+            // Header Row
+            HorizontalLayout {
+                alignment: space-between;
+
+                VerticalLayout {
+                    spacing: SlateTheme.spacing-xs;
+                    horizontal-stretch: 1;
+
+                    Text {
+                        text: root.title;
+                        font-size: SlateTheme.font-lg;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                    }
+                    if root.description != "" : Text {
+                        text: root.description;
+                        font-size: SlateTheme.font-sm;
+                        color: SlateTheme.text-muted;
+                        wrap: word-wrap;
+                    }
+                }
+
+                // Close Button
+                Rectangle {
+                    width: 32px;
+                    height: 32px;
+                    border-radius: SlateTheme.radius-sm;
+                    background: close-touch.has-hover ? SlateTheme.surface-2 : transparent;
+
+                    close-touch := TouchArea {
+                        clicked => {
+                            root.is-open = false;
+                            root.closed();
+                        }
+                    }
+
+                    Text {
+                        text: "✕";
+                        font-size: 14px;
+                        color: SlateTheme.text-muted;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                    }
+                }
+            }
+
+            // Divider
+            Rectangle {
+                height: 1px;
+                background: SlateTheme.border-subtle;
+            }
+
+            // Content Area / Slot
+            VerticalLayout {
+                vertical-stretch: 1;
+                @children
+            }
+
+            // Footer Actions
+            if root.show-footer : VerticalLayout {
+                spacing: SlateTheme.spacing-md;
+
+                Rectangle {
+                    height: 1px;
+                    background: SlateTheme.border-subtle;
+                }
+
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: SlateTheme.spacing-sm;
+
+                    SlateButton {
+                        text: root.cancel-text;
+                        variant: SlateButtonVariant.ghost;
+                        size: SlateButtonSize.md;
+                        clicked => {
+                            root.is-open = false;
+                            root.cancelled();
+                        }
+                    }
+
+                    SlateButton {
+                        text: root.confirm-text;
+                        variant: SlateButtonVariant.primary;
+                        size: SlateButtonSize.md;
+                        clicked => {
+                            root.confirmed();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -7,6 +7,8 @@ slint::include_modules!();
 pub use slate_core as core;
 pub use slate_extensions as extensions;
 pub use slate_utils as utils;
+pub mod agent;
+pub use slate_mcp as mcp;
 pub use slint;
 
 pub mod controller;

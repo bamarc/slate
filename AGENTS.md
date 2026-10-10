@@ -49,6 +49,7 @@ scripts and Justfile usage, local stack management, and authentication/OIDC inte
 | `scripts-usage` | Reference guide for all repository scripts in `scripts/` and their canonical `just` recipes. | `.agents/skills/scripts-usage/SKILL.md` |
 | `terraform-usage` | Manage multi-layer OpenTofu cloud infrastructure on Azure, tfvars sync, and state backend. | `.agents/skills/terraform-usage/SKILL.md` |
 | `docs-usage` | Guidelines for reading, using, and maintaining project documentation and style guides. | `.agents/skills/docs-usage/SKILL.md` |
+| `slate-agent-control` | Inspect, interact with, automate, and capture visual snapshots of Slate desktop applications using the native Model Context Protocol (MCP) toolset and `slate-mcp` CLI helper. | `.agents/skills/slate-agent-control/SKILL.md` |
 
 Kilo-specific configuration lives under `.kilo/`.
 

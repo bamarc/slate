@@ -1,0 +1,57 @@
+import { SlateTheme } from "theme.slint";
+
+/// Floating card overlay anchored to a screen position with window boundary clamping.
+export component SlatePopover {
+    in-out property <bool> is-open: false;
+    in property <length> anchor-x: 0px;
+    in property <length> anchor-y: 0px;
+    in property <length> popover-width: 280px;
+
+    callback closed();
+
+    x: 0px;
+    y: 0px;
+    width: 100%;
+    height: 100%;
+    visible: root.is-open;
+
+    // Invisible full backdrop for click-outside dismissal
+    backdrop := Rectangle {
+        width: 100%;
+        height: 100%;
+        background: transparent;
+
+        TouchArea {
+            clicked => {
+                root.is-open = false;
+                root.closed();
+            }
+        }
+    }
+
+    // Anchored Card
+    popover-card := Rectangle {
+        // Clamped position ensuring the popover never renders outside the window
+        x: Math.max(12px, Math.min(root.anchor-x, parent.width - self.width - 12px));
+        y: Math.max(12px, Math.min(root.anchor-y + 8px, parent.height - self.height - 12px));
+        width: Math.min(root.popover-width, parent.width - 24px);
+        height: content-layout.preferred-height;
+
+        background: SlateTheme.surface-1;
+        border-radius: SlateTheme.radius-md;
+        border-width: 1px;
+        border-color: SlateTheme.border-subtle;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000080;
+        drop-shadow-offset-y: 6px;
+        clip: true;
+
+        TouchArea {}
+
+        content-layout := VerticalLayout {
+            padding: SlateTheme.spacing-md;
+            spacing: SlateTheme.spacing-sm;
+            @children
+        }
+    }
+}

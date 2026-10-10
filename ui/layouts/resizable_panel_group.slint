@@ -1,0 +1,77 @@
+import { SlateTheme } from "../components/theme.slint";
+
+/// A draggable handle/divider used between resizable panels.
+export component SlateResizableHandle {
+    in property <bool> vertical: false;
+    in property <bool> enabled: true;
+    in-out property <bool> is-dragging: false;
+    in-out property <bool> is-hovered: false;
+    callback dragged(length);
+    callback double-clicked();
+
+    in property <length> handle-thickness: 8px;
+    horizontal-stretch: root.vertical ? 1 : 0;
+    vertical-stretch: root.vertical ? 0 : 1;
+    min-width: root.vertical ? 0px : root.handle-thickness;
+    max-width: root.vertical ? 100000px : root.handle-thickness;
+    min-height: root.vertical ? root.handle-thickness : 0px;
+    max-height: root.vertical ? root.handle-thickness : 100000px;
+
+    touch-area := TouchArea {
+        width: 100%;
+        height: 100%;
+        enabled: root.enabled;
+        mouse-cursor: root.vertical ? row-resize : col-resize;
+
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down {
+                root.is-dragging = true;
+            } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                root.is-dragging = false;
+            }
+        }
+
+        moved => {
+            if self.pressed {
+                if root.vertical {
+                    root.dragged(self.mouse-y - self.pressed-y);
+                } else {
+                    root.dragged(self.mouse-x - self.pressed-x);
+                }
+            }
+        }
+
+        double-clicked => {
+            root.double-clicked();
+        }
+    }
+
+    // Divider line
+    if root.vertical : Rectangle {
+        width: 100%;
+        height: 1px;
+        y: (parent.height - self.height) / 2;
+        background: (touch-area.has-hover || root.is-dragging) ? SlateTheme.accent-primary : SlateTheme.border-subtle;
+        animate background { duration: 150ms; }
+    }
+    if !root.vertical : Rectangle {
+        width: 1px;
+        height: 100%;
+        x: (parent.width - self.width) / 2;
+        background: (touch-area.has-hover || root.is-dragging) ? SlateTheme.accent-primary : SlateTheme.border-subtle;
+        animate background { duration: 150ms; }
+    }
+
+    // Grab pill indicator
+    Rectangle {
+        width: root.vertical ? 32px : 4px;
+        height: root.vertical ? 4px : 32px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 2px;
+        background: root.is-dragging ? SlateTheme.accent-primary : (touch-area.has-hover ? SlateTheme.accent-primary-subtle : SlateTheme.border-strong);
+        opacity: (touch-area.has-hover || root.is-dragging) ? 1.0 : 0.4;
+        animate opacity { duration: 150ms; }
+        animate background { duration: 150ms; }
+    }
+}

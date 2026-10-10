@@ -22,6 +22,10 @@ check:
 test:
     cargo test --workspace
 
+# Run the comprehensive 4-tier Agent / MCP end-to-end test suite
+e2e:
+    cargo run -p slate-tests --bin e2e_runner
+
 # Launch the interactive Slate desktop showcase application (Desktop layout)
 run:
     cargo run -p slate-showcase

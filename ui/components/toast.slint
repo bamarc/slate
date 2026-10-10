@@ -220,3 +220,91 @@ export component SlateToastHost {
         }
     }
 }
+
+/// Floating notification toast card.
+export component SlateToast {
+    in-out property <bool> is-visible: false;
+    in property <string> title: "Notification";
+    in property <string> message: "Operation completed successfully.";
+    in property <string> variant: "info"; // "info" | "success" | "warning" | "error"
+
+    callback dismissed();
+
+    visible: root.is-visible;
+    width: 320px;
+    height: card-layout.preferred-height;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: SlateTheme.surface-1;
+        border-radius: SlateTheme.radius-md;
+        border-width: 1px;
+        border-color: root.variant == "error" ? SlateTheme.status-error :
+                      root.variant == "success" ? SlateTheme.status-success :
+                      root.variant == "warning" ? SlateTheme.status-warning :
+                      SlateTheme.accent-primary;
+        drop-shadow-blur: 20px;
+        drop-shadow-color: #00000080;
+        drop-shadow-offset-y: 6px;
+
+        card-layout := VerticalLayout {
+            padding: SlateTheme.spacing-md;
+            spacing: SlateTheme.spacing-xs;
+
+            HorizontalLayout {
+                alignment: space-between;
+
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-xs;
+
+                    Text {
+                        text: root.variant == "success" ? "✓" :
+                              root.variant == "error" ? "✕" :
+                              root.variant == "warning" ? "⚠" : "ℹ";
+                        font-size: 13px;
+                        color: root.variant == "error" ? SlateTheme.status-error :
+                               root.variant == "success" ? SlateTheme.status-success :
+                               root.variant == "warning" ? SlateTheme.status-warning :
+                               SlateTheme.accent-primary;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: root.title;
+                        font-size: SlateTheme.font-sm;
+                        font-weight: 600;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Dismiss button
+                Rectangle {
+                    width: 20px;
+                    height: 20px;
+                    TouchArea {
+                        clicked => {
+                            root.is-visible = false;
+                            root.dismissed();
+                        }
+                    }
+                    Text {
+                        text: "✕";
+                        font-size: 11px;
+                        color: SlateTheme.text-muted;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                    }
+                }
+            }
+
+            if root.message != "" : Text {
+                text: root.message;
+                font-size: SlateTheme.font-xs;
+                color: SlateTheme.text-muted;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
