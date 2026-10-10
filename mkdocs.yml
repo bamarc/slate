@@ -1,0 +1,10 @@
+site_name: ${{ values.projectTitle }} Documentation
+site_description: Documentation and development guides for ${{ values.projectTitle }}
+docs_dir: docs
+
+nav:
+  - Overview: README.md
+  - Architecture & Template Review: TEMPLATE-REVIEW.md
+
+plugins:
+  - techdocs-core

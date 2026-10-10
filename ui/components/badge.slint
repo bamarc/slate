@@ -1,0 +1,56 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateBadge {
+    in property <string> text: "Status";
+    in property <string> variant: "info"; // "default" | "secondary" | "outline" | "info" | "success" | "warning" | "error" | "destructive"
+
+    property <bool> is-outline: variant == "outline";
+    property <bool> is-destructive: variant == "error" || variant == "destructive";
+    property <bool> is-success: variant == "success";
+    property <bool> is-warning: variant == "warning";
+    property <bool> is-info: variant == "info";
+    property <bool> is-secondary: variant == "secondary";
+
+    height: 24px;
+    vertical-stretch: 0;
+    horizontal-stretch: 0;
+
+    Rectangle {
+        height: 100%;
+        border-radius: SlateTheme.radius-full;
+        background: root.is-outline ? Colors.transparent
+            : root.is-success ? SlateTheme.status-success-bg
+            : root.is-warning ? SlateTheme.status-warning-bg
+            : root.is-destructive ? SlateTheme.status-error-bg
+            : root.is-info ? SlateTheme.status-info-bg
+            : root.is-secondary ? SlateTheme.surface-2
+            : SlateTheme.surface-3;
+
+        border-width: 1px;
+        border-color: root.is-outline ? SlateTheme.border-strong
+            : root.is-success ? (SlateTheme.status-success.transparentize(50%))
+            : root.is-warning ? (SlateTheme.status-warning.transparentize(50%))
+            : root.is-destructive ? (SlateTheme.status-error.transparentize(50%))
+            : root.is-info ? (SlateTheme.status-info.transparentize(50%))
+            : SlateTheme.border-subtle;
+
+        HorizontalLayout {
+            padding-left: SlateTheme.spacing-sm;
+            padding-right: SlateTheme.spacing-sm;
+            alignment: center;
+
+            Text {
+                text: root.text;
+                font-size: SlateTheme.font-xs;
+                font-weight: 600;
+                vertical-alignment: center;
+                color: root.is-success ? SlateTheme.status-success
+                    : root.is-warning ? SlateTheme.status-warning
+                    : root.is-destructive ? SlateTheme.status-error
+                    : root.is-info ? SlateTheme.status-info
+                    : root.is-outline ? SlateTheme.text-primary
+                    : SlateTheme.text-secondary;
+            }
+        }
+    }
+}

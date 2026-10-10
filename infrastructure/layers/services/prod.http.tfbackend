@@ -1,0 +1,7 @@
+address        = "https://git.eon-cds.de/api/v4/projects/${{ values.gitlabProjectId }}/terraform/state/prod-services"
+lock_address   = "https://git.eon-cds.de/api/v4/projects/${{ values.gitlabProjectId }}/terraform/state/prod-services/lock"
+unlock_address = "https://git.eon-cds.de/api/v4/projects/${{ values.gitlabProjectId }}/terraform/state/prod-services/lock"
+username       = "gitlab-ci-token"
+lock_method    = "POST"
+unlock_method  = "DELETE"
+retry_wait_min = 5

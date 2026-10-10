@@ -1,0 +1,51 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateRadio {
+    in-out property <bool> selected: false;
+    in property <string> text: "";
+    in property <bool> enabled: true;
+    callback toggled(bool);
+
+    horizontal-stretch: 0;
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            if !root.selected {
+                root.selected = true;
+                root.toggled(true);
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: SlateTheme.spacing-sm;
+        alignment: center;
+
+        circle := Rectangle {
+            width: 18px;
+            height: 18px;
+            border-radius: SlateTheme.radius-full;
+            background: touch.has-hover ? SlateTheme.surface-hover : SlateTheme.surface-2;
+            border-width: root.selected ? 2px : 1px;
+            border-color: root.selected ? SlateTheme.accent-primary
+                : (touch.has-hover ? SlateTheme.border-strong : SlateTheme.border-subtle);
+            animate border-color { duration: 100ms; }
+
+            if root.selected : Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: SlateTheme.radius-full;
+                background: SlateTheme.accent-primary;
+            }
+        }
+
+        if root.text != "" : Text {
+            text: root.text;
+            font-size: SlateTheme.font-sm;
+            color: !root.enabled ? SlateTheme.text-muted
+                : (touch.has-hover ? SlateTheme.text-primary : SlateTheme.text-secondary);
+            vertical-alignment: center;
+        }
+    }
+}

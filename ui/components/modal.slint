@@ -1,0 +1,131 @@
+import { SlateTheme } from "theme.slint";
+import { SlateButton } from "button.slint";
+
+export component SlateModal {
+    in-out property <bool> is-open: false;
+    in property <string> title: "Dialog Title";
+    in property <string> description: "Dialog description goes here.";
+    in property <string> confirm-text: "Confirm";
+    in property <string> cancel-text: "Cancel";
+    in property <string> confirm-variant: "primary";
+    callback confirmed();
+    callback cancelled();
+    callback closed();
+
+    x: 0px;
+    y: 0px;
+    width: 100%;
+    height: 100%;
+    visible: root.is-open;
+
+    // Full backdrop
+    backdrop := Rectangle {
+        width: 100%;
+        height: 100%;
+        background: SlateTheme.overlay-backdrop;
+
+        TouchArea {
+            clicked => {
+                root.is-open = false;
+                root.closed();
+            }
+        }
+    }
+
+    // Centered Modal Window
+    dialog := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: Math.min(parent.width - 48px, 480px);
+        height: dialog-layout.preferred-height;
+        background: SlateTheme.surface-1;
+        border-radius: SlateTheme.radius-lg;
+        border-width: 1px;
+        border-color: SlateTheme.border-strong;
+        drop-shadow-blur: 32px;
+        drop-shadow-color: #000000a0;
+        drop-shadow-offset-y: 12px;
+        clip: true;
+
+        // Block clicks on dialog from triggering backdrop dismiss
+        TouchArea {}
+
+        dialog-layout := VerticalLayout {
+            padding: SlateTheme.spacing-lg;
+            spacing: SlateTheme.spacing-md;
+
+            // Header
+            HorizontalLayout {
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 4px;
+
+                    Text {
+                        text: root.title;
+                        font-size: SlateTheme.font-lg;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                    }
+
+                    if root.description != "" : Text {
+                        text: root.description;
+                        font-size: SlateTheme.font-sm;
+                        color: SlateTheme.text-secondary;
+                        wrap: word-wrap;
+                    }
+                }
+
+                TouchArea {
+                    width: 28px;
+                    height: 28px;
+                    clicked => {
+                        root.is-open = false;
+                        root.closed();
+                    }
+
+                    Rectangle {
+                        border-radius: SlateTheme.radius-xs;
+                        background: parent.has-hover ? SlateTheme.surface-hover : Colors.transparent;
+
+                        Text {
+                            text: "✕";
+                            font-size: SlateTheme.font-sm;
+                            color: SlateTheme.text-muted;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            // Content slot
+            @children
+
+            // Actions Footer
+            HorizontalLayout {
+                spacing: SlateTheme.spacing-sm;
+                alignment: end;
+
+                SlateButton {
+                    text: root.cancel-text;
+                    variant: "outline";
+                    clicked => {
+                        root.is-open = false;
+                        root.cancelled();
+                        root.closed();
+                    }
+                }
+
+                SlateButton {
+                    text: root.confirm-text;
+                    variant: root.confirm-variant;
+                    clicked => {
+                        root.is-open = false;
+                        root.confirmed();
+                        root.closed();
+                    }
+                }
+            }
+        }
+    }
+}

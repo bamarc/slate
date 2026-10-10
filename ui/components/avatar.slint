@@ -1,0 +1,41 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateAvatar {
+    in property <string> initials: "SL";
+    in property <string> status: ""; // "online" | "busy" | "offline"
+    in property <length> size: 36px;
+
+    width: root.size;
+    height: root.size;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: SlateTheme.radius-full;
+        background: SlateTheme.surface-3;
+        border-width: 1px;
+        border-color: SlateTheme.border-subtle;
+
+        Text {
+            text: root.initials;
+            font-size: root.size * 0.4;
+            font-weight: 700;
+            color: SlateTheme.text-primary;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        if root.status != "" : Rectangle {
+            x: parent.width - self.width;
+            y: parent.height - self.height;
+            width: root.size * 0.3;
+            height: root.size * 0.3;
+            border-radius: SlateTheme.radius-full;
+            border-width: 2px;
+            border-color: SlateTheme.surface-1;
+            background: root.status == "online" ? SlateTheme.status-success
+                : root.status == "busy" ? SlateTheme.status-warning
+                : SlateTheme.text-muted;
+        }
+    }
+}

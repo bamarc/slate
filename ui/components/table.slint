@@ -1,0 +1,143 @@
+import { SlateTheme } from "theme.slint";
+import { SlateBadge } from "badge.slint";
+
+export struct SlateTableRow {
+    id: string,
+    name: string,
+    category: string,
+    status: string,
+    status-variant: string,
+    value: string,
+}
+
+export component SlateTable {
+    in property <[string]> columns: ["Item", "Category", "Status", "Metrics"];
+    in property <[SlateTableRow]> rows: [];
+    callback row-clicked(int, SlateTableRow);
+
+    Rectangle {
+        background: SlateTheme.surface-1;
+        border-radius: SlateTheme.radius-md;
+        border-width: 1px;
+        border-color: SlateTheme.border-subtle;
+        clip: true;
+
+        VerticalLayout {
+            // Header Row
+            Rectangle {
+                height: 40px;
+                background: SlateTheme.surface-2;
+
+                HorizontalLayout {
+                    padding-left: SlateTheme.spacing-md;
+                    padding-right: SlateTheme.spacing-md;
+                    alignment: center;
+
+                    Text {
+                        width: 35%;
+                        text: root.columns[0];
+                        font-size: SlateTheme.font-xs;
+                        font-weight: 700;
+                        color: SlateTheme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        width: 25%;
+                        text: root.columns[1];
+                        font-size: SlateTheme.font-xs;
+                        font-weight: 700;
+                        color: SlateTheme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        width: 20%;
+                        text: root.columns[2];
+                        font-size: SlateTheme.font-xs;
+                        font-weight: 700;
+                        color: SlateTheme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        width: 20%;
+                        text: root.columns[3];
+                        font-size: SlateTheme.font-xs;
+                        font-weight: 700;
+                        color: SlateTheme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Header bottom divider
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: SlateTheme.border-subtle;
+                }
+            }
+
+            // Data Rows
+            for row[idx] in root.rows : row-rect := Rectangle {
+                height: 44px;
+                background: row-touch.has-hover ? SlateTheme.surface-hover
+                    : Math.mod(idx, 2) == 1 ? SlateTheme.surface-2.transparentize(60%)
+                    : Colors.transparent;
+                animate background { duration: 80ms; }
+
+                row-touch := TouchArea {
+                    clicked => {
+                        root.row-clicked(idx, row);
+                    }
+                }
+
+                HorizontalLayout {
+                    padding-left: SlateTheme.spacing-md;
+                    padding-right: SlateTheme.spacing-md;
+                    alignment: center;
+
+                    Text {
+                        width: 35%;
+                        text: row.name;
+                        font-size: SlateTheme.font-sm;
+                        font-weight: 500;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    Text {
+                        width: 25%;
+                        text: row.category;
+                        font-size: SlateTheme.font-sm;
+                        color: SlateTheme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                    HorizontalLayout {
+                        width: 20%;
+                        alignment: start;
+
+                        VerticalLayout {
+                            alignment: center;
+                            SlateBadge {
+                                text: row.status;
+                                variant: row.status-variant;
+                            }
+                        }
+                    }
+                    Text {
+                        width: 20%;
+                        text: row.value;
+                        font-size: SlateTheme.font-sm;
+                        color: SlateTheme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Row separator
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: SlateTheme.border-subtle;
+                }
+            }
+        }
+    }
+}

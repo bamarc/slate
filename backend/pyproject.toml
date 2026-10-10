@@ -1,0 +1,140 @@
+[project]
+name = "slate-backend"
+version = "0.1.0"
+description = "Slate Backend"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14.0",
+    "asyncpg>=0.30.0",
+    "httpx>=0.28.0",
+    "pyyaml>=6.0.0",
+    "opentelemetry-api>=1.28.0",
+    "opentelemetry-sdk>=1.28.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.28.0",
+    "opentelemetry-instrumentation-fastapi>=0.49b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.49b0",
+    "datamodel-code-generator>=0.28.0",
+    "pyjwt[crypto]>=2.9.0",
+    "cryptography>=43.0.0",
+    "greenlet>=3.5.1",
+    "azure-identity>=1.25.2",
+    "azure-keyvault-secrets>=4.10.0",
+]
+
+[project.optional-dependencies]
+mongodb = [
+    "motor>=3.6.0",
+    "beanie>=1.29.0",
+]
+migrations = [
+    "psycopg2-binary>=2.9.0",
+]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.28.0",
+    "ruff>=0.7.0",
+    "mypy>=1.13.0",
+    "pip-audit>=2.7.0",
+    "slate-backend[migrations]",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["app/models/_generated", "alembic/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "F",     # pyflakes
+    "I",     # isort
+    "W",     # pycodestyle warnings
+    "B",     # bugbear
+    "UP",    # pyupgrade
+    "S",     # bandit (security)
+    "SIM",   # simplify
+    "C4",    # comprehensions
+    "RUF",   # ruff-specific
+    "ASYNC", # async pitfalls
+    "PT",    # pytest style
+    "PL",    # pylint subset
+    "TID",   # tidy imports
+]
+ignore = [
+    "PLR0913", # too many args (FastAPI deps)
+    "PLR2004", # magic value comparisons
+    "S101",    # assert (used in tests)
+    "B008",    # function call in default (FastAPI Depends/Query pattern)
+    "PLC0415", # local imports (used dynamically in providers/services)
+    "PLW0603", # global statement (used for cached providers)
+    "PLR0912", # too many branches (get_current_user logic)
+    "PLR0915", # too many statements (get_current_user logic)
+    "PLC0105", # TypeVar covariance naming
+    "S106",    # possible hardcoded password (mock-token bearer response)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "PL"]
+"alembic/env.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_any_generics = false
+warn_return_any = false
+warn_unused_ignores = false
+plugins = ["pydantic.mypy"]
+exclude = ["app/models/_generated", "alembic/versions", "tests"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=app",
+    "--cov-report=term-missing",
+    "--cov-fail-under=70",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+omit = ["app/models/_generated/*", "alembic/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pip-audit>=2.10.0",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "types-pyyaml>=6.0.12.20260518",
+]

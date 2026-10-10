@@ -1,0 +1,56 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateTabs {
+    in property <[string]> tabs: ["Tab 1", "Tab 2", "Tab 3"];
+    in-out property <int> current-tab: 0;
+    callback tab-selected(int, string);
+
+    height: 42px;
+
+    Rectangle {
+        // Bottom divider line
+        Rectangle {
+            y: parent.height - 1px;
+            height: 1px;
+            background: SlateTheme.border-subtle;
+        }
+
+        HorizontalLayout {
+            spacing: SlateTheme.spacing-xs;
+            alignment: start;
+
+            for tab[idx] in root.tabs : tab-item := Rectangle {
+                touch := TouchArea {
+                    clicked => {
+                        root.current-tab = idx;
+                        root.tab-selected(idx, tab);
+                    }
+                }
+
+                HorizontalLayout {
+                    padding-left: SlateTheme.spacing-md;
+                    padding-right: SlateTheme.spacing-md;
+                    alignment: center;
+
+                    Text {
+                        text: tab;
+                        font-size: SlateTheme.font-sm;
+                        font-weight: root.current-tab == idx ? 600 : 500;
+                        color: root.current-tab == idx ? SlateTheme.text-primary
+                            : touch.has-hover ? SlateTheme.text-primary
+                            : SlateTheme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Active indicator line
+                if root.current-tab == idx : Rectangle {
+                    y: parent.height - 2px;
+                    height: 2px;
+                    background: SlateTheme.accent-primary;
+                    border-radius: SlateTheme.radius-full;
+                }
+            }
+        }
+    }
+}

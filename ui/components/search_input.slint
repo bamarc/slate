@@ -1,0 +1,64 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateSearchInput {
+    in-out property <string> text: "";
+    in property <string> placeholder: "Search...";
+    callback edited(string);
+    callback accepted(string);
+
+    height: 36px;
+    min-width: 180px;
+
+    rect := Rectangle {
+        background: SlateTheme.surface-2;
+        border-radius: SlateTheme.radius-sm;
+        border-width: 1px;
+        border-color: input.has-focus ? SlateTheme.accent-primary : SlateTheme.border-subtle;
+        animate border-color { duration: 120ms; }
+
+        HorizontalLayout {
+            padding-left: SlateTheme.spacing-sm;
+            padding-right: SlateTheme.spacing-sm;
+            alignment: center;
+            spacing: SlateTheme.spacing-sm;
+
+            Text {
+                text: "🔍";
+                font-size: SlateTheme.font-sm;
+                vertical-alignment: center;
+            }
+
+            input := TextInput {
+                text <=> root.text;
+                font-size: SlateTheme.font-sm;
+                color: SlateTheme.text-primary;
+                vertical-alignment: center;
+                single-line: true;
+                edited => { root.edited(root.text); }
+                accepted => { root.accepted(root.text); }
+            }
+
+            if root.text == "" && !input.has-focus : Text {
+                text: root.placeholder;
+                font-size: SlateTheme.font-sm;
+                color: SlateTheme.text-muted;
+                vertical-alignment: center;
+            }
+
+            if root.text != "" : TouchArea {
+                width: 20px;
+                clicked => {
+                    root.text = "";
+                    root.edited("");
+                }
+                Text {
+                    text: "✕";
+                    font-size: 11px;
+                    color: SlateTheme.text-muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,6 @@
+# Development overrides
+
+debug: true
+database_echo: true
+log_level: "DEBUG"
+otel_exporter_endpoint: "http://localhost:4317"

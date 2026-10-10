@@ -1,0 +1,44 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateCard {
+    in property <string> title: "";
+    in property <string> subtitle: "";
+    in property <bool> interactive: false;
+    callback clicked();
+
+    touch := TouchArea {
+        enabled: root.interactive;
+        clicked => { root.clicked(); }
+    }
+
+    rect := Rectangle {
+        background: touch.has-hover && root.interactive ? SlateTheme.surface-hover : SlateTheme.surface-1;
+        border-radius: SlateTheme.radius-md;
+        border-width: 1px;
+        border-color: touch.has-hover && root.interactive ? SlateTheme.border-strong : SlateTheme.border-subtle;
+        animate background { duration: root.interactive ? 150ms : 0ms; }
+        animate border-color { duration: root.interactive ? 150ms : 0ms; }
+
+        VerticalLayout {
+            padding: SlateTheme.spacing-md;
+            spacing: SlateTheme.spacing-sm;
+
+            if root.title != "" || root.subtitle != "" : VerticalLayout {
+                spacing: 2px;
+                if root.title != "" : Text {
+                    text: root.title;
+                    font-size: SlateTheme.font-md;
+                    font-weight: 600;
+                    color: SlateTheme.text-primary;
+                }
+                if root.subtitle != "" : Text {
+                    text: root.subtitle;
+                    font-size: SlateTheme.font-xs;
+                    color: SlateTheme.text-muted;
+                }
+            }
+
+            @children
+        }
+    }
+}

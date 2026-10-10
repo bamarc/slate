@@ -1,0 +1,69 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateTextArea {
+    in-out property <string> text: "";
+    in property <string> label: "";
+    in property <string> placeholder: "";
+    in property <string> helper-text: "";
+    in property <bool> enabled: true;
+    in property <length> min-field-height: 80px;
+    callback edited(string);
+
+    VerticalLayout {
+        spacing: SlateTheme.spacing-xs;
+
+        if root.label != "" : Text {
+            text: root.label;
+            font-size: SlateTheme.font-xs;
+            font-weight: 600;
+            color: SlateTheme.text-secondary;
+        }
+
+        box := Rectangle {
+            min-height: root.min-field-height;
+            background: !root.enabled ? SlateTheme.surface-1 : SlateTheme.surface-2;
+            border-radius: SlateTheme.radius-sm;
+            border-width: 1px;
+            border-color: input.has-focus ? SlateTheme.accent-primary : SlateTheme.border-subtle;
+            animate border-color { duration: 120ms; }
+
+            Rectangle {
+                clip: true;
+                x: SlateTheme.spacing-sm;
+                y: SlateTheme.spacing-sm;
+                width: parent.width - SlateTheme.spacing-sm * 2;
+                height: parent.height - SlateTheme.spacing-sm * 2;
+
+                if root.text == "" && !input.has-focus && root.placeholder != "" : Text {
+                    x: 0px;
+                    y: 0px;
+                    width: 100%;
+                    text: root.placeholder;
+                    font-size: SlateTheme.font-sm;
+                    color: SlateTheme.text-muted;
+                    wrap: word-wrap;
+                }
+
+                input := TextInput {
+                    x: 0px;
+                    y: 0px;
+                    width: 100%;
+                    height: 100%;
+                    text <=> root.text;
+                    font-size: SlateTheme.font-sm;
+                    color: !root.enabled ? SlateTheme.text-muted : SlateTheme.text-primary;
+                    single-line: false;
+                    wrap: word-wrap;
+                    read-only: !root.enabled;
+                    edited => { root.edited(root.text); }
+                }
+            }
+        }
+
+        if root.helper-text != "" : Text {
+            text: root.helper-text;
+            font-size: SlateTheme.font-xs;
+            color: SlateTheme.text-muted;
+        }
+    }
+}

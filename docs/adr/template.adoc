@@ -1,0 +1,99 @@
+ = ADR NNNN: [Short, Imperative Title Summarizing the Decision]
+:doctype: article
+:toc: macro
+:sectnums:
+:idprefix:
+:idseparator: -
+:icons: font
+
+// Standard lifecycle states: Draft | Proposed | Accepted | Rejected | Deprecated | Superseded
+[horizontal]
+*Status*:: Proposed
+*Date*:: YYYY-MM-DD
+*Authors*:: Firstname Lastname (@handle)
+*Deciders*:: Firstname Lastname (@handle), Firstname Lastname (@handle)
+*Category*:: Architecture | Tooling | Infrastructure | Security | CI/CD
+*Supersedes*:: None // link:NNNN-title.adoc[ADR NNNN] if applicable
+*Superseded by*:: None // link:XXXX-title.adoc[ADR XXXX] once updated
+*Related MR / Issue*:: link:https://git.eon-cds.de/...[MR !XX / Issue #YY]
+
+toc::[]
+
+== Context & Problem Statement
+
+// What context led to this decision? What specific problem or friction are we solving?
+// State facts clearly without jumping directly into the solution.
+
+Describe the context and background here:
+
+* Current state and its shortcomings.
+* Pain points felt by contributors, consumers, or platform operations.
+* External constraints (tooling limits, company compliance, deadlines).
+
+== Decision Drivers
+
+// List the critical requirements, constraints, or quality attributes influencing the choice.
+* *Technical / Quality:* [e.g., Modularity, performance, maintainability]
+* *Security & Compliance:* [e.g., KRITIS compliance, least privilege, auditability]
+* *Cost & Operations:* [e.g., FinOps impact, operational maintenance burden]
+* *Developer Experience:* [e.g., Tooling consistency across teams, learning curve]
+
+== Considered Options
+
+// Evaluate all viable options against the decision drivers.
+
+=== Option 1: [Name of Option]
+* *Description:* [Short summary of how this option works]
+* *Pros:* [Positive aspects]
+* *Cons / Trade-offs:* [Drawbacks, missing features, friction]
+
+=== Option 2: [Name of Option]
+* *Description:* [Short summary]
+* *Pros:* [Positive aspects]
+* *Cons / Trade-offs:* [Drawbacks, missing features, friction]
+
+=== Option 3: [Chosen Option Title]
+* *Description:* [Short summary]
+* *Pros:* [Positive aspects]
+* *Cons / Trade-offs:* [Drawbacks]
+
+== Decision Outcome
+
+*Chosen Option:* **Option 3: [Title]**
+
+*Core Justification:* We decide to [chosen option] because [summary justification mapped back to decision drivers].
+
+=== Specifics & Boundaries
+
+1. *Mandatory Rule:* [What is enforced going forward]
+2. *Legacy / Migration Rule:* [How existing systems or exceptions are handled]
+3. *Out of Scope:* [What this decision explicitly does NOT solve or mandate right now]
+
+== Consequences & Trade-Offs
+
+=== Positive Impacts
+* [Benefit 1 — e.g., unified tooling across all repositories]
+* [Benefit 2 — e.g., automated validation via CI]
+
+=== Negative Impacts & Mitigations
+* *[Drawback 1]*: [Description of friction/cost]
+** *Mitigation:* [Concrete steps to alleviate this pain]
+* *[Drawback 2]*: [e.g., Migration effort required for 15 services]
+** *Mitigation:* [e.g., Automated migration script provided in Phase 1]
+
+== Validation & Success Metrics
+
+* *Success Measure:* [e.g., Pipeline runtimes decreased by 20%, zero unauthenticated requests]
+* *Review Trigger / Date:* [e.g., Re-evaluate in 6 months (YYYY-MM-DD) or when service load reaches X]
+
+== Rollout & Implementation Plan (Optional)
+
+// Keep high-level. Detailed task tracking stays in GitLab Issues / Jira.
+* [ ] *Phase 1 (Preparation):* [e.g., Provide shared template and update guidelines]
+* [ ] *Phase 2 (Pilot):* [e.g., Onboard 2 pilot teams/services]
+* [ ] *Phase 3 (Enforcement):* [e.g., Turn on mandatory linting / deprecate old path]
+
+== References & Discussions
+
+* link:https://git.eon-cds.de/...[GitLab MR / Issue / Architecture Discussion]
+* link:https://...[External Documentation / RFC / Standard]

@@ -1,0 +1,55 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateSegmentedControl {
+    in property <[string]> options: ["Option 1", "Option 2", "Option 3"];
+    in-out property <int> selected-index: 0;
+    callback selected(int, string);
+
+    height: 36px;
+    horizontal-stretch: 0;
+
+    Rectangle {
+        border-radius: SlateTheme.radius-sm;
+        background: SlateTheme.surface-2;
+        border-width: 1px;
+        border-color: SlateTheme.border-subtle;
+
+        HorizontalLayout {
+            padding: 3px;
+            spacing: 2px;
+
+            for opt[idx] in root.options : seg := Rectangle {
+                border-radius: SlateTheme.radius-xs;
+                background: root.selected-index == idx ? SlateTheme.surface-1
+                    : seg-touch.has-hover ? SlateTheme.surface-hover
+                    : Colors.transparent;
+                border-width: root.selected-index == idx ? 1px : 0px;
+                border-color: root.selected-index == idx ? SlateTheme.border-strong : Colors.transparent;
+                animate background { duration: 100ms; }
+
+                seg-touch := TouchArea {
+                    clicked => {
+                        root.selected-index = idx;
+                        root.selected(idx, opt);
+                    }
+                }
+
+                HorizontalLayout {
+                    padding-left: SlateTheme.spacing-md;
+                    padding-right: SlateTheme.spacing-md;
+                    alignment: center;
+
+                    Text {
+                        text: opt;
+                        font-size: SlateTheme.font-sm;
+                        font-weight: root.selected-index == idx ? 600 : 500;
+                        color: root.selected-index == idx ? SlateTheme.text-primary
+                            : seg-touch.has-hover ? SlateTheme.text-primary
+                            : SlateTheme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}

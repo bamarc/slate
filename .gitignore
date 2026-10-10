@@ -1,0 +1,65 @@
+# node modules
+node_modules/
+# python virtual envs
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+# build artifacts
+dist/
+build/
+# ide
+.vscode/
+.idea/
+# env files
+.env
+.env.local
+.env.*.local
+# generated
+frontend/src/api/generated/
+backend/app/models/_generated/
+# database
+*.db
+*.sqlite3
+# gitignore additions for new tooling
+.env
+.env.local
+.env.*.local
+
+# python tooling caches
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# node tooling caches
+.eslintcache
+
+# pre-commit
+.pre-commit-cache/
+
+# vite/vitest
+frontend/coverage/
+frontend/.vite/
+
+# typescript build cache
+*.tsbuildinfo
+
+# msw — generated service worker
+frontend/public/mockServiceWorker.js
+
+# Terraform / OpenTofu caches and state files
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+
+# Rust build artifacts
+target/
+renders/
+**/*.rs.bk
+!**/src/bin/
+Cargo.lock
+
+# OS files
+.DS_Store

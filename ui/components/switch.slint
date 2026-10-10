@@ -1,0 +1,69 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateSwitch {
+    in-out property <bool> checked: false;
+    in property <string> text: "";
+    in property <string> description: "";
+    in property <bool> enabled: true;
+    callback toggled(bool);
+
+    horizontal-stretch: 0;
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+
+    HorizontalLayout {
+        spacing: SlateTheme.spacing-sm;
+        alignment: center;
+
+        // Switch pill track
+        track := Rectangle {
+            width: 38px;
+            height: 20px;
+            border-radius: SlateTheme.radius-full;
+            background: !root.enabled ? SlateTheme.surface-2
+                : root.checked ? SlateTheme.accent-primary
+                : SlateTheme.surface-3;
+            border-width: 1px;
+            border-color: root.checked ? SlateTheme.accent-primary-active : SlateTheme.border-subtle;
+            animate background { duration: 150ms; easing: ease-out; }
+            animate border-color { duration: 150ms; }
+
+            // Sliding thumb
+            thumb := Rectangle {
+                x: root.checked ? (parent.width - self.width - 2px) : 2px;
+                y: 2px;
+                width: 16px;
+                height: 16px;
+                border-radius: SlateTheme.radius-full;
+                background: !root.enabled ? SlateTheme.text-muted : #ffffff;
+                animate x { duration: 140ms; easing: ease-out; }
+            }
+        }
+
+        if root.text != "" || root.description != "" : VerticalLayout {
+            spacing: 2px;
+            alignment: center;
+
+            if root.text != "" : Text {
+                text: root.text;
+                font-size: SlateTheme.font-sm;
+                font-weight: 500;
+                color: !root.enabled ? SlateTheme.text-muted
+                    : (touch.has-hover ? SlateTheme.text-primary : SlateTheme.text-secondary);
+                vertical-alignment: center;
+            }
+
+            if root.description != "" : Text {
+                text: root.description;
+                font-size: SlateTheme.font-xs;
+                color: SlateTheme.text-muted;
+            }
+        }
+    }
+}

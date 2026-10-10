@@ -1,0 +1,64 @@
+import { SlateTheme } from "theme.slint";
+import { SlateBadge } from "badge.slint";
+
+export component SlateMetricCard {
+    in property <string> title: "Metric";
+    in property <string> value: "0";
+    in property <string> delta: "";
+    in property <bool> delta-positive: true;
+    in property <string> description: "";
+    in property <string> icon: "";
+
+    Rectangle {
+        background: SlateTheme.surface-1;
+        border-radius: SlateTheme.radius-md;
+        border-width: 1px;
+        border-color: SlateTheme.border-subtle;
+
+        VerticalLayout {
+            padding: SlateTheme.spacing-md;
+            spacing: SlateTheme.spacing-sm;
+
+            HorizontalLayout {
+                Text {
+                    text: root.title;
+                    font-size: SlateTheme.font-sm;
+                    font-weight: 500;
+                    color: SlateTheme.text-secondary;
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                }
+
+                if root.icon != "" : Text {
+                    text: root.icon;
+                    font-size: SlateTheme.font-lg;
+                    vertical-alignment: center;
+                }
+            }
+
+            Text {
+                text: root.value;
+                font-size: SlateTheme.font-2xl;
+                font-weight: 700;
+                color: SlateTheme.text-primary;
+            }
+
+            if root.delta != "" || root.description != "" : HorizontalLayout {
+                spacing: SlateTheme.spacing-xs;
+                alignment: start;
+
+                if root.delta != "" : SlateBadge {
+                    text: root.delta;
+                    variant: root.delta-positive ? "success" : "error";
+                }
+
+                if root.description != "" : Text {
+                    text: root.description;
+                    font-size: SlateTheme.font-xs;
+                    color: SlateTheme.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

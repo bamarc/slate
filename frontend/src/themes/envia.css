@@ -1,0 +1,6 @@
+[data-design="envia"] {
+  --primary: oklch(0.43 0.16 155);
+  --accent: oklch(0.56 0.17 155);
+  --ring: oklch(0.56 0.17 155);
+  --gradient-primary: linear-gradient(135deg, oklch(0.43 0.16 155), oklch(0.56 0.17 155));
+}

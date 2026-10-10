@@ -1,0 +1,77 @@
+{
+  "name": "AI Workshop - Chaos Lab DevContainer",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "version": "latest",
+      "enableNonRootDocker": "true"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22",
+      "pnpmVersion": "latest"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12",
+      "installTools": false
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "kilocode.kilo-code",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "asciidoctor.asciidoctor-vscode",
+        "bierner.markdown-mermaid",
+        "mermaid-chart.vscode-mermaid-chart",
+        "jebbs.plantuml",
+        "ms-azuretools.vscode-docker",
+        "exiasr.hadolint",
+        "Shopify.ruby-lsp",
+        "bscan.perlnavigator",
+        "redhat.vscode-yaml",
+        "tamasfe.even-better-toml",
+        "eamodio.gitlens"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/bin/python",
+        "python.terminal.activateEnvironment": true,
+        "editor.formatOnSave": true,
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "files.eol": "\n",
+        "plantuml.render": "Local",
+        "yaml.schemas": {
+          "https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json": [
+            "compose.yaml",
+            "compose.yml",
+            "docker-compose.yaml",
+            "docker-compose.yml"
+          ]
+        }
+      }
+    }
+  },
+  "forwardPorts": [3000, 8000, 5432, 8080],
+  "portsAttributes": {
+    "3000": {
+      "label": "Frontend (React / Vite)",
+      "onAutoForward": "notify"
+    },
+    "8000": {
+      "label": "Backend (FastAPI)",
+      "onAutoForward": "notify"
+    },
+    "5432": {
+      "label": "PostgreSQL Database",
+      "onAutoForward": "ignore"
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "remoteUser": "vscode"
+}

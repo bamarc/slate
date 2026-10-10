@@ -1,0 +1,68 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateCheckbox {
+    in-out property <bool> checked: false;
+    in-out property <bool> indeterminate: false;
+    in property <string> text: "";
+    in property <bool> enabled: true;
+    callback toggled(bool);
+
+    horizontal-stretch: 0;
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            if root.indeterminate {
+                root.indeterminate = false;
+                root.checked = true;
+            } else {
+                root.checked = !root.checked;
+            }
+            root.toggled(root.checked);
+        }
+    }
+
+    HorizontalLayout {
+        spacing: SlateTheme.spacing-sm;
+        alignment: center;
+
+        box := Rectangle {
+            width: 18px;
+            height: 18px;
+            border-radius: SlateTheme.radius-xs;
+            background: !root.enabled ? SlateTheme.surface-2
+                : (root.checked || root.indeterminate) ? (touch.has-hover ? SlateTheme.accent-primary-hover : SlateTheme.accent-primary)
+                : (touch.has-hover ? SlateTheme.surface-hover : SlateTheme.surface-2);
+            border-width: 1px;
+            border-color: (root.checked || root.indeterminate) ? Colors.transparent
+                : (touch.has-hover ? SlateTheme.border-strong : SlateTheme.border-subtle);
+            animate background { duration: 100ms; }
+
+            if root.checked && !root.indeterminate : Text {
+                text: "✓";
+                font-size: 12px;
+                font-weight: 700;
+                color: #ffffff;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            if root.indeterminate : Text {
+                text: "—";
+                font-size: 11px;
+                font-weight: 700;
+                color: #ffffff;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        if root.text != "" : Text {
+            text: root.text;
+            font-size: SlateTheme.font-sm;
+            color: !root.enabled ? SlateTheme.text-muted
+                : (touch.has-hover ? SlateTheme.text-primary : SlateTheme.text-secondary);
+            vertical-alignment: center;
+        }
+    }
+}

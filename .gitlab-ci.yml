@@ -1,0 +1,94 @@
+spec:
+  inputs:
+    target_env:
+      description: "Target environment"
+      default: "dev"
+      options: ["dev", "stage", "prod"]
+    scope:
+      description: "Which pipeline scope do you want to run?"
+      default: "application"
+      options: ["application", "infrastructure", "bootstrap"]
+    action:
+      description: "Action to perform"
+      rules:
+        - if: $[[ inputs.scope ]] == 'application'
+          options: ["build-and-deploy", "build-only", "deploy-only"]
+          default: "build-and-deploy"
+        - if: $[[ inputs.scope ]] == 'infrastructure'
+          options: ["plan", "apply", "destroy", "taint", "custom", "az-custom"]
+          default: "plan"
+        - if: $[[ inputs.scope ]] == 'bootstrap'
+          options: ["deploy"]
+          default: "deploy"
+    layer:
+      description: "Infra layer to target"
+      rules:
+        - if: $[[ inputs.scope ]] == 'infrastructure'
+          options: ["all", "all-but-base", "base", "networking", "data", "services"]
+          default: "all"
+    image_tag:
+      description: "Optional Docker image tag override (defaults to commit SHA)"
+      rules:
+        - if: $[[ inputs.scope ]] == 'infrastructure' && $[[ inputs.action ]] == 'apply'
+          default: ""
+    taint_resources:
+      description: "Space-separated OpenTofu resource addresses (required for taint)"
+      rules:
+        - if: $[[ inputs.action ]] == 'taint'
+          default: ""
+    tofu_command:
+      description: "OpenTofu subcommand for action=custom"
+      rules:
+        - if: $[[ inputs.action ]] == 'custom'
+          default: ""
+    az_command:
+      description: "Azure CLI command for action=az-custom"
+      rules:
+        - if: $[[ inputs.action ]] == 'az-custom'
+          default: ""
+---
+variables:
+  TOFU_WITH_STAGE: "false"
+  TF_REGISTRY_CLIENT_TIMEOUT: "60"
+
+include:
+  - project: 'repos/ai-automation-envia/ops/ci-support'
+    ref: 'v1.2.3'
+    file: 'ci-templates/pipelines/dispatcher-pipeline.yml'
+    inputs:
+      ci_support_project: 'repos/ai-automation-envia/ops/ci-support'
+      ci_support_ref: 'v1.2.3'
+      scope: $[[ inputs.scope ]]
+      action: $[[ inputs.action ]]
+      target_env: $[[ inputs.target_env ]]
+      layer: $[[ inputs.layer ]]
+      image_tag: $[[ inputs.image_tag ]]
+      taint_resources: $[[ inputs.taint_resources ]]
+      tofu_command: $[[ inputs.tofu_command ]]
+      az_command: $[[ inputs.az_command ]]
+      backend_change_path: 'backend/**/*'
+      frontend_change_path: 'frontend/**/*'
+      api_change_path: 'api/**/*'
+      scripts_change_path: 'scripts/**/*'
+      infrastructure_change_path: 'infrastructure/**/*'
+      backend_dir: 'backend'
+      frontend_dir: 'frontend'
+      enable_backend: true
+      enable_frontend: true
+      image_name: '${{ values.projectName }}'
+      jfrog_registry: '${{ values.jfrogRegistry }}'
+      jfrog_registry_user: '$ARTIFACTORY_USERNAME'
+      jfrog_registry_password: '$ARTIFACTORY_TOKEN'
+      build_context: '.'
+      dockerfile: 'Dockerfile'
+      containers: ''
+      containers_file: ''
+      containerapp_name_dev: 'ca-${{ values.projectName }}-dev-api'
+      container_name_dev: '${{ values.projectName }}-dev-api'
+      resource_group_dev: '${{ values.resourceGroupDev }}'
+      containerapp_name_stage: 'ca-${{ values.projectName }}-stage-api'
+      container_name_stage: '${{ values.projectName }}-stage-api'
+      resource_group_stage: '${{ values.resourceGroupStage }}'
+      containerapp_name_prod: 'ca-${{ values.projectName }}-prod-api'
+      container_name_prod: '${{ values.projectName }}-prod-api'
+      resource_group_prod: '${{ values.resourceGroupProd }}'

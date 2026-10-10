@@ -1,0 +1,332 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: spark-template-python-react
+  title: SPARK Fullstack (Python + React)
+  description: Scaffold the primary SPARK fullstack service with FastAPI backend (Python 3.12, uv, Pydantic v2), React 18 frontend (Vite + Tailwind + Orval), combined production container, OpenAPI 3.1 contract, OpenTofu deploying to Azure Container Apps (ACA) backed by Azure Key Vault, and GitLab CI/CD.
+  tags:
+    - python
+    - fastapi
+    - react
+    - typescript
+    - tailwind
+    - orval
+    - container-apps
+    - keyvault
+    - opentofu
+    - gitlab-ci
+    - spark
+    - recommended
+spec:
+  owner: group:default/spark-core
+  type: service
+
+  parameters:
+    - title: GitLab Target Repository & Merge Request
+      required:
+        - gitlab
+        - owner
+      properties:
+        gitlab:
+          title: GitLab Target Repository
+          type: object
+          ui:field: GitLabRepoPicker
+          ui:options:
+            requestUserCredentials:
+              secretsKey: USER_OAUTH_TOKEN
+        owner:
+          title: Owning Group
+          type: string
+          description: 'Owning team in the Backstage catalog (e.g. group:default/spark-team)'
+          default: group:default/spark-team
+
+    - title: Project Identity & Governance
+      required:
+        - projectTitle
+        - description
+        - aplId
+        - applicationClass
+        - domain
+        - contactPerson
+      properties:
+        projectTitle:
+          title: Display Title
+          type: string
+          description: 'Human-readable application title (e.g. Solar Forecast Cockpit)'
+          ui:autofocus: true
+        description:
+          title: Functional Description
+          type: string
+          description: 'Summary of what this service or application does'
+        aplId:
+          title: LeanIX Application ID (APL)
+          type: string
+          description: 'Assigned LeanIX Application ID (e.g. APL218433)'
+          pattern: '^APL[0-9]+$'
+        jiraTicket:
+          title: SPARK / Jira Issue Key (Optional)
+          type: string
+          description: 'Primary Jira tracking ticket (e.g. SPARK-123)'
+          pattern: '^((SPARK|spark)-[0-9]+)?$'
+        applicationClass:
+          title: Application Class
+          type: string
+          description: 'SPARK Application Class (AC1: shared domain, AC2: dedicated shared infra, AC3: dedicated use case)'
+          default: ac1
+          enum:
+            - ac1
+            - ac2
+            - ac3
+        domain:
+          title: Business Domain (AC1 / Category)
+          type: string
+          description: 'Domain classification (grid: Netz, sales: Vertrieb, overh: Overhead, hr: HR, platform: Platform)'
+          default: grid
+          enum:
+            - grid
+            - sales
+            - overh
+            - hr
+            - platform
+        contactPerson:
+          title: Technical Contact Person
+          type: string
+          description: 'Name or KID of the primary technical contact (e.g. max.mustermann)'
+          ui:field: TechnicalContactPicker
+        system:
+          title: Architectural System (Optional)
+          type: string
+          description: 'Core system boundary in the SPARK platform'
+          default: spark-platform
+          enum:
+            - spark-platform
+            - grid-operations
+            - document-intelligence
+            - infrastructure
+        withStage:
+          title: Include STAGE Environment
+          type: boolean
+          description: 'Generate STAGE OpenTofu configuration and GitLab CI stage branch rules (default: DEV + PROD only)'
+          default: false
+
+    - title: Atlantis GitOps Network & Target Selection
+      required:
+        - atlantisConfig
+      properties:
+        atlantisConfig:
+          title: Atlantis Deployment Target
+          type: object
+          ui:field: AtlantisNetworkPicker
+          ui:options:
+            deploymentSelections: true
+          required: [dev]
+
+    - title: Database & Ingress Settings
+      properties:
+        databaseSku:
+          title: PostgreSQL Compute SKU
+          type: string
+          description: 'Compute tier for PostgreSQL Flexible Server'
+          default: B_Standard_B1ms
+          enum:
+            - B_Standard_B1ms
+            - B_Standard_B2s
+            - GP_Standard_D2ds_v4
+        databaseSuffix:
+          title: Database Server Suffix
+          type: string
+          description: 'Optional suffix for PostgreSQL server name (e.g. 01) to resolve Azure DNS reservation conflicts'
+          default: ''
+        locationOverride:
+          title: Azure Region Override
+          type: string
+          description: 'Optional override for the Azure region (defaults to region detected from Atlantis VNet, e.g. westeurope or Germany West Central)'
+
+  steps:
+    - id: create-gitlab-project
+      name: Create GitLab Repository
+      if: ${{ parameters.gitlab.createRepository }}
+      action: spark:gitlab:create-project
+      input:
+        repoUrl: ${{ parameters.gitlab.repoUrl }}
+        description: "${{ parameters.projectTitle }} - ${{ parameters.description }}"
+        defaultBranch: ${{ parameters.gitlab.targetBranch }}
+        visibility: ${{ parameters.gitlab.visibility or 'internal' }}
+        initializeWithReadme: true
+        token: ${{ secrets.USER_OAUTH_TOKEN }}
+
+    - id: configure-azure
+      name: Configure Existing Project Azure Variables
+      action: spark:gitlab:configure-project-variables
+      input:
+        repoUrl: ${{ parameters.gitlab.repoUrl }}
+        token: ${{ secrets.USER_OAUTH_TOKEN }}
+        dev: ${{ parameters.atlantisConfig.dev }}
+        prod: ${{ parameters.atlantisConfig.prod }}
+        withStage: ${{ parameters.withStage }}
+
+    - id: fetch-template
+      name: Render Python + React Fullstack Skeleton
+      action: fetch:template
+      input:
+        url: ./
+        copyWithoutTemplating:
+          - 'frontend/src/**'
+          - 'frontend/public/**'
+          - 'frontend/pnpm-lock.yaml'
+          - 'scripts/skeletonize.py'
+          - 'scaffold.py'
+          - 'template.yaml'
+          - '.agents/**'
+          - '.github/**'
+          - '.kilo/**'
+        values:
+          gitlabProjectId: >-
+            ${{ steps['create-gitlab-project'].output.projectId or steps['configure-azure'].output.projectId or parameters.gitlab.projectId }}
+          repoPath: >-
+            ${{ steps['configure-azure'].output.repoPath or steps['create-gitlab-project'].output.projectPath or (parameters.gitlab.owner + '/' + (parameters.gitlab.project or parameters.gitlab.repo)) }}
+          subscriptionIdDev: >-
+            ${{ steps['configure-azure'].output.dev.subscriptionId or steps['configure-azure'].output.dev.networkSubscriptionId }}
+          subscriptionIdProd: >-
+            ${{ steps['configure-azure'].output.prod.subscriptionId or steps['configure-azure'].output.prod.networkSubscriptionId or '' }}
+          networkSubscriptionIdDev: >-
+            ${{ steps['configure-azure'].output.dev.networkSubscriptionId or steps['configure-azure'].output.dev.subscriptionId }}
+          networkSubscriptionIdProd: >-
+            ${{ steps['configure-azure'].output.prod.networkSubscriptionId or steps['configure-azure'].output.prod.subscriptionId or '' }}
+          locationDev: >-
+            ${{ parameters.locationOverride or steps['configure-azure'].output.dev.location or 'Germany West Central' }}
+          locationProd: >-
+            ${{ parameters.locationOverride or steps['configure-azure'].output.prod.location or 'Germany West Central' }}
+          itcIdDev: ${{ steps['configure-azure'].output.dev.itcId or '' }}
+          itcIdProd: ${{ steps['configure-azure'].output.prod.itcId or '' }}
+          projectName: ${{ parameters.gitlab.project or parameters.gitlab.repo }}
+          repoName: ${{ parameters.gitlab.repo }}
+          projectTitle: ${{ parameters.projectTitle }}
+          description: ${{ parameters.description }}
+          projectDescription: ${{ parameters.description }}
+          jiraTicket: ${{ parameters.jiraTicket or 'SPARK-0000' }}
+          aplId: ${{ parameters.aplId }}
+          applicationClass: ${{ parameters.applicationClass }}
+          domain: ${{ parameters.domain }}
+          contactPerson: ${{ parameters.contactPerson or user.entity.metadata.name or 'spark-developer' }}
+          system: ${{ parameters.system or 'spark-platform' }}
+          owner: ${{ parameters.owner or 'group:default/spark-team' }}
+          resourceGroupDev: >-
+            ${{ parameters.atlantisConfig.resourceGroupDev or parameters.resourceGroupDev or ('rg-em-dkip-' + parameters.applicationClass + '-' + (parameters.domain + '-' if parameters.applicationClass == 'ac1' else '') + (parameters.gitlab.project or parameters.gitlab.repo) + '-dev') }}
+          resourceGroupProd: >-
+            ${{ parameters.atlantisConfig.resourceGroupProd or parameters.resourceGroupProd or ('rg-em-dkip-' + parameters.applicationClass + '-' + (parameters.domain + '-' if parameters.applicationClass == 'ac1' else '') + (parameters.gitlab.project or parameters.gitlab.repo) + '-prod') }}
+          resourceGroupStage: >-
+            ${{ ('rg-em-dkip-' + parameters.applicationClass + '-' + (parameters.domain + '-' if parameters.applicationClass == 'ac1' else '') + (parameters.gitlab.project or parameters.gitlab.repo) + '-stage') }}
+          atlantisVnetRgDev: ${{ steps['configure-azure'].output.dev.vnetResourceGroup }}
+          atlantisVnetRgProd: ${{ steps['configure-azure'].output.prod.vnetResourceGroup or '' }}
+          atlantisVnetNameDev: ${{ steps['configure-azure'].output.dev.vnetName }}
+          atlantisVnetNameProd: ${{ steps['configure-azure'].output.prod.vnetName or '' }}
+          atlantisAppSubnetNameDev: ${{ steps['configure-azure'].output.dev.appSubnet }}
+          atlantisAppSubnetNameProd: ${{ steps['configure-azure'].output.prod.appSubnet or '' }}
+          atlantisDbSubnetNameDev: ${{ steps['configure-azure'].output.dev.dbSubnet }}
+          atlantisDbSubnetNameProd: ${{ steps['configure-azure'].output.prod.dbSubnet or '' }}
+          jfrogRegistry: >-
+            ${{ parameters.atlantisConfig.jfrogRegistry or parameters.jfrogRegistry or ('repo.eon-cds.de/dkip' + parameters.applicationClass + parameters.domain + (parameters.gitlab.project or parameters.gitlab.repo) + '-docker') }}
+          jfrogRepositoryKey: >-
+            ${{ parameters.atlantisConfig.jfrogRepositoryKey or parameters.jfrogRepositoryKey or ('dkip' + parameters.applicationClass + parameters.domain + (parameters.gitlab.project or parameters.gitlab.repo) + '-docker') }}
+          databaseSku: ${{ parameters.databaseSku or 'B_Standard_B1ms' }}
+          databaseSuffix: ${{ parameters.databaseSuffix or '' }}
+          targetPort: 80
+          withStage: ${{ parameters.withStage or false }}
+
+    - id: clean-template-tooling
+      name: Clean Scaffolder Manifest & Tooling
+      action: fs:delete
+      input:
+        files:
+          - template.yaml
+          - scripts/skeletonize.py
+          - scaffold.py
+          - .agents/plans
+
+    - id: write-catalog-info
+      name: Generate Service Catalog Entity
+      action: catalog:write
+      input:
+        filePath: catalog-info.yaml
+        entity:
+          apiVersion: backstage.io/v1alpha1
+          kind: Component
+          metadata:
+            name: ${{ parameters.gitlab.project or parameters.gitlab.repo }}
+            title: ${{ parameters.projectTitle }}
+            description: ${{ parameters.description }}
+            tags:
+              - service
+              - python
+              - fastapi
+              - react
+              - typescript
+              - opentofu
+              - gitlab-ci
+              - spark
+              - ${{ parameters.domain }}
+            annotations:
+              backstage.io/techdocs-ref: dir:.
+          spec:
+            type: service
+            lifecycle: development
+            owner: ${{ parameters.owner or 'group:default/spark-team' }}
+            system: ${{ parameters.system or 'spark-platform' }}
+
+    - id: publish-gitlab-mr
+      name: Push Branch & Open Merge Request
+      action: publish:gitlab:merge-request
+      input:
+        repoUrl: ${{ parameters.gitlab.repoUrl }}
+        branchName: ${{ parameters.gitlab.branchName }}
+        targetBranchName: ${{ parameters.gitlab.targetBranch }}
+        title: "Scaffold ${{ parameters.projectTitle }}"
+        description: |
+          ### SPARK Scaffolder Initial Setup
+
+          Generated from **SPARK Fullstack (Python + React)** template.
+
+          - **Project**: ${{ parameters.projectTitle }} (`${{ parameters.gitlab.repo }}`)
+          - **Jira Ticket**: ${{ parameters.jiraTicket }}
+          - **APL ID**: ${{ parameters.aplId }}
+          - **Application Class**: ${{ parameters.applicationClass }}
+          - **Domain**: ${{ parameters.domain }}
+          - **Owner**: ${{ parameters.owner }}
+          - **Contact Person**: ${{ parameters.contactPerson }}
+          - **Architecture**: Combined Container (FastAPI + React 18 SPA + Supervisord + Nginx) with OpenTofu & `ci-support` v1.2.0-beta.
+        token: ${{ secrets.USER_OAUTH_TOKEN }}
+        removeSourceBranch: true
+        commitAction: auto
+
+    - id: zip-archive
+      name: Package Project Archive
+      action: spark:zip
+      input:
+        filename: ${{ parameters.gitlab.repo }}.zip
+
+  output:
+    links:
+      - title: Open Merge Request in GitLab
+        url: ${{ steps['publish-gitlab-mr'].output.mergeRequestUrl }}
+        icon: gitlab
+      - title: Download ${{ parameters.gitlab.repo }}.zip
+        url: ${{ steps['zip-archive'].output.downloadUrl }}
+        icon: download
+    text:
+      - title: SPARK Fullstack Project Scaffolded Successfully
+        content: |
+          Your new SPARK service **${{ parameters.projectTitle }}** (`${{ parameters.gitlab.repo }}`) has been generated and pushed to GitLab!
+
+          🔀 **[Open Merge Request in GitLab](${{ steps['publish-gitlab-mr'].output.mergeRequestUrl }})**
+          Target branch: `${{ steps['publish-gitlab-mr'].output.targetBranchName }}`
+
+          📦 **[Click here to download ${{ parameters.gitlab.repo }}.zip](${{ steps['zip-archive'].output.downloadUrl }})** (local fallback)
+
+          ### Next Steps:
+          1. **Review & Merge MR**: Review the scaffolded code in your GitLab MR and merge into `${{ parameters.gitlab.targetBranch }}`.
+          2. **Automated CI/CD Pipeline**: The GitLab CI pipeline will build the container image and deploy infrastructure layers via OpenTofu to Azure Container Apps.
+          3. **Local Development**:
+             - Start stack: `just up`
+             - Run tests: `just test` (pytest + vitest)
+             - Generate domains: `just new-domain <domain_name>`

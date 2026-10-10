@@ -1,0 +1,15 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateSkeleton {
+    in property <length> skeleton-height: 20px;
+    in property <length> border-radius: SlateTheme.radius-sm;
+
+    height: root.skeleton-height;
+
+    Rectangle {
+        border-radius: root.border-radius;
+        background: SlateTheme.surface-2;
+        border-width: 1px;
+        border-color: SlateTheme.border-subtle;
+    }
+}

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Post-commit hook: triggers the docs-bot agent to check if documentation
+# needs updating after a commit.
+#
+# To enable: run `scripts/setup-hooks.sh` or manually symlink:
+#   git config core.hooksPath .githooks
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Only run if there's something to compare
+if ! git rev-parse HEAD~1 &>/dev/null; then
+  exit 0  # first commit, nothing to diff against
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo " 📝 Docs-Bot: Checking documentation..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Run the doc update script in dry-run mode (inform only)
+"$ROOT_DIR/.goose/scripts/update-docs.sh" || true
+
+echo ""
+echo " 💡 Run 'goose run --recipe .goose/recipes/docs-bot.yaml' to auto-update docs."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""

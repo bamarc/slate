@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Git hook: sync tfvars and delegate to security-scan.sh
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+echo "🔄 Syncing and filtering Terraform variables..."
+"$ROOT_DIR/infrastructure/layers/sync_tfvars.py"
+
+"$ROOT_DIR/scripts/security-scan.sh"

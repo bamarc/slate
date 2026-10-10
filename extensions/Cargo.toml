@@ -1,0 +1,11 @@
+[package]
+name = "slate-extensions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Extensions and platform integrations for the Slate UI framework"
+
+[dependencies]
+slate-core = { path = "../core" }
+log.workspace = true

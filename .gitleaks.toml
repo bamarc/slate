@@ -1,0 +1,5 @@
+[allowlist]
+description = "Global allowlist for testing scripts containing mock leaks"
+paths = [
+    '''scripts/test-validation-hooks\.py'''
+]

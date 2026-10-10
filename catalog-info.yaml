@@ -1,0 +1,78 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ultimate-fullstack-template
+  title: Ultimate Fullstack Starter Template
+  description: Production-grade contract-first FastAPI + React starter template with OpenTofu Azure infra, GitLab CI, and domain generator.
+  tags:
+    - template
+    - python
+    - fastapi
+    - react
+    - typescript
+    - opentofu
+    - gitlab-ci
+    - spark
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: template
+  lifecycle: production
+  owner: group:default/spark-core
+  system: spark-platform
+  providesApis:
+    - template-sample-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: template-sample-api
+  title: Fullstack Template Sample API
+  description: Contract-first OpenAPI reference specification illustrating RFC 9457 error details, CRUD routes, and OAuth2 security.
+  tags:
+    - openapi
+    - rest
+    - template
+    - spark
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: openapi
+  lifecycle: production
+  owner: group:default/spark-core
+  system: spark-platform
+  definition: |
+    openapi: "3.1.0"
+    info:
+      title: "Fullstack Template API"
+      version: "0.1.0"
+      description: "Contract-first API specification for the fullstack template project"
+    paths:
+      /api/v1/health:
+        get:
+          operationId: healthCheck
+          summary: Health check endpoint
+          responses:
+            "200":
+              description: Service is healthy
+      /api/v1/items:
+        get:
+          operationId: listItems
+          summary: List items (paginated)
+        post:
+          operationId: createItem
+          summary: Create a new item
+      /api/v1/items/{item_id}:
+        get:
+          operationId: getItem
+          summary: Get an item by ID
+---
+apiVersion: backstage.io/v1alpha1
+kind: Location
+metadata:
+  name: ultimate-fullstack-template-location
+  title: Ultimate Fullstack Starter Template Location
+  description: Registers the Scaffolder Template for Python + React Fullstack
+spec:
+  type: url
+  target: ./template.yaml

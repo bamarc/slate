@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Husky pre-commit hook
+cd "$(dirname "$0")/../.."
+./scripts/security-scan.sh

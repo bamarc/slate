@@ -1,0 +1,8 @@
+# Production overrides
+
+debug: false
+database_echo: false
+log_level: "WARNING"
+otel_exporter_endpoint: "http://otel-collector:4317"
+cors_origins:
+  - "https://your-domain.com"

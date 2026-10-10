@@ -1,0 +1,55 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateActionRow {
+    in property <string> title: "Setting Title";
+    in property <string> subtitle: "";
+    in property <bool> activatable: false;
+    callback clicked();
+
+    min-height: 52px;
+
+    touch := TouchArea {
+        enabled: root.activatable;
+        clicked => { root.clicked(); }
+    }
+
+    rect := Rectangle {
+        background: touch.pressed ? SlateTheme.surface-active
+            : touch.has-hover ? SlateTheme.surface-hover
+            : SlateTheme.surface-1;
+        border-radius: SlateTheme.radius-sm;
+        border-width: 1px;
+        border-color: touch.has-hover ? SlateTheme.border-strong : SlateTheme.border-subtle;
+        animate background { duration: 100ms; }
+
+        HorizontalLayout {
+            padding-left: SlateTheme.spacing-md;
+            padding-right: SlateTheme.spacing-md;
+            padding-top: SlateTheme.spacing-sm;
+            padding-bottom: SlateTheme.spacing-sm;
+            spacing: SlateTheme.spacing-md;
+            alignment: center;
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                horizontal-stretch: 1;
+
+                Text {
+                    text: root.title;
+                    font-size: SlateTheme.font-sm;
+                    font-weight: 500;
+                    color: SlateTheme.text-primary;
+                }
+
+                if root.subtitle != "" : Text {
+                    text: root.subtitle;
+                    font-size: SlateTheme.font-xs;
+                    color: SlateTheme.text-muted;
+                }
+            }
+
+            @children
+        }
+    }
+}

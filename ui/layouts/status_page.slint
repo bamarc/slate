@@ -1,0 +1,47 @@
+import { SlateTheme } from "../components/theme.slint";
+import { SlateButton } from "../components/button.slint";
+
+export component SlateStatusPage {
+    in property <string> icon: "📦";
+    in property <string> title: "No Items";
+    in property <string> description: "There is nothing to display here yet.";
+    in property <string> action-text: "";
+    callback action-clicked();
+
+    VerticalLayout {
+        alignment: center;
+        spacing: SlateTheme.spacing-md;
+        padding: SlateTheme.spacing-xl;
+
+        Text {
+            text: root.icon;
+            font-size: 48px;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: root.title;
+            font-size: SlateTheme.font-xl;
+            font-weight: 700;
+            color: SlateTheme.text-primary;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: root.description;
+            font-size: SlateTheme.font-sm;
+            color: SlateTheme.text-muted;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+
+        if root.action-text != "" : HorizontalLayout {
+            alignment: center;
+            SlateButton {
+                text: root.action-text;
+                variant: "primary";
+                clicked => { root.action-clicked(); }
+            }
+        }
+    }
+}

@@ -1,0 +1,30 @@
+import { SlateTheme } from "../components/theme.slint";
+
+export component SlatePreferencesGroup {
+    in property <string> title: "";
+    in property <string> description: "";
+
+    VerticalLayout {
+        spacing: SlateTheme.spacing-xs;
+
+        if root.title != "" : Text {
+            text: root.title;
+            font-size: SlateTheme.font-sm;
+            font-weight: 600;
+            color: SlateTheme.text-primary;
+        }
+
+        if root.description != "" : Text {
+            text: root.description;
+            font-size: SlateTheme.font-xs;
+            color: SlateTheme.text-muted;
+        }
+
+        Rectangle { height: 4px; }
+
+        VerticalLayout {
+            spacing: 2px;
+            @children
+        }
+    }
+}

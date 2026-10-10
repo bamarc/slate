@@ -1,0 +1,169 @@
+# Local development stack. Reads .env (copy from .env.example).
+# Production deployments should NOT use this file — use k8s, ECS, or your
+# orchestrator of choice with the same images.
+
+name: ${COMPOSE_PROJECT_NAME:-${{ values.projectName }}}
+
+x-resources: &default-resources
+  deploy:
+    resources:
+      limits:
+        cpus: "1.0"
+        memory: 512M
+
+services:
+  db:
+    image: postgres:16.14-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-${{ values.projectName }}}-db
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB required}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      app-network:
+        aliases:
+          - db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    <<: *default-resources
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-${{ values.projectName }}}-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      CORS_ORIGINS: '["http://localhost:${FRONTEND_PORT:-8080}", "http://localhost:5173"]'
+      AUTH_REQUIRED: ${AUTH_REQUIRED:-false}
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-dev}
+      ENVIRONMENT: ${APP_ENV:-dev}
+      OTEL_ENABLED: ${OTEL_ENABLED:-true}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-${{ values.projectName }}}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    command: >
+      sh -c "uv run --no-sync alembic upgrade head &&
+             uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    networks:
+      app-network:
+        aliases:
+          - backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=2).status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    <<: *default-resources
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.72.0
+    container_name: ${COMPOSE_PROJECT_NAME:-${{ values.projectName }}}-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
+    networks:
+      app-network:
+        aliases:
+          - jaeger
+    <<: *default-resources
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.118.0
+    container_name: ${COMPOSE_PROJECT_NAME:-${{ values.projectName }}}-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "${OTEL_GRPC_PORT:-4317}:4317"
+      - "${OTEL_HTTP_PORT:-4318}:4318"
+    depends_on:
+      - jaeger
+    networks:
+      app-network:
+        aliases:
+          - otel-collector
+    <<: *default-resources
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ""
+        VITE_ENV: ${VITE_ENV:-local}
+    container_name: ${COMPOSE_PROJECT_NAME:-${{ values.projectName }}}-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      app-network:
+        aliases:
+          - frontend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    <<: *default-resources
+
+  # Isolated database for backend tests. It never shares the development volume.
+  test-db:
+    image: postgres:16.14-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-${{ values.projectName }}}-test-db
+    restart: "no"
+    profiles: ["test"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${{ values.projectName | replace('-', '_') }}_test
+    ports:
+      - "${TEST_POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - pgdata-test:/var/lib/postgresql/data
+    networks:
+      app-network:
+        aliases:
+          - test-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    <<: *default-resources
+
+networks:
+  app-network:
+    driver: bridge
+    name: ${COMPOSE_PROJECT_NAME:-${{ values.projectName }}}-network
+
+volumes:
+  pgdata:
+    name: ${COMPOSE_PROJECT_NAME:-${{ values.projectName }}}_pgdata
+  pgdata-test:
+    name: ${COMPOSE_PROJECT_NAME:-${{ values.projectName }}}_pgdata_test

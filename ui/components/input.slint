@@ -1,0 +1,105 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateInput {
+    in-out property <string> text: "";
+    in property <string> label: "";
+    in property <string> placeholder: "";
+    in property <string> helper-text: "";
+    in property <string> error-text: "";
+    in property <string> leading-icon: "";
+    in property <bool> enabled: true;
+    in property <bool> password: false;
+    callback edited(string);
+    callback accepted(string);
+
+    VerticalLayout {
+        spacing: SlateTheme.spacing-xs;
+
+        if root.label != "" : Text {
+            text: root.label;
+            font-size: SlateTheme.font-xs;
+            font-weight: 600;
+            color: root.error-text != "" ? SlateTheme.status-error : SlateTheme.text-secondary;
+        }
+
+        box := Rectangle {
+            height: 38px;
+            background: !root.enabled ? SlateTheme.surface-1 : SlateTheme.surface-2;
+            border-radius: SlateTheme.radius-sm;
+            border-width: 1px;
+            border-color: root.error-text != "" ? SlateTheme.status-error
+                : input.has-focus ? SlateTheme.accent-primary
+                : SlateTheme.border-subtle;
+            animate border-color { duration: 120ms; }
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-sm;
+                padding-right: SlateTheme.spacing-sm;
+                spacing: SlateTheme.spacing-sm;
+                alignment: center;
+
+                if root.leading-icon != "" : Text {
+                    text: root.leading-icon;
+                    font-size: SlateTheme.font-sm;
+                    vertical-alignment: center;
+                    color: SlateTheme.text-muted;
+                }
+
+                input-area := Rectangle {
+                    horizontal-stretch: 1;
+                    height: 100%;
+
+                    if root.text == "" && !input.has-focus && root.placeholder != "" : Text {
+                        width: 100%;
+                        height: 100%;
+                        text: root.placeholder;
+                        font-size: SlateTheme.font-sm;
+                        color: SlateTheme.text-muted;
+                        vertical-alignment: center;
+                    }
+
+                    input := TextInput {
+                        width: 100%;
+                        height: 100%;
+                        text <=> root.text;
+                        font-size: SlateTheme.font-sm;
+                        color: !root.enabled ? SlateTheme.text-muted : SlateTheme.text-primary;
+                        vertical-alignment: center;
+                        single-line: true;
+                        read-only: !root.enabled;
+                        input-type: root.password ? InputType.password : InputType.text;
+                        edited => { root.edited(root.text); }
+                        accepted => { root.accepted(root.text); }
+                    }
+                }
+
+                if root.text != "" && root.enabled : TouchArea {
+                    width: 20px;
+                    clicked => {
+                        root.text = "";
+                        root.edited("");
+                    }
+                    Text {
+                        text: "✕";
+                        font-size: 11px;
+                        color: SlateTheme.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        if root.error-text != "" : Text {
+            text: root.error-text;
+            font-size: SlateTheme.font-xs;
+            color: SlateTheme.status-error;
+        }
+
+        if root.error-text == "" && root.helper-text != "" : Text {
+            text: root.helper-text;
+            font-size: SlateTheme.font-xs;
+            color: SlateTheme.text-muted;
+        }
+    }
+}

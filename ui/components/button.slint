@@ -1,0 +1,79 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateButton {
+    in property <string> text: "Button";
+    in property <string> variant: "secondary"; // "primary" | "secondary" | "destructive" | "outline" | "ghost" | "link" | "success"
+    in property <bool> enabled: true;
+    in property <bool> primary: false;
+    in property <string> icon: "";
+    in property <bool> loading: false;
+    callback clicked();
+
+    min-height: 36px;
+    horizontal-stretch: 0;
+
+    property <bool> is-primary: primary || variant == "primary";
+    property <bool> is-destructive: variant == "destructive";
+    property <bool> is-outline: variant == "outline";
+    property <bool> is-ghost: variant == "ghost";
+    property <bool> is-link: variant == "link";
+    property <bool> is-success: variant == "success";
+
+    touch := TouchArea {
+        enabled: root.enabled && !root.loading;
+        clicked => { root.clicked(); }
+    }
+
+    rect := Rectangle {
+        border-radius: SlateTheme.radius-sm;
+        border-width: (root.is-ghost || root.is-link) ? 0px : 1px;
+        animate background { duration: 120ms; easing: ease-in-out; }
+
+        background: !root.enabled ? (SlateTheme.is-dark ? #222634 : #e2e8f0)
+            : root.is-primary ? (touch.pressed ? SlateTheme.accent-primary-active : touch.has-hover ? SlateTheme.accent-primary-hover : SlateTheme.accent-primary)
+            : root.is-destructive ? (touch.pressed ? #b91c1c : touch.has-hover ? #dc2626 : SlateTheme.status-error)
+            : root.is-success ? (touch.pressed ? #047857 : touch.has-hover ? #059669 : SlateTheme.status-success)
+            : (root.is-ghost || root.is-link) ? (touch.pressed ? SlateTheme.surface-active : touch.has-hover ? SlateTheme.surface-hover : Colors.transparent)
+            : root.is-outline ? (touch.pressed ? SlateTheme.surface-active : touch.has-hover ? SlateTheme.surface-hover : Colors.transparent)
+            : (touch.pressed ? SlateTheme.surface-active : touch.has-hover ? SlateTheme.surface-hover : SlateTheme.surface-2);
+
+        border-color: !root.enabled ? SlateTheme.border-subtle
+            : (root.is-primary || root.is-destructive || root.is-success || root.is-ghost || root.is-link) ? Colors.transparent
+            : root.is-outline ? (touch.has-hover ? SlateTheme.accent-primary : SlateTheme.border-strong)
+            : (touch.has-hover ? SlateTheme.border-strong : SlateTheme.border-subtle);
+
+        HorizontalLayout {
+            padding-left: root.is-link ? 4px : SlateTheme.spacing-md;
+            padding-right: root.is-link ? 4px : SlateTheme.spacing-md;
+            alignment: center;
+            spacing: SlateTheme.spacing-sm;
+
+            if root.loading : Text {
+                text: "⏳";
+                font-size: SlateTheme.font-sm;
+                vertical-alignment: center;
+            }
+
+            if root.icon != "" && !root.loading : Text {
+                text: root.icon;
+                font-size: SlateTheme.font-sm;
+                vertical-alignment: center;
+                color: !root.enabled ? SlateTheme.text-muted
+                    : (root.is-primary || root.is-destructive || root.is-success) ? SlateTheme.accent-text
+                    : root.is-link ? SlateTheme.accent-primary
+                    : (touch.has-hover ? SlateTheme.text-primary : SlateTheme.text-secondary);
+            }
+
+            if root.text != "" : txt := Text {
+                text: root.loading ? "Loading..." : root.text;
+                font-size: SlateTheme.font-sm;
+                font-weight: (root.is-primary || root.is-success) ? 600 : 500;
+                vertical-alignment: center;
+                color: !root.enabled ? SlateTheme.text-muted
+                    : (root.is-primary || root.is-destructive || root.is-success) ? SlateTheme.accent-text
+                    : root.is-link ? (touch.has-hover ? SlateTheme.accent-primary-hover : SlateTheme.accent-primary)
+                    : (touch.has-hover ? SlateTheme.text-primary : SlateTheme.text-secondary);
+            }
+        }
+    }
+}

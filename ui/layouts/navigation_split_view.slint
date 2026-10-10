@@ -1,0 +1,91 @@
+import { SlateTheme } from "../components/theme.slint";
+
+export struct NavItem {
+    id: string,
+    title: string,
+    icon: string,
+}
+
+export component SlateNavigationSplitView {
+    in property <[NavItem]> items: [];
+    in-out property <int> current-index: 0;
+    in property <length> sidebar-width: 220px;
+    callback item-selected(int, string);
+
+    width: 100%;
+    height: 100%;
+
+    HorizontalLayout {
+        spacing: 0px;
+        width: 100%;
+        height: 100%;
+
+        // Sidebar
+        Rectangle {
+            width: root.sidebar-width;
+            background: SlateTheme.surface-1;
+
+            VerticalLayout {
+                padding: SlateTheme.spacing-sm;
+                spacing: SlateTheme.spacing-xs;
+                alignment: start;
+
+                for item[idx] in root.items : Rectangle {
+                    height: 40px;
+                    border-radius: SlateTheme.radius-sm;
+                    background: root.current-index == idx ? SlateTheme.accent-primary
+                        : nav-touch.has-hover ? SlateTheme.surface-hover : Colors.transparent;
+                    animate background { duration: 120ms; }
+
+                    nav-touch := TouchArea {
+                        clicked => {
+                            root.current-index = idx;
+                            root.item-selected(idx, item.id);
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-left: SlateTheme.spacing-md;
+                        padding-right: SlateTheme.spacing-md;
+                        spacing: SlateTheme.spacing-sm;
+                        alignment: center;
+
+                        if item.icon != "" : Text {
+                            text: item.icon;
+                            font-size: SlateTheme.font-md;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: item.title;
+                            font-size: SlateTheme.font-sm;
+                            font-weight: root.current-index == idx ? 600 : 500;
+                            color: root.current-index == idx ? SlateTheme.accent-text
+                                : nav-touch.has-hover ? SlateTheme.text-primary : SlateTheme.text-secondary;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                }
+
+                // Push items to top of sidebar
+                Rectangle { vertical-stretch: 1; }
+            }
+
+            // Right divider border
+            Rectangle {
+                x: parent.width - 1px;
+                width: 1px;
+                background: SlateTheme.border-subtle;
+            }
+        }
+
+        // Main content area
+        Rectangle {
+            horizontal-stretch: 1;
+            background: SlateTheme.background;
+
+            @children
+        }
+    }
+}

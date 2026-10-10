@@ -1,0 +1,16 @@
+# General configuration — lowest priority.
+# Override per-environment in config.{dev,test,staging,prod}.yaml.
+# Environment variables take the highest priority.
+
+app_name: "${{ values.projectTitle }} API"
+app_version: "0.1.0"
+
+database_pool_size: 5
+database_max_overflow: 10
+
+cors_origins:
+  - "http://localhost:5173"
+
+otel_enabled: true
+otel_service_name: "${{ values.projectName }}"
+otel_exporter_endpoint: "http://localhost:4317"

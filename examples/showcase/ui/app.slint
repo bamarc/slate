@@ -1,0 +1,870 @@
+import {
+    SlateTheme,
+    SlateButton,
+    SlateCard,
+    SlateBadge,
+    SlateActionRow,
+    SlateSearchInput,
+    SlateInput,
+    SlateTextArea,
+    SlateSwitch,
+    SlateCheckbox,
+    SlateRadio,
+    SlateSlider,
+    SlateSegmentedControl,
+    SlateMetricCard,
+    SlateTable,
+    SlateTableRow,
+    SlateAlert,
+    SlateProgressBar,
+    SlateSkeleton,
+    SlateTabs,
+    SlateAvatar,
+    SlateAccordion,
+    SlateModal,
+    SlateNavigationSplitView,
+    NavItem,
+    SlatePreferencesGroup,
+    SlateStatusPage
+} from "../../ui/index.slint";
+
+export { SlateTheme }
+
+export component MainWindow inherits Window {
+    title: "Slate Desktop Component Showcase";
+    min-width: 960px;
+    min-height: 640px;
+    preferred-width: 1040px;
+    preferred-height: 720px;
+    background: SlateTheme.background;
+    default-font-family: "Inter, Cantarell, Ubuntu, sans-serif";
+
+    // Callbacks to Rust
+    callback start-compute();
+    callback cancel-compute();
+    callback toggle-theme();
+
+    // Navigation and state
+    in-out property <int> active-tab: 0;
+    in-out property <bool> modal-open: false;
+
+    // Interactive Demo Properties
+    in-out property <string> demo-input-text: "dev@slate.internal";
+    in-out property <string> demo-textarea-text: "Declarative, high-performance UI components powered by Slint and Rust.";
+    in-out property <bool> demo-switch-1: true;
+    in-out property <bool> demo-switch-2: false;
+    in-out property <bool> demo-check-1: true;
+    in-out property <bool> demo-check-2: false;
+    in-out property <bool> demo-check-3: true;
+    in-out property <int> demo-radio-selection: 0;
+    in-out property <float> demo-slider-val: 68.0;
+    in-out property <int> demo-segmented-idx: 0;
+    in-out property <int> demo-horizontal-tab: 0;
+    in-out property <bool> demo-accordion-open: true;
+
+    // Compute Engine Properties
+    in-out property <float> compute-progress: 0.0;
+    in-out property <bool> compute-running: false;
+    in-out property <string> compute-result: "Idle — click 'Run Compute Benchmark'";
+    in-out property <string> compute-status: "Ready";
+
+    property <[NavItem]> nav-items: [
+        { id: "buttons", title: "Buttons & Badges", icon: "🔘" },
+        { id: "forms", title: "Forms & Inputs", icon: "📝" },
+        { id: "data", title: "Data Display", icon: "📊" },
+        { id: "feedback", title: "Feedback & Status", icon: "🔔" },
+        { id: "navigation", title: "Navigation", icon: "🧭" },
+        { id: "overlays", title: "Overlays & Modals", icon: "🪟" },
+        { id: "compute", title: "Compute Engine", icon: "⚡" },
+        { id: "settings", title: "Settings", icon: "⚙️" },
+    ];
+
+    property <[SlateTableRow]> sample-rows: [
+        { id: "1", name: "Quantum Core v2", category: "Compute Engine", status: "Active", status-variant: "success", value: "3.8 GHz" },
+        { id: "2", name: "Neural Gateway", category: "Network Layer", status: "Syncing", status-variant: "info", value: "10 Gbps" },
+        { id: "3", name: "Storage Array Delta", category: "Persistent Volume", status: "Warning", status-variant: "warning", value: "88% Full" },
+        { id: "4", name: "Legacy Auth Daemon", category: "Security", status: "Deprecated", status-variant: "error", value: "v1.0.4" },
+    ];
+
+    nav_view := SlateNavigationSplitView {
+        items: root.nav-items;
+        current-index: root.active-tab;
+        item-selected(idx, id) => {
+            root.active-tab = idx;
+        }
+
+        // ==========================================
+        // Tab 0: Buttons & Badges
+        // ==========================================
+        if root.active-tab == 0 : Flickable {
+            VerticalLayout {
+                padding: SlateTheme.spacing-lg;
+                spacing: SlateTheme.spacing-lg;
+
+                HorizontalLayout {
+                    Text {
+                        text: "Buttons & Badges";
+                        font-size: SlateTheme.font-xl;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    SlateBadge { text: "Desktop Primitives"; variant: "info"; }
+                }
+
+                SlateCard {
+                    title: "Button Variants";
+                    subtitle: "Action triggers with distinct visual hierarchies";
+
+                    HorizontalLayout {
+                        spacing: SlateTheme.spacing-sm;
+                        alignment: start;
+
+                        SlateButton { text: "Primary"; variant: "primary"; }
+                        SlateButton { text: "Secondary"; variant: "secondary"; }
+                        SlateButton { text: "Outline"; variant: "outline"; }
+                        SlateButton { text: "Ghost"; variant: "ghost"; }
+                        SlateButton { text: "Destructive"; variant: "destructive"; }
+                        SlateButton { text: "Success"; variant: "success"; }
+                        SlateButton { text: "Link Action"; variant: "link"; }
+                    }
+                }
+
+                SlateCard {
+                    title: "Button States & Icons";
+                    subtitle: "Loading indicators, icons, and disabled states";
+
+                    HorizontalLayout {
+                        spacing: SlateTheme.spacing-md;
+                        alignment: start;
+
+                        SlateButton { text: "With Icon"; variant: "primary"; icon: "⚡"; }
+                        SlateButton { text: "Download"; variant: "secondary"; icon: "📥"; }
+                        SlateButton { text: "Processing"; variant: "primary"; loading: true; }
+                        SlateButton { text: "Disabled"; variant: "secondary"; enabled: false; }
+                    }
+                }
+
+                SlateCard {
+                    title: "Status Badges";
+                    subtitle: "Compact pill badges for states, categories, and metrics";
+
+                    HorizontalLayout {
+                        spacing: SlateTheme.spacing-sm;
+                        alignment: start;
+
+                        SlateBadge { text: "Default"; variant: "default"; }
+                        SlateBadge { text: "Secondary"; variant: "secondary"; }
+                        SlateBadge { text: "Outline"; variant: "outline"; }
+                        SlateBadge { text: "Success"; variant: "success"; }
+                        SlateBadge { text: "Warning"; variant: "warning"; }
+                        SlateBadge { text: "Destructive"; variant: "destructive"; }
+                        SlateBadge { text: "Information"; variant: "info"; }
+                    }
+                }
+
+                SlateCard {
+                    title: "Segmented Control";
+                    subtitle: "Grouped toggle options for mode selection";
+
+                    HorizontalLayout {
+                        alignment: start;
+                        SlateSegmentedControl {
+                            options: ["Daily", "Weekly", "Monthly", "Quarterly"];
+                            selected-index <=> root.demo-segmented-idx;
+                        }
+                    }
+                }
+
+                Rectangle { height: 16px; }
+            }
+        }
+
+        // ==========================================
+        // Tab 1: Forms & Inputs
+        // ==========================================
+        if root.active-tab == 1 : Flickable {
+            VerticalLayout {
+                padding: SlateTheme.spacing-lg;
+                spacing: SlateTheme.spacing-lg;
+
+                HorizontalLayout {
+                    Text {
+                        text: "Forms & Inputs";
+                        font-size: SlateTheme.font-xl;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    SlateBadge { text: "Interactive"; variant: "success"; }
+                }
+
+                SlateCard {
+                    title: "Text Inputs";
+                    subtitle: "Text inputs with labels, icons, clear buttons, and validation states";
+
+                    VerticalLayout {
+                        spacing: SlateTheme.spacing-md;
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-md;
+
+                            SlateInput {
+                                horizontal-stretch: 1;
+                                label: "Work Email";
+                                placeholder: "name@company.com";
+                                leading-icon: "✉️";
+                                text <=> root.demo-input-text;
+                                helper-text: "We will send your verification token here";
+                            }
+
+                            SlateInput {
+                                horizontal-stretch: 1;
+                                label: "Master Token";
+                                placeholder: "Enter token...";
+                                leading-icon: "🔑";
+                                password: true;
+                                text: "supersecrettoken";
+                            }
+                        }
+
+                        SlateInput {
+                            label: "Cluster URL (Validation Demo)";
+                            text: "ftp://invalid-host";
+                            error-text: "Invalid protocol: cluster connection requires https://";
+                        }
+                    }
+                }
+
+                SlateCard {
+                    title: "Multiline Text Area";
+                    subtitle: "Expanding text area for notes, logs, and descriptions";
+
+                    SlateTextArea {
+                        label: "System Description";
+                        placeholder: "Enter framework architectural notes...";
+                        text <=> root.demo-textarea-text;
+                        helper-text: "Markdown and plain text formatting supported";
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-md;
+
+                    SlateCard {
+                        horizontal-stretch: 1;
+                        title: "Switches & Toggles";
+                        subtitle: "Smooth animated sliding toggle switches";
+
+                        VerticalLayout {
+                            spacing: SlateTheme.spacing-md;
+
+                            SlateSwitch {
+                                text: "Hardware Acceleration";
+                                description: "Use GPU rasterization for rendering pipeline";
+                                checked <=> root.demo-switch-1;
+                            }
+
+                            SlateSwitch {
+                                text: "Automatic Sync";
+                                description: "Push local model updates to remote cluster";
+                                checked <=> root.demo-switch-2;
+                            }
+                        }
+                    }
+
+                    SlateCard {
+                        horizontal-stretch: 1;
+                        title: "Checkboxes & Radios";
+                        subtitle: "Multi-state selection controls";
+
+                        VerticalLayout {
+                            spacing: SlateTheme.spacing-sm;
+
+                            SlateCheckbox {
+                                text: "Enable telemetry reporting";
+                                checked <=> root.demo-check-1;
+                            }
+
+                            SlateCheckbox {
+                                text: "Strict type validation";
+                                checked <=> root.demo-check-2;
+                            }
+
+                            SlateCheckbox {
+                                text: "Partial cache invalidation (Indeterminate)";
+                                indeterminate: true;
+                            }
+
+                            Rectangle { height: 4px; }
+
+                            HorizontalLayout {
+                                spacing: SlateTheme.spacing-md;
+
+                                SlateRadio {
+                                    text: "Single Thread";
+                                    selected: root.demo-radio-selection == 0;
+                                    toggled => { root.demo-radio-selection = 0; }
+                                }
+
+                                SlateRadio {
+                                    text: "Rayon Multi-core";
+                                    selected: root.demo-radio-selection == 1;
+                                    toggled => { root.demo-radio-selection = 1; }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SlateCard {
+                    title: "Continuous Slider";
+                    subtitle: "Draggable value slider with filled track";
+
+                    SlateSlider {
+                        label: "Worker Thread Pool Concurrency";
+                        minimum: 1.0;
+                        maximum: 128.0;
+                        value <=> root.demo-slider-val;
+                    }
+                }
+
+                Rectangle { height: 16px; }
+            }
+        }
+
+        // ==========================================
+        // Tab 2: Data Display
+        // ==========================================
+        if root.active-tab == 2 : Flickable {
+            VerticalLayout {
+                padding: SlateTheme.spacing-lg;
+                spacing: SlateTheme.spacing-lg;
+
+                HorizontalLayout {
+                    Text {
+                        text: "Data Display & Tables";
+                        font-size: SlateTheme.font-xl;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    SlateBadge { text: "High Density"; variant: "secondary"; }
+                }
+
+                // Metric KPI Cards Row
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-md;
+
+                    SlateMetricCard {
+                        horizontal-stretch: 1;
+                        title: "Total Compute Volume";
+                        value: "148.5 TFLOPS";
+                        delta: "+24.8%";
+                        delta-positive: true;
+                        description: "vs. previous hour";
+                        icon: "⚡";
+                    }
+
+                    SlateMetricCard {
+                        horizontal-stretch: 1;
+                        title: "Active Worker Nodes";
+                        value: "2,420";
+                        delta: "+180";
+                        delta-positive: true;
+                        description: "all clusters green";
+                        icon: "👥";
+                    }
+
+                    SlateMetricCard {
+                        horizontal-stretch: 1;
+                        title: "Latency (p99)";
+                        value: "1.42 ms";
+                        delta: "-12.4%";
+                        delta-positive: true;
+                        description: "within SLA target";
+                        icon: "⏱️";
+                    }
+                }
+
+                SlateCard {
+                    title: "Cluster Workload Table";
+                    subtitle: "Structured tabular grid with status badges, zebra rows, and selection";
+
+                    SlateTable {
+                        columns: ["Workload", "Service Subsystem", "Cluster State", "Throughput"];
+                        rows: root.sample-rows;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-md;
+
+                    SlateCard {
+                        horizontal-stretch: 1;
+                        title: "Collapsible Disclosure";
+                        subtitle: "Expandable content sections";
+
+                        SlateAccordion {
+                            title: "Kernel Configuration Parameters";
+                            expanded <=> root.demo-accordion-open;
+
+                            VerticalLayout {
+                                spacing: SlateTheme.spacing-xs;
+
+                                Text {
+                                    text: "• Memory Allocator: jemalloc v5.3";
+                                    font-size: SlateTheme.font-sm;
+                                    color: SlateTheme.text-secondary;
+                                }
+                                Text {
+                                    text: "• Event Loop: slint-backend-winit";
+                                    font-size: SlateTheme.font-sm;
+                                    color: SlateTheme.text-secondary;
+                                }
+                                Text {
+                                    text: "• SIMD Vectorization: AVX-512 enabled";
+                                    font-size: SlateTheme.font-sm;
+                                    color: SlateTheme.text-secondary;
+                                }
+                            }
+                        }
+                    }
+
+                    SlateCard {
+                        horizontal-stretch: 1;
+                        title: "User Avatars";
+                        subtitle: "Initials with online status indicator";
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-md;
+                            alignment: start;
+
+                            SlateAvatar { initials: "MG"; status: "online"; size: 44px; }
+                            SlateAvatar { initials: "AG"; status: "online"; size: 44px; }
+                            SlateAvatar { initials: "CR"; status: "busy"; size: 44px; }
+                            SlateAvatar { initials: "SY"; status: "offline"; size: 44px; }
+                        }
+                    }
+                }
+
+                Rectangle { height: 16px; }
+            }
+        }
+
+        // ==========================================
+        // Tab 3: Feedback & Status
+        // ==========================================
+        if root.active-tab == 3 : Flickable {
+            VerticalLayout {
+                padding: SlateTheme.spacing-lg;
+                spacing: SlateTheme.spacing-lg;
+
+                HorizontalLayout {
+                    Text {
+                        text: "Feedback & Status";
+                        font-size: SlateTheme.font-xl;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    SlateBadge { text: "Alerts & Progress"; variant: "info"; }
+                }
+
+                SlateCard {
+                    title: "Alert Callout Banners";
+                    subtitle: "Semantic notification banners for system conditions";
+
+                    VerticalLayout {
+                        spacing: SlateTheme.spacing-md;
+
+                        SlateAlert {
+                            variant: "info";
+                            title: "Scheduled Maintenance";
+                            message: "A rolling cluster upgrade is scheduled for Sunday at 02:00 UTC.";
+                        }
+
+                        SlateAlert {
+                            variant: "success";
+                            title: "Pipeline Verified";
+                            message: "All 24 test suites passed successfully with zero regressions.";
+                        }
+
+                        SlateAlert {
+                            variant: "warning";
+                            title: "High Memory Utilization";
+                            message: "Worker node pool #3 is operating at 86% memory capacity.";
+                        }
+
+                        SlateAlert {
+                            variant: "error";
+                            title: "Connection Timeout";
+                            message: "Failed to establish gRPC stream with remote worker cluster.";
+                        }
+                    }
+                }
+
+                SlateCard {
+                    title: "Progress Indicators";
+                    subtitle: "Smooth determinate progress bars with semantic variants";
+
+                    VerticalLayout {
+                        spacing: SlateTheme.spacing-md;
+
+                        SlateProgressBar {
+                            label: "Compute Job: Monte Carlo Simulation";
+                            progress: 0.74;
+                            show-percent: true;
+                            variant: "primary";
+                        }
+
+                        SlateProgressBar {
+                            label: "Memory Buffer Cache (Healthy)";
+                            progress: 0.42;
+                            show-percent: true;
+                            variant: "success";
+                        }
+
+                        SlateProgressBar {
+                            label: "Disk Quota Utilization (Warning)";
+                            progress: 0.89;
+                            show-percent: true;
+                            variant: "warning";
+                        }
+                    }
+                }
+
+                SlateCard {
+                    title: "Skeleton Loading Placeholders";
+                    subtitle: "Placeholder shimmer blocks while asynchronous data loads";
+
+                    VerticalLayout {
+                        spacing: SlateTheme.spacing-sm;
+
+                        SlateSkeleton { skeleton-height: 24px; border-radius: SlateTheme.radius-sm; }
+                        SlateSkeleton { skeleton-height: 16px; border-radius: SlateTheme.radius-xs; }
+                        SlateSkeleton { skeleton-height: 16px; border-radius: SlateTheme.radius-xs; }
+                    }
+                }
+
+                Rectangle { height: 16px; }
+            }
+        }
+
+        // ==========================================
+        // Tab 4: Navigation
+        // ==========================================
+        if root.active-tab == 4 : Flickable {
+            VerticalLayout {
+                padding: SlateTheme.spacing-lg;
+                spacing: SlateTheme.spacing-lg;
+
+                Text {
+                    text: "Navigation Primitives";
+                    font-size: SlateTheme.font-xl;
+                    font-weight: 700;
+                    color: SlateTheme.text-primary;
+                }
+
+                SlateCard {
+                    title: "Horizontal Tab Bar";
+                    subtitle: "Underlined tab switcher mirroring the webapp's tab strip";
+
+                    VerticalLayout {
+                        spacing: SlateTheme.spacing-md;
+
+                        SlateTabs {
+                            tabs: ["Overview", "Metrics", "Audit Logs", "Security", "Settings"];
+                            current-tab <=> root.demo-horizontal-tab;
+                        }
+
+                        Rectangle {
+                            height: 60px;
+                            background: SlateTheme.surface-2;
+                            border-radius: SlateTheme.radius-sm;
+
+                            Text {
+                                text: "Active Tab Index: " + root.demo-horizontal-tab;
+                                font-size: SlateTheme.font-sm;
+                                color: SlateTheme.text-secondary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                SlateCard {
+                    title: "Action Row List";
+                    subtitle: "Preferences-style action rows with title, description, and action slots";
+
+                    VerticalLayout {
+                        spacing: 2px;
+
+                        SlateActionRow {
+                            title: "Hardware Accelerated Canvas";
+                            subtitle: "Direct OpenGL context rendering";
+                            SlateBadge { text: "Active"; variant: "success"; }
+                        }
+
+                        SlateActionRow {
+                            title: "Telemetry Level";
+                            subtitle: "Diagnostic logs verbosity";
+                            SlateButton { text: "Configure..."; variant: "outline"; }
+                        }
+                    }
+                }
+
+                Rectangle { height: 16px; }
+            }
+        }
+
+        // ==========================================
+        // Tab 5: Overlays & Modals
+        // ==========================================
+        if root.active-tab == 5 : Flickable {
+            VerticalLayout {
+                padding: SlateTheme.spacing-lg;
+                spacing: SlateTheme.spacing-lg;
+
+                Text {
+                    text: "Overlays & Modals";
+                    font-size: SlateTheme.font-xl;
+                    font-weight: 700;
+                    color: SlateTheme.text-primary;
+                }
+
+                SlateCard {
+                    title: "Modal Dialogs";
+                    subtitle: "Window-level modal with dimmed backdrop and focus trapping";
+
+                    VerticalLayout {
+                        spacing: SlateTheme.spacing-md;
+                        alignment: start;
+
+                        Text {
+                            text: "Click the button below to trigger the interactive modal dialog demo:";
+                            font-size: SlateTheme.font-sm;
+                            color: SlateTheme.text-secondary;
+                        }
+
+                        SlateButton {
+                            text: "Launch Confirmation Modal";
+                            variant: "primary";
+                            icon: "🪟";
+                            clicked => { root.modal-open = true; }
+                        }
+                    }
+                }
+
+                SlateCard {
+                    title: "Modal Architecture";
+                    subtitle: "Key characteristics of Slate desktop overlays";
+
+                    VerticalLayout {
+                        spacing: SlateTheme.spacing-xs;
+
+                        Text {
+                            text: "• Backdrop dimming via SlateTheme.overlay-backdrop token";
+                            font-size: SlateTheme.font-sm;
+                            color: SlateTheme.text-secondary;
+                        }
+                        Text {
+                            text: "• Centered elevated surface with soft drop-shadow blur";
+                            font-size: SlateTheme.font-sm;
+                            color: SlateTheme.text-secondary;
+                        }
+                        Text {
+                            text: "• Keyboard and backdrop click dismissal support";
+                            font-size: SlateTheme.font-sm;
+                            color: SlateTheme.text-secondary;
+                        }
+                    }
+                }
+
+                Rectangle { height: 16px; }
+            }
+        }
+
+        // ==========================================
+        // Tab 6: Compute Engine
+        // ==========================================
+        if root.active-tab == 6 : Flickable {
+            VerticalLayout {
+                padding: SlateTheme.spacing-lg;
+                spacing: SlateTheme.spacing-md;
+
+                HorizontalLayout {
+                    Text {
+                        text: "High-Performance Background Compute";
+                        font-size: SlateTheme.font-xl;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                        horizontal-stretch: 1;
+                    }
+
+                    SlateBadge {
+                        text: root.compute-status;
+                        variant: root.compute-running ? "warning" : "success";
+                    }
+                }
+
+                SlateCard {
+                    title: "Monte Carlo Pi Approximation";
+                    subtitle: "Calculates 20,000,000 random samples across background worker threads";
+
+                    VerticalLayout {
+                        spacing: SlateTheme.spacing-md;
+
+                        SlateProgressBar {
+                            progress: root.compute-progress;
+                            show-percent: true;
+                            bar-height: 10px;
+                            variant: "primary";
+                        }
+
+                        HorizontalLayout {
+                            Text {
+                                text: root.compute-result;
+                                font-size: SlateTheme.font-sm;
+                                font-weight: 600;
+                                color: SlateTheme.text-primary;
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-md;
+                            alignment: start;
+
+                            SlateButton {
+                                text: root.compute-running ? "Running..." : "Run Compute Benchmark";
+                                variant: "primary";
+                                icon: "⚡";
+                                enabled: !root.compute-running;
+                                clicked => { root.start-compute(); }
+                            }
+
+                            if root.compute-running : SlateButton {
+                                text: "Cancel";
+                                variant: "destructive";
+                                clicked => { root.cancel-compute(); }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { height: 16px; }
+            }
+        }
+
+        // ==========================================
+        // Tab 7: Settings
+        // ==========================================
+        if root.active-tab == 7 : Flickable {
+            VerticalLayout {
+                padding: SlateTheme.spacing-lg;
+                spacing: SlateTheme.spacing-lg;
+
+                Text {
+                    text: "Application Settings";
+                    font-size: SlateTheme.font-xl;
+                    font-weight: 700;
+                    color: SlateTheme.text-primary;
+                }
+
+                SlatePreferencesGroup {
+                    title: "Appearance";
+                    description: "Customize the window theme and styling preferences";
+
+                    SlateActionRow {
+                        title: "Theme Mode";
+                        subtitle: SlateTheme.is-dark ? "Dark Theme Active (#0f1117)" : "Light Theme Active";
+
+                        SlateButton {
+                            text: SlateTheme.is-dark ? "☀️ Switch to Light" : "🌙 Switch to Dark";
+                            variant: "secondary";
+                            clicked => { root.toggle-theme(); }
+                        }
+                    }
+
+                    SlateActionRow {
+                        title: "Accent Color";
+                        subtitle: "Slate Blue (#3b82f6)";
+
+                        Rectangle {
+                            width: 24px;
+                            height: 24px;
+                            border-radius: SlateTheme.radius-full;
+                            background: SlateTheme.accent-primary;
+                        }
+                    }
+                }
+
+                SlatePreferencesGroup {
+                    title: "About Slate Desktop";
+                    description: "Framework information and runtime details";
+
+                    SlateActionRow {
+                        title: "Framework Version";
+                        subtitle: "v0.1.0-alpha";
+                        SlateBadge { text: "Desktop"; variant: "neutral"; }
+                    }
+
+                    SlateActionRow {
+                        title: "Declarative Backend";
+                        subtitle: "Slint v1.18.1 with native Rust runtime";
+                        SlateBadge { text: "Active"; variant: "success"; }
+                    }
+                }
+
+                Rectangle { height: 16px; }
+            }
+        }
+    }
+
+    // Modal Dialog Overlay
+    modal := SlateModal {
+        is-open <=> root.modal-open;
+        title: "Confirm System Migration";
+        description: "Are you sure you want to promote cluster node-4 to primary leader? This action will rebalance active connections.";
+        confirm-text: "Promote Node";
+        cancel-text: "Dismiss";
+        confirm-variant: "primary";
+        confirmed => {
+            root.modal-open = false;
+        }
+
+        VerticalLayout {
+            spacing: SlateTheme.spacing-sm;
+
+            Rectangle {
+                background: SlateTheme.surface-2;
+                border-radius: SlateTheme.radius-sm;
+                border-width: 1px;
+                border-color: SlateTheme.border-subtle;
+
+                VerticalLayout {
+                    padding: SlateTheme.spacing-md;
+                    spacing: 4px;
+
+                    Text {
+                        text: "Target: cluster-us-east-4a";
+                        font-size: SlateTheme.font-sm;
+                        font-weight: 600;
+                        color: SlateTheme.text-primary;
+                    }
+                    Text {
+                        text: "Active sessions: 1,429 connected clients";
+                        font-size: SlateTheme.font-xs;
+                        color: SlateTheme.text-secondary;
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,79 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateAlert {
+    in property <string> title: "Alert";
+    in property <string> message: "";
+    in property <string> variant: "info"; // "info" | "success" | "warning" | "error"
+    in property <bool> dismissible: false;
+    callback dismissed();
+
+    property <bool> is-success: variant == "success";
+    property <bool> is-warning: variant == "warning";
+    property <bool> is-error: variant == "error";
+
+    Rectangle {
+        border-radius: SlateTheme.radius-sm;
+        background: root.is-success ? SlateTheme.status-success-bg
+            : root.is-warning ? SlateTheme.status-warning-bg
+            : root.is-error ? SlateTheme.status-error-bg
+            : SlateTheme.status-info-bg;
+        border-width: 1px;
+        border-color: root.is-success ? (SlateTheme.status-success.transparentize(50%))
+            : root.is-warning ? (SlateTheme.status-warning.transparentize(50%))
+            : root.is-error ? (SlateTheme.status-error.transparentize(50%))
+            : (SlateTheme.status-info.transparentize(50%));
+
+        HorizontalLayout {
+            padding: SlateTheme.spacing-md;
+            spacing: SlateTheme.spacing-md;
+            alignment: center;
+
+            // Icon
+            Text {
+                text: root.is-success ? "✓"
+                    : root.is-warning ? "⚠️"
+                    : root.is-error ? "✕"
+                    : "ℹ️";
+                font-size: SlateTheme.font-lg;
+                vertical-alignment: top;
+                color: root.is-success ? SlateTheme.status-success
+                    : root.is-warning ? SlateTheme.status-warning
+                    : root.is-error ? SlateTheme.status-error
+                    : SlateTheme.status-info;
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 2px;
+
+                Text {
+                    text: root.title;
+                    font-size: SlateTheme.font-sm;
+                    font-weight: 600;
+                    color: SlateTheme.text-primary;
+                }
+
+                if root.message != "" : Text {
+                    text: root.message;
+                    font-size: SlateTheme.font-xs;
+                    color: SlateTheme.text-secondary;
+                    wrap: word-wrap;
+                }
+            }
+
+            if root.dismissible : TouchArea {
+                width: 24px;
+                height: 24px;
+                clicked => { root.dismissed(); }
+
+                Text {
+                    text: "✕";
+                    font-size: SlateTheme.font-xs;
+                    color: SlateTheme.text-muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

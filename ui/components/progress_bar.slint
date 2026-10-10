@@ -1,0 +1,54 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateProgressBar {
+    in property <float> progress: 0.0; // 0.0 to 1.0
+    in property <string> label: "";
+    in property <bool> show-percent: false;
+    in property <string> variant: "primary"; // "primary" | "success" | "warning" | "error"
+    in property <length> bar-height: 8px;
+
+    property <float> clamped-progress: Math.max(0.0, Math.min(1.0, root.progress));
+    property <bool> is-success: variant == "success";
+    property <bool> is-warning: variant == "warning";
+    property <bool> is-error: variant == "error";
+
+    VerticalLayout {
+        spacing: SlateTheme.spacing-xs;
+
+        if root.label != "" || root.show-percent : HorizontalLayout {
+            if root.label != "" : Text {
+                text: root.label;
+                font-size: SlateTheme.font-xs;
+                font-weight: 500;
+                color: SlateTheme.text-secondary;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            if root.show-percent : Text {
+                text: Math.round(root.clamped-progress * 100) + "%";
+                font-size: SlateTheme.font-xs;
+                font-weight: 600;
+                color: SlateTheme.text-primary;
+            }
+        }
+
+        track := Rectangle {
+            height: root.bar-height;
+            border-radius: SlateTheme.radius-full;
+            background: SlateTheme.surface-3;
+            clip: true;
+
+            fill := Rectangle {
+                x: 0px;
+                y: 0px;
+                height: 100%;
+                width: parent.width * root.clamped-progress;
+                border-radius: SlateTheme.radius-full;
+                background: root.is-success ? SlateTheme.status-success
+                    : root.is-warning ? SlateTheme.status-warning
+                    : root.is-error ? SlateTheme.status-error
+                    : SlateTheme.accent-primary;
+                animate width { duration: 150ms; easing: ease-out; }
+            }
+        }
+    }
+}

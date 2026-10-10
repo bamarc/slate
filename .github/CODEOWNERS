@@ -1,0 +1,25 @@
+# CODEOWNERS — review routing. Replace the @owner placeholder with real
+# GitHub handles or teams before using.
+
+*                          @owner
+
+# API contract — extra scrutiny
+/api/                      @owner
+/api/openapi.yaml          @owner
+
+# Backend
+/backend/                  @owner
+/backend/alembic/          @owner
+
+# Frontend
+/frontend/                 @owner
+
+# Infra / CI / agents
+/.github/                  @owner
+/.claude/                  @owner
+/.goose/                   @owner
+/scripts/                  @owner
+/compose.yaml              @owner
+
+# Docs
+/docs/                     @owner

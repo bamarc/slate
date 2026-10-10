@@ -1,0 +1,13 @@
+[package]
+name = "slate-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Core runtime, task coordination, and theme management for Slate"
+
+[dependencies]
+slint.workspace = true
+slate-utils = { path = "../utils" }
+thiserror.workspace = true
+log.workspace = true

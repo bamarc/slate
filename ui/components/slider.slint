@@ -1,0 +1,90 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateSlider {
+    in-out property <float> value: 50.0;
+    in property <float> minimum: 0.0;
+    in property <float> maximum: 100.0;
+    in property <string> label: "";
+    in property <bool> enabled: true;
+    in property <bool> show-value: true;
+    callback changed(float);
+
+    property <float> ratio: Math.max(0.0, Math.min(1.0, (root.value - root.minimum) / Math.max(0.001, (root.maximum - root.minimum))));
+
+    function update-from-pos(x-pos: length) {
+        if (!root.enabled || track-box.width <= 0px) { return; }
+        let clamped = Math.max(0px, Math.min(track-box.width, x-pos));
+        let r = clamped / track-box.width;
+        root.value = root.minimum + r * (root.maximum - root.minimum);
+        root.changed(root.value);
+    }
+
+    VerticalLayout {
+        spacing: SlateTheme.spacing-xs;
+
+        if root.label != "" || root.show-value : HorizontalLayout {
+            if root.label != "" : Text {
+                text: root.label;
+                font-size: SlateTheme.font-xs;
+                font-weight: 600;
+                color: SlateTheme.text-secondary;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            if root.show-value : Text {
+                text: Math.round(root.value);
+                font-size: SlateTheme.font-xs;
+                font-weight: 600;
+                color: SlateTheme.text-primary;
+            }
+        }
+
+        track-box := Rectangle {
+            height: 24px;
+
+            // Track background
+            track := Rectangle {
+                y: (parent.height - self.height) / 2;
+                height: 6px;
+                border-radius: SlateTheme.radius-full;
+                background: SlateTheme.surface-3;
+
+                // Active filled portion
+                fill := Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width * root.ratio;
+                    height: 100%;
+                    border-radius: SlateTheme.radius-full;
+                    background: !root.enabled ? SlateTheme.text-muted : SlateTheme.accent-primary;
+                }
+            }
+
+            // Draggable thumb
+            thumb := Rectangle {
+                x: (parent.width - self.width) * root.ratio;
+                y: (parent.height - self.height) / 2;
+                width: 18px;
+                height: 18px;
+                border-radius: SlateTheme.radius-full;
+                background: !root.enabled ? SlateTheme.surface-2 : #ffffff;
+                border-width: 2px;
+                border-color: !root.enabled ? SlateTheme.border-subtle : SlateTheme.accent-primary;
+                drop-shadow-blur: 4px;
+                drop-shadow-color: #00000040;
+                drop-shadow-offset-y: 1px;
+            }
+
+            touch := TouchArea {
+                enabled: root.enabled;
+                moved => {
+                    if (self.pressed) {
+                        root.update-from-pos(self.mouse-x);
+                    }
+                }
+                clicked => {
+                    root.update-from-pos(self.mouse-x);
+                }
+            }
+        }
+    }
+}

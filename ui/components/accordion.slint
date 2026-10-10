@@ -1,0 +1,63 @@
+import { SlateTheme } from "theme.slint";
+
+export component SlateAccordion {
+    in property <string> title: "Accordion Item";
+    in-out property <bool> expanded: false;
+    callback toggled(bool);
+
+    Rectangle {
+        background: SlateTheme.surface-1;
+        border-radius: SlateTheme.radius-sm;
+        border-width: 1px;
+        border-color: SlateTheme.border-subtle;
+
+        VerticalLayout {
+            header := Rectangle {
+                height: 44px;
+
+                touch := TouchArea {
+                    clicked => {
+                        root.expanded = !root.expanded;
+                        root.toggled(root.expanded);
+                    }
+                }
+
+                HorizontalLayout {
+                    padding-left: SlateTheme.spacing-md;
+                    padding-right: SlateTheme.spacing-md;
+
+                    Text {
+                        text: root.title;
+                        font-size: SlateTheme.font-sm;
+                        font-weight: 600;
+                        color: touch.has-hover ? SlateTheme.text-primary : SlateTheme.text-secondary;
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: root.expanded ? "▼" : "▶";
+                        font-size: 11px;
+                        color: SlateTheme.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            content-container := VerticalLayout {
+                visible: root.expanded;
+
+                // Divider line
+                Rectangle {
+                    height: 1px;
+                    background: SlateTheme.border-subtle;
+                }
+
+                VerticalLayout {
+                    padding: SlateTheme.spacing-md;
+                    @children
+                }
+            }
+        }
+    }
+}

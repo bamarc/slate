@@ -1,0 +1,18 @@
+[package]
+name = "slate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Slate: Modern, declarative, beautiful desktop UI framework built on Slint and Rust"
+
+[dependencies]
+slint.workspace = true
+slate-core = { path = "../core" }
+slate-utils = { path = "../utils" }
+slate-extensions = { path = "../extensions" }
+log.workspace = true
+env_logger.workspace = true
+
+[build-dependencies]
+slint-build.workspace = true
