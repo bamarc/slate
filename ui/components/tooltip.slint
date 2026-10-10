@@ -1,0 +1,30 @@
+import { SlateTheme } from "theme.slint";
+
+/// Lightweight floating tooltip label.
+export component SlateTooltip {
+    in property <string> text: "Tooltip text";
+    in-out property <bool> is-visible: false;
+
+    visible: root.is-visible;
+    height: 24px;
+    width: text-label.preferred-width + 16px;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: SlateTheme.surface-3;
+        border-radius: SlateTheme.radius-sm;
+        border-width: 1px;
+        border-color: SlateTheme.border-subtle;
+        drop-shadow-blur: 8px;
+        drop-shadow-color: #00000060;
+
+        text-label := Text {
+            text: root.text;
+            font-size: SlateTheme.font-xs;
+            color: SlateTheme.text-primary;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+        }
+    }
+}

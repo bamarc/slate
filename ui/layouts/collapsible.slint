@@ -1,0 +1,88 @@
+import { SlateTheme } from "../components/theme.slint";
+
+/// Standalone single-slot collapsible container with animated disclosure chevron.
+export component SlateCollapsible {
+    in-out property <bool> is-open: true;
+    in property <string> title: "Collapsible Section";
+    in property <string> subtitle: "";
+    callback toggled(bool);
+
+    VerticalLayout {
+        spacing: 0px;
+
+        // Header trigger row
+        header := Rectangle {
+            height: 38px;
+            background: touch.has-hover ? SlateTheme.surface-2 : SlateTheme.surface-1;
+            border-radius: SlateTheme.radius-md;
+            border-width: 1px;
+            border-color: SlateTheme.border-subtle;
+            animate background { duration: 120ms; }
+
+            touch := TouchArea {
+                clicked => {
+                    root.is-open = !root.is-open;
+                    root.toggled(root.is-open);
+                }
+            }
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-md;
+                padding-right: SlateTheme.spacing-md;
+                spacing: SlateTheme.spacing-sm;
+                alignment: space-between;
+
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-sm;
+                    alignment: center;
+
+                    // Chevron indicator
+                    Text {
+                        text: root.is-open ? "▼" : "▶";
+                        font-size: 11px;
+                        color: SlateTheme.text-muted;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: root.title;
+                        font-size: SlateTheme.font-sm;
+                        font-weight: 600;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                    }
+
+                    if root.subtitle != "" : Text {
+                        text: root.subtitle;
+                        font-size: SlateTheme.font-xs;
+                        color: SlateTheme.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Text {
+                    text: root.is-open ? "Collapse" : "Expand";
+                    font-size: SlateTheme.font-xs;
+                    color: SlateTheme.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Expandable body content
+        body := Rectangle {
+            clip: true;
+            visible: root.is-open;
+            height: root.is-open ? content-layout.preferred-height : 0px;
+            animate height { duration: 150ms; }
+
+            content-layout := VerticalLayout {
+                padding-top: SlateTheme.spacing-sm;
+                padding-bottom: SlateTheme.spacing-sm;
+                padding-left: SlateTheme.spacing-xs;
+                padding-right: SlateTheme.spacing-xs;
+                @children
+            }
+        }
+    }
+}

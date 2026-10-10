@@ -151,6 +151,13 @@ impl StateProvider for ShowcaseStateProvider {
                     serde_json::json!(win.get_compute_result().as_str()),
                 );
                 props.insert("modal_open".into(), serde_json::json!(win.get_modal_open()));
+                props.insert("sheet_open".into(), serde_json::json!(win.get_sheet_open()));
+                props.insert("alert_open".into(), serde_json::json!(win.get_alert_open()));
+                props.insert("popover_open".into(), serde_json::json!(win.get_popover_open()));
+                props.insert("toast_visible".into(), serde_json::json!(win.get_toast_visible()));
+                props.insert("workspace_left_collapsed".into(), serde_json::json!(win.get_workspace_left_collapsed()));
+                props.insert("workspace_right_collapsed".into(), serde_json::json!(win.get_workspace_right_collapsed()));
+                props.insert("workspace_center_maximized".into(), serde_json::json!(win.get_workspace_center_maximized()));
 
                 if let Some(ref key) = query_owned {
                     props.retain(|k, _| k == key);
@@ -204,6 +211,46 @@ impl StateProvider for ShowcaseStateProvider {
                     "is_dark" => {
                         if let Some(b) = value.as_bool() {
                             win.global::<SlateTheme>().set_is_dark(b);
+                        }
+                    }
+                    "modal_open" => {
+                        if let Some(b) = value.as_bool() {
+                            win.set_modal_open(b);
+                        }
+                    }
+                    "sheet_open" => {
+                        if let Some(b) = value.as_bool() {
+                            win.set_sheet_open(b);
+                        }
+                    }
+                    "alert_open" => {
+                        if let Some(b) = value.as_bool() {
+                            win.set_alert_open(b);
+                        }
+                    }
+                    "popover_open" => {
+                        if let Some(b) = value.as_bool() {
+                            win.set_popover_open(b);
+                        }
+                    }
+                    "toast_visible" => {
+                        if let Some(b) = value.as_bool() {
+                            win.set_toast_visible(b);
+                        }
+                    }
+                    "workspace_left_collapsed" => {
+                        if let Some(b) = value.as_bool() {
+                            win.set_workspace_left_collapsed(b);
+                        }
+                    }
+                    "workspace_right_collapsed" => {
+                        if let Some(b) = value.as_bool() {
+                            win.set_workspace_right_collapsed(b);
+                        }
+                    }
+                    "workspace_center_maximized" => {
+                        if let Some(b) = value.as_bool() {
+                            win.set_workspace_center_maximized(b);
                         }
                     }
                     _ => return Err(AgentError::state_error(format!("Unknown property: {}", key_str))),
@@ -306,6 +353,54 @@ impl ElementController for ShowcaseElementController {
                         win.set_demo_switch_1(next);
                         Ok(ActionResult::success(format!("Switch toggled to {}", next))
                             .with_element_id("switch_notifications"))
+                    }
+                    "open_modal_btn" | "Launch Confirmation Modal" => {
+                        win.set_modal_open(true);
+                        Ok(ActionResult::success("Confirmation modal opened").with_element_id("open_modal_btn"))
+                    }
+                    "close_modal_btn" | "Close Modal" => {
+                        win.set_modal_open(false);
+                        Ok(ActionResult::success("Confirmation modal closed").with_element_id("close_modal_btn"))
+                    }
+                    "open_alert_btn" | "Launch Destructive Alert" => {
+                        win.set_alert_open(true);
+                        Ok(ActionResult::success("Destructive alert opened").with_element_id("open_alert_btn"))
+                    }
+                    "close_alert_btn" | "Close Alert" => {
+                        win.set_alert_open(false);
+                        Ok(ActionResult::success("Destructive alert closed").with_element_id("close_alert_btn"))
+                    }
+                    "open_sheet_btn" | "Open Inspector Sheet" => {
+                        win.set_sheet_open(true);
+                        Ok(ActionResult::success("Inspector sheet opened").with_element_id("open_sheet_btn"))
+                    }
+                    "close_sheet_btn" | "Close Sheet" => {
+                        win.set_sheet_open(false);
+                        Ok(ActionResult::success("Inspector sheet closed").with_element_id("close_sheet_btn"))
+                    }
+                    "open_popover_btn" | "Toggle Anchored Popover" => {
+                        let next = !win.get_popover_open();
+                        win.set_popover_open(next);
+                        Ok(ActionResult::success(format!("Popover toggled to {}", next)).with_element_id("open_popover_btn"))
+                    }
+                    "show_toast_btn" | "Show Success Toast" => {
+                        win.set_toast_visible(true);
+                        Ok(ActionResult::success("Toast shown").with_element_id("show_toast_btn"))
+                    }
+                    "toggle_workspace_left_btn" | "Toggle Left Panel" => {
+                        let next = !win.get_workspace_left_collapsed();
+                        win.set_workspace_left_collapsed(next);
+                        Ok(ActionResult::success(format!("Left panel collapsed set to {}", next)).with_element_id("toggle_workspace_left_btn"))
+                    }
+                    "toggle_workspace_right_btn" | "Toggle Right Panel" => {
+                        let next = !win.get_workspace_right_collapsed();
+                        win.set_workspace_right_collapsed(next);
+                        Ok(ActionResult::success(format!("Right panel collapsed set to {}", next)).with_element_id("toggle_workspace_right_btn"))
+                    }
+                    "maximize_workspace_center_btn" | "Maximize Base Panel" => {
+                        let next = !win.get_workspace_center_maximized();
+                        win.set_workspace_center_maximized(next);
+                        Ok(ActionResult::success(format!("Center panel maximized set to {}", next)).with_element_id("maximize_workspace_center_btn"))
                     }
                     other => Err(AgentError::element_not_found(other, "Unrecognized interactive element")),
                 }
@@ -682,6 +777,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 return None;
                             }
                             progress(i as f32 / total_samples as f32);
+                            std::thread::sleep(std::time::Duration::from_millis(5));
                         }
 
                         lfsr = (lfsr >> 1) ^ (-( (lfsr & 1) as i64 ) as u64 & 0xB400);
@@ -769,6 +865,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
+
+    if let Some(tab_pos) = args.iter().position(|a| a == "--tab") {
+        if let Some(val) = args.get(tab_pos + 1) {
+            if let Ok(t) = val.parse::<i32>() {
+                main_window.set_active_tab(t);
+            }
+        }
+    } else if let Ok(val) = std::env::var("SLATE_ACTIVE_TAB") {
+        if let Ok(t) = val.parse::<i32>() {
+            main_window.set_active_tab(t);
+        }
+    }
+
+    if args.iter().any(|a| a == "--left-collapsed") {
+        main_window.set_workspace_left_collapsed(true);
+    }
+    if args.iter().any(|a| a == "--right-collapsed") {
+        main_window.set_workspace_right_collapsed(true);
+    }
+    if args.iter().any(|a| a == "--center-maximized") {
+        main_window.set_workspace_center_maximized(true);
+    }
+    if args.iter().any(|a| a == "--sheet-open") {
+        main_window.set_sheet_open(true);
+    }
+    if args.iter().any(|a| a == "--alert-open") {
+        main_window.set_alert_open(true);
+    }
+    if args.iter().any(|a| a == "--modal-open") {
+        main_window.set_modal_open(true);
+    }
 
     main_window.run()?;
     Ok(())

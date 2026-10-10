@@ -22,6 +22,13 @@ import {
     SlateAvatar,
     SlateAccordion,
     SlateModal,
+    SlateSheet,
+    SlateAlertDialog,
+    SlatePopover,
+    SlateTooltip,
+    SlateToast,
+    SlateThreePanelLayout,
+    SlateCollapsible,
     SlateNavigationSplitView,
     NavItem,
     SlatePreferencesGroup,
@@ -35,8 +42,8 @@ export component MainWindow inherits Window {
     title: "Slate Desktop Component Showcase";
     min-width: 960px;
     min-height: 640px;
-    preferred-width: 1040px;
-    preferred-height: 720px;
+    preferred-width: 1100px;
+    preferred-height: 840px;
     background: SlateTheme.background;
     default-font-family: "Inter, Cantarell, Ubuntu, sans-serif";
 
@@ -49,6 +56,14 @@ export component MainWindow inherits Window {
     // Navigation and state
     in-out property <int> active-tab: 0;
     in-out property <bool> modal-open: false;
+    in-out property <bool> sheet-open: false;
+    in-out property <bool> alert-open: false;
+    in-out property <bool> popover-open: false;
+    in-out property <bool> toast-visible: false;
+    in-out property <string> toast-message: "Configuration saved to disk";
+    in-out property <bool> workspace-left-collapsed: false;
+    in-out property <bool> workspace-right-collapsed: false;
+    in-out property <bool> workspace-center-maximized: false;
 
     // Interactive Demo Properties
     in-out property <int> counter: 0;
@@ -673,20 +688,53 @@ export component MainWindow inherits Window {
                 }
 
                 SlateCard {
-                    title: "Modal Dialogs";
-                    subtitle: "Window-level modal with dimmed backdrop and focus trapping";
+                    title: "Dynamic 3-Panel Workspace Layout";
+                    subtitle: "Side panels scale down to 0 width / invisible or maximize; center base panel flexes dynamically";
+
+                    VerticalLayout {
+                        spacing: SlateTheme.spacing-sm;
+
+                        Text {
+                            text: "Interactive Studio Workspace Layout (drag handles or click toolbar buttons):";
+                            font-size: SlateTheme.font-sm;
+                            color: SlateTheme.text-secondary;
+                        }
+
+                        Rectangle {
+                            height: 320px;
+                            border-radius: SlateTheme.radius-md;
+                            border-width: 1px;
+                            border-color: SlateTheme.border-subtle;
+                            clip: true;
+
+                            SlateThreePanelLayout {
+                                left-collapsed <=> root.workspace-left-collapsed;
+                                right-collapsed <=> root.workspace-right-collapsed;
+                                center-maximized <=> root.workspace-center-maximized;
+                                left-title: "Navigation & Files";
+                                center-title: "Active Base Canvas";
+                                right-title: "Inspector Panel";
+                            }
+                        }
+                    }
+                }
+
+                SlateCard {
+                    title: "Modal & Alert Dialogs";
+                    subtitle: "Window-level modals with dimmed backdrop and focus trapping";
 
                     VerticalLayout {
                         spacing: SlateTheme.spacing-md;
                         alignment: start;
 
                         Text {
-                            text: "Click the button below to trigger the interactive modal dialog demo:";
+                            text: "Trigger centered dialogs or high-prominence destructive confirmation barriers:";
                             font-size: SlateTheme.font-sm;
                             color: SlateTheme.text-secondary;
                         }
 
                         HorizontalLayout {
+                            spacing: SlateTheme.spacing-md;
                             alignment: start;
 
                             SlateButton {
@@ -695,31 +743,69 @@ export component MainWindow inherits Window {
                                 icon: "🪟";
                                 clicked => { root.modal-open = true; }
                             }
+
+                            SlateButton {
+                                text: "Launch Destructive Alert";
+                                variant: "destructive";
+                                icon: "⚠️";
+                                clicked => { root.alert-open = true; }
+                            }
                         }
                     }
                 }
 
                 SlateCard {
-                    title: "Modal Architecture";
-                    subtitle: "Key characteristics of Slate desktop overlays";
+                    title: "Off-Canvas Drawer Sheets";
+                    subtitle: "Side panels sliding from right edge with full backdrop dismissal";
 
                     VerticalLayout {
-                        spacing: SlateTheme.spacing-xs;
+                        spacing: SlateTheme.spacing-md;
+                        alignment: start;
 
                         Text {
-                            text: "• Backdrop dimming via SlateTheme.overlay-backdrop token";
+                            text: "Slide-over sheets are optimal for detail inspectors, metadata viewers, and configuration wizards:";
                             font-size: SlateTheme.font-sm;
                             color: SlateTheme.text-secondary;
                         }
-                        Text {
-                            text: "• Centered elevated surface with soft drop-shadow blur";
-                            font-size: SlateTheme.font-sm;
-                            color: SlateTheme.text-secondary;
+
+                        HorizontalLayout {
+                            alignment: start;
+
+                            SlateButton {
+                                text: "Open Inspector Sheet";
+                                variant: "outline";
+                                icon: "📑";
+                                clicked => { root.sheet-open = true; }
+                            }
                         }
-                        Text {
-                            text: "• Keyboard and backdrop click dismissal support";
-                            font-size: SlateTheme.font-sm;
-                            color: SlateTheme.text-secondary;
+                    }
+                }
+
+                SlateCard {
+                    title: "Anchored Popovers & Floating Toasts";
+                    subtitle: "Contextual anchored cards and floating notifications";
+
+                    VerticalLayout {
+                        spacing: SlateTheme.spacing-md;
+                        alignment: start;
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-md;
+                            alignment: start;
+
+                            SlateButton {
+                                text: "Toggle Anchored Popover";
+                                variant: "outline";
+                                icon: "💬";
+                                clicked => { root.popover-open = !root.popover-open; }
+                            }
+
+                            SlateButton {
+                                text: "Show Success Toast";
+                                variant: "outline";
+                                icon: "🔔";
+                                clicked => { root.toast-visible = true; }
+                            }
                         }
                     }
                 }
@@ -904,5 +990,98 @@ export component MainWindow inherits Window {
                 }
             }
         }
+    }
+
+    // Off-Canvas Sheet Drawer Overlay
+    sheet := SlateSheet {
+        is-open <=> root.sheet-open;
+        title: "Inspector Panel";
+        description: "Configure system properties, cluster parameters, and network routes.";
+        side: "right";
+        sheet-size: 380px;
+        confirm-text: "Save Inspector Settings";
+        cancel-text: "Close";
+        confirmed => {
+            root.sheet-open = false;
+        }
+
+        VerticalLayout {
+            spacing: SlateTheme.spacing-md;
+
+            Rectangle {
+                background: SlateTheme.surface-2;
+                border-radius: SlateTheme.radius-sm;
+                border-width: 1px;
+                border-color: SlateTheme.border-subtle;
+
+                VerticalLayout {
+                    padding: SlateTheme.spacing-md;
+                    spacing: SlateTheme.spacing-xs;
+
+                    Text {
+                        text: "Cluster Route: /api/v2/stream";
+                        font-size: SlateTheme.font-sm;
+                        font-weight: 600;
+                        color: SlateTheme.text-primary;
+                    }
+                    Text {
+                        text: "TLS 1.3 Strict Mode • Low-latency priority";
+                        font-size: SlateTheme.font-xs;
+                        color: SlateTheme.text-secondary;
+                    }
+                }
+            }
+        }
+    }
+
+    // Destructive Alert Confirmation Dialog Overlay
+    alert := SlateAlertDialog {
+        is-open <=> root.alert-open;
+        title: "Purge In-Memory Cache?";
+        description: "This action will flush all active cache entries across the compute cluster. Running workloads may experience temporary latency spikes.";
+        action-text: "Purge Cache";
+        cancel-text: "Keep Cache";
+        variant: "destructive";
+        action-confirmed => {
+            root.alert-open = false;
+        }
+        cancelled => {
+            root.alert-open = false;
+        }
+    }
+
+    // Anchored Popover Overlay
+    popover := SlatePopover {
+        is-open <=> root.popover-open;
+        anchor-x: 320px;
+        anchor-y: 200px;
+        popover-width: 300px;
+
+        VerticalLayout {
+            spacing: SlateTheme.spacing-xs;
+
+            Text {
+                text: "Quick Filter Settings";
+                font-size: SlateTheme.font-sm;
+                font-weight: 600;
+                color: SlateTheme.text-primary;
+            }
+            Text {
+                text: "Filter active nodes by health score or region affinity.";
+                font-size: SlateTheme.font-xs;
+                color: SlateTheme.text-muted;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    // Floating Notification Toast Overlay (bottom-right)
+    toast := SlateToast {
+        is-visible <=> root.toast-visible;
+        title: "Workspace Update";
+        message: root.toast-message;
+        variant: "success";
+        x: parent.width - self.width - 24px;
+        y: parent.height - self.height - 24px;
     }
 }

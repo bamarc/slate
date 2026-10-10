@@ -1,0 +1,121 @@
+import { SlateTheme } from "theme.slint";
+import { SlateButton } from "button.slint";
+
+/// High-prominence alert dialog for destructive or critical confirmations.
+/// Click outside on backdrop is non-dismissable to prevent accidental closures.
+export component SlateAlertDialog {
+    in-out property <bool> is-open: false;
+    in property <string> title: "Are you absolutely sure?";
+    in property <string> description: "This action cannot be undone. This will permanently delete your data.";
+    in property <string> action-text: "Delete";
+    in property <string> cancel-text: "Cancel";
+    in property <string> variant: "destructive"; // "destructive" | "warning"
+
+    callback action-confirmed();
+    callback cancelled();
+
+    x: 0px;
+    y: 0px;
+    width: 100%;
+    height: 100%;
+    visible: root.is-open;
+
+    // Full backdrop (deliberately does not auto-close on backdrop click)
+    backdrop := Rectangle {
+        width: 100%;
+        height: 100%;
+        background: SlateTheme.overlay-backdrop;
+        TouchArea {}
+    }
+
+    // Centered Dialog
+    dialog := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: Math.min(parent.width - 48px, 460px);
+        height: dialog-layout.preferred-height;
+        background: SlateTheme.surface-1;
+        border-radius: SlateTheme.radius-lg;
+        border-width: 1px;
+        border-color: root.variant == "destructive" ? SlateTheme.status-error : SlateTheme.status-warning;
+        drop-shadow-blur: 36px;
+        drop-shadow-color: #000000b0;
+        drop-shadow-offset-y: 12px;
+        clip: true;
+
+        TouchArea {}
+
+        dialog-layout := VerticalLayout {
+            padding: SlateTheme.spacing-lg;
+            spacing: SlateTheme.spacing-md;
+
+            // Header with Alert Icon & Title
+            HorizontalLayout {
+                spacing: SlateTheme.spacing-md;
+                alignment: start;
+
+                // Warning / Error Badge
+                Rectangle {
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 20px;
+                    background: root.variant == "destructive" ? #ef444420 : #f59e0b20;
+
+                    Text {
+                        text: root.variant == "destructive" ? "⚠️" : "⚡";
+                        font-size: 18px;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                    }
+                }
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: SlateTheme.spacing-xs;
+
+                    Text {
+                        text: root.title;
+                        font-size: SlateTheme.font-lg;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                    }
+                    Text {
+                        text: root.description;
+                        font-size: SlateTheme.font-sm;
+                        color: SlateTheme.text-muted;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            // Optional body slot
+            @children
+
+            // Action Footer
+            HorizontalLayout {
+                alignment: end;
+                spacing: SlateTheme.spacing-sm;
+
+                SlateButton {
+                    text: root.cancel-text;
+                    variant: "outline";
+                    size: "medium";
+                    clicked => {
+                        root.is-open = false;
+                        root.cancelled();
+                    }
+                }
+
+                SlateButton {
+                    text: root.action-text;
+                    variant: root.variant == "destructive" ? "destructive" : "primary";
+                    size: "medium";
+                    clicked => {
+                        root.is-open = false;
+                        root.action-confirmed();
+                    }
+                }
+            }
+        }
+    }
+}
