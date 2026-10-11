@@ -36,17 +36,21 @@ export component SlateThreePanelLayout {
     callback reset-layout();
 
     // Effective display widths based on collapse/maximize states
-    property <length> effective-left-width: 
+    out property <length> effective-left-width: 
         (root.center-maximized || root.right-maximized || root.left-collapsed) ? 0px :
         Math.max(root.left-min-width, Math.min(root.left-width, root.left-max-width));
 
-    property <length> effective-right-width: 
+    out property <length> effective-right-width: 
         (root.center-maximized || root.left-maximized || root.right-collapsed) ? 0px :
         Math.max(root.right-min-width, Math.min(root.right-width, root.right-max-width));
 
     property <bool> is-left-active: root.effective-left-width > 0px;
     property <bool> is-right-active: root.effective-right-width > 0px;
     property <bool> is-center-active: !root.left-maximized && !root.right-maximized;
+
+    out property <length> actual-left-width: left-panel.width;
+    out property <length> actual-right-width: right-panel.width;
+    out property <length> actual-center-width: center-panel.width;
 
     width: 100%;
     height: 100%;
@@ -190,17 +194,19 @@ export component SlateThreePanelLayout {
 
             // 1. LEFT PANEL
             left-panel := Rectangle {
-                width: root.effective-left-width;
+                min-width: !root.is-left-active ? 0px : (root.left-maximized ? 0px : root.effective-left-width);
+                max-width: !root.is-left-active ? 0px : (root.left-maximized ? 100000px : root.effective-left-width);
+                horizontal-stretch: root.left-maximized ? 1 : 0;
                 visible: root.is-left-active;
                 clip: true;
                 background: SlateTheme.surface-1;
-                animate width { duration: 120ms; }
 
                 Rectangle {
                     x: parent.width - 1px;
                     width: 1px;
                     height: 100%;
                     background: SlateTheme.border-subtle;
+                    visible: !root.left-maximized;
                 }
 
                 VerticalLayout {
@@ -218,8 +224,8 @@ export component SlateThreePanelLayout {
                             vertical-alignment: center;
                         }
                         SlateBadge {
-                            text: "Left";
-                            variant: "default";
+                            text: root.left-maximized ? "Left (Maximized)" : "Left";
+                            variant: root.left-maximized ? "success" : "default";
                         }
                     }
 
@@ -240,7 +246,9 @@ export component SlateThreePanelLayout {
 
             // 2. CENTER BASE PANEL (scales down dynamically as left/right grow)
             center-panel := Rectangle {
-                horizontal-stretch: 1;
+                min-width: 0px;
+                max-width: root.is-center-active ? 100000px : 0px;
+                horizontal-stretch: root.is-center-active ? 1 : 0;
                 visible: root.is-center-active;
                 clip: true;
                 background: SlateTheme.background;
@@ -306,17 +314,19 @@ export component SlateThreePanelLayout {
 
             // 3. RIGHT PANEL
             right-panel := Rectangle {
-                width: root.effective-right-width;
+                min-width: !root.is-right-active ? 0px : (root.right-maximized ? 0px : root.effective-right-width);
+                max-width: !root.is-right-active ? 0px : (root.right-maximized ? 100000px : root.effective-right-width);
+                horizontal-stretch: root.right-maximized ? 1 : 0;
                 visible: root.is-right-active;
                 clip: true;
                 background: SlateTheme.surface-1;
-                animate width { duration: 120ms; }
 
                 Rectangle {
                     x: 0px;
                     width: 1px;
                     height: 100%;
                     background: SlateTheme.border-subtle;
+                    visible: !root.right-maximized;
                 }
 
                 VerticalLayout {
@@ -334,8 +344,8 @@ export component SlateThreePanelLayout {
                             vertical-alignment: center;
                         }
                         SlateBadge {
-                            text: "Right";
-                            variant: "default";
+                            text: root.right-maximized ? "Right (Maximized)" : "Right";
+                            variant: root.right-maximized ? "success" : "default";
                         }
                     }
 

@@ -3,21 +3,38 @@
 Slate is a declarative desktop UI framework for **Rust + [Slint](https://slint.dev)**, inspired by
 Libadwaita/Kirigami and mirroring a web-app design language 1:1.
 
-## Workspace
+## Workspace Layout
+
+Slate is a multi-language UI framework with a shared declarative Slint UI layer:
+
+| Path | Purpose |
+|------|---------|
+| `ui/` | Shared Slint components (`components/`), layouts (`layouts/`), and registry (`index.slint`) |
+| `slate-rust/` | Rust implementation, crates, agent/MCP control, and showcase desktop application |
+| `slate-carbon/` | Google Carbon bindings, C++ runtime bridge, and Bazel workspace |
+
+### Rust Crates (`slate-rust/`)
 
 | Path | Crate | Purpose |
 |------|-------|---------|
-| `core/` | `slate-core` | Theme modes, background tasks (`spawn_compute`, `TaskCancellation`) |
-| `utils/` | `slate-utils` | Formatting and color helpers |
-| `extensions/` | `slate-extensions` | Platform detection (system dark mode), plugins |
-| `lib/` | `slate` | Public facade: re-exports the crates above and the generated Slint types; `AppBuilder` |
-| `test/` | `slate-tests` | Cross-crate tests |
-| `examples/showcase/` | `slate-showcase` | `slate-showcase` (desktop), `web_mirror` and `render` binaries |
-| `ui/` | – | Slint components (`components/`), layouts (`layouts/`), registry `index.slint` |
+| `slate-rust/core/` | `slate-core` | Theme modes, background tasks (`spawn_compute`, `TaskCancellation`) |
+| `slate-rust/utils/` | `slate-utils` | Formatting and color helpers |
+| `slate-rust/extensions/` | `slate-extensions` | Platform detection (system dark mode), plugins |
+| `slate-rust/agent/` | `slate-agent` | Agent automation, ACP protocol adapter, tree inspection |
+| `slate-rust/mcp/` | `slate-mcp` | Model Context Protocol (MCP) server, stdio/memory transports, CLI |
+| `slate-rust/lib/` | `slate` | Public facade: re-exports crates and generated Slint types; `AppBuilder` |
+| `slate-rust/test/` | `slate-tests` | Comprehensive cross-crate and end-to-end tests |
+| `slate-rust/examples/showcase/` | `slate-showcase` | Desktop showcase, `web_mirror` and `render` binaries |
 
-`lib/build.rs` compiles a small generated entry that exports only the code-generating items
-(`SlateTheme`, `SlateWindow`, enums/structs). Widgets are used from `.slint` via `ui/index.slint`.
-The showcase compiles `examples/showcase/ui/app.slint`, which imports `../../ui`.
+### Carbon Bindings (`slate-carbon/`)
+
+| Path | Purpose |
+|------|---------|
+| `slate-carbon/carbon/` | Carbon package definitions (`package Slate library "ui"`, theme tokens) |
+| `slate-carbon/include/slate/` | C++ lifecycle and `AppBuilder` headers |
+| `slate-carbon/src/` | C++ runtime implementation on top of Slint C++ |
+| `slate-carbon/slint.bzl` | Bazel rule compiling `ui/index.slint` into C++ headers |
+| `slate-carbon/examples/` | Example Carbon desktop application |
 
 ## Just recipes
 

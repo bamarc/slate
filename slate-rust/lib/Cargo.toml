@@ -1,0 +1,27 @@
+[package]
+name = "slate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Slate: Modern, declarative, beautiful desktop UI framework built on Slint and Rust"
+
+[dependencies]
+slint.workspace = true
+slate-core = { path = "../core" }
+slate-utils = { path = "../utils" }
+slate-extensions = { path = "../extensions" }
+slate-agent = { path = "../agent" }
+slate-mcp = { path = "../mcp" }
+log.workspace = true
+env_logger.workspace = true
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread"] }
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["full", "macros"] }
+i-slint-backend-testing.workspace = true
+serde_json = "1.0"
+
+[build-dependencies]
+slint-build.workspace = true
+

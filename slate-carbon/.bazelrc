@@ -1,0 +1,4 @@
+# Slate Carbon Bazel Configuration
+build --cxxopt=-std=c++20
+build --enable_platform_specific_config
+build --experimental_enable_bzlmod

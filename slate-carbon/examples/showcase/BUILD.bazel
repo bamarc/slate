@@ -1,0 +1,14 @@
+package(default_visibility = ["//visibility:public"])
+
+# Carbon showcase application target
+filegroup(
+    name = "showcase_sources",
+    srcs = ["main.carbon"],
+)
+
+# Demonstrates linking the Carbon showcase against the Slate C++ bridge
+# carbon_binary(
+#     name = "showcase",
+#     srcs = [":showcase_sources"],
+#     deps = ["//:slate_cpp"],
+# )

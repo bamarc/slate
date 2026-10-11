@@ -1,0 +1,28 @@
+[package]
+name = "slate-showcase"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+[lib]
+name = "slate_gallery"
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "slate-showcase"
+path = "src/main.rs"
+
+[dependencies]
+slate = { path = "../../lib" }
+slint.workspace = true
+log.workspace = true
+env_logger.workspace = true
+image.workspace = true
+async-trait = "0.1"
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["sync", "time", "rt", "rt-multi-thread"] }
+
+[build-dependencies]
+slint-build.workspace = true
+

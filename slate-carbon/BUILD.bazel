@@ -1,0 +1,46 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("//:slint.bzl", "slint_compile")
+
+package(default_visibility = ["//visibility:public"])
+
+# 1. Compile shared root Slint UI markup into C++ header code
+slint_compile(
+    name = "slint_ui_cpp",
+    entry = "//ui:index.slint",
+    srcs = [
+        "//ui:all_components",
+        "//ui:all_layouts",
+    ],
+    include_dirs = [
+        "//ui:ui_root",
+    ],
+    output_header = "slate_ui.h",
+    style = "fluent",
+)
+
+# 2. C++ runtime bridge for Slate lifecycle and platform integration
+cc_library(
+    name = "slate_cpp",
+    srcs = ["src/app.cpp"],
+    hdrs = [
+        "include/slate/app.h",
+        ":slint_ui_cpp",
+    ],
+    includes = ["include"],
+    deps = [
+        # In a fully integrated Bazel build, this links against @slint//:slint_cpp
+    ],
+)
+
+# 3. Filegroup exposing Carbon bindings
+filegroup(
+    name = "slate_carbon_sources",
+    srcs = [
+        "carbon/slate.carbon",
+        "carbon/theme.carbon",
+    ],
+)
+
+# Note: Once rules_carbon is linked in the Bazel ecosystem,
+# `carbon_library(name = "slate_carbon", srcs = [":slate_carbon_sources"], deps = [":slate_cpp"])`
+# compiles the Carbon package directly.

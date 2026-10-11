@@ -1,0 +1,10 @@
+# Optional, machine-specific build settings. Copy to `.cargo/config.toml`
+# (gitignored) and adjust paths if native libraries live in a non-standard prefix.
+# Not needed on a standard system.
+
+# [target.'cfg(all())']
+# rustflags = ["-L", "/path/to/prefix/lib"]
+#
+# [env]
+# PKG_CONFIG_PATH = "/path/to/prefix/lib/pkgconfig"
+# LD_LIBRARY_PATH = "/path/to/prefix/lib"

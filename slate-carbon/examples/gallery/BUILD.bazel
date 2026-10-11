@@ -1,0 +1,34 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+# C++ Bridge for the Showcase Gallery
+cc_library(
+    name = "gallery_bridge",
+    srcs = ["gallery_bridge.cpp"],
+    hdrs = ["gallery_bridge.h"],
+    includes = ["."],
+    deps = [
+        "//:slate_cpp",
+    ],
+)
+
+# Native C++ binary testing the Gallery Bridge
+cc_binary(
+    name = "gallery_host",
+    srcs = ["main.cpp"],
+    deps = [":gallery_bridge"],
+)
+
+# Carbon Gallery Source Group
+filegroup(
+    name = "gallery_carbon_srcs",
+    srcs = ["main.carbon"],
+)
+
+# When carbon-lang rules are present:
+# carbon_binary(
+#     name = "gallery_carbon",
+#     srcs = [":gallery_carbon_srcs"],
+#     deps = [":gallery_bridge"],
+# )

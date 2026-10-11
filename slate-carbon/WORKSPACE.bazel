@@ -1,0 +1,4 @@
+# Bazel workspace definition for Slate Carbon bindings
+workspace(name = "slate_carbon")
+
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")

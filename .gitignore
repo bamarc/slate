@@ -60,6 +60,10 @@ renders/
 **/*.rs.bk
 !**/src/bin/
 
+# Bazel & Carbon build artifacts
+bazel-*
+slate-carbon/**/bin/
+
 # Local, user-owned material
 old/
 .cargo/config.toml

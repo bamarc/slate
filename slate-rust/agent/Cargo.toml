@@ -1,0 +1,27 @@
+[package]
+name = "slate-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Core decoupled automation engine, Slint bridge, and ACP extensions for Slate desktop applications"
+
+[dependencies]
+slint.workspace = true
+i-slint-core.workspace = true
+slate-core = { path = "../core" }
+slate-utils = { path = "../utils" }
+thiserror.workspace = true
+image.workspace = true
+log.workspace = true
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["sync", "time", "rt", "rt-multi-thread", "macros"] }
+async-trait = "0.1"
+base64 = "0.23"
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["full", "macros"] }
+env_logger.workspace = true
+i-slint-backend-testing.workspace = true

@@ -1,0 +1,7 @@
+package(default_visibility = ["//visibility:public"])
+
+# Slint compiler toolchain definition (expects `slint-compiler` installed on host or in toolchain container)
+sh_binary(
+    name = "slint_compiler",
+    srcs = ["slint_compiler_wrapper.sh"],
+)

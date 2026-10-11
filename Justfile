@@ -8,48 +8,48 @@ set dotenv-load := true
 default:
     @just --list --unsorted
 
-# ── Slate UI Framework ─────────────────────────────────────
+# ── Slate Rust UI Framework ────────────────────────────────
 
-# Build all crates in the Slate workspace
+# Build all crates in the Slate Rust workspace
 build:
-    cargo build --workspace
+    cd slate-rust && cargo build --workspace
 
 # Fast check compilation of all workspace crates without emitting binaries
 check:
-    cargo check --workspace
+    cd slate-rust && cargo check --workspace
 
-# Run all unit and integration tests across the Slate workspace
+# Run all unit and integration tests across the Slate Rust workspace
 test:
-    cargo test --workspace
+    cd slate-rust && cargo test --workspace
 
 # Run the comprehensive 4-tier Agent / MCP end-to-end test suite
 e2e:
-    cargo run -p slate-tests --bin e2e_runner
+    cd slate-rust && cargo run -p slate-tests --bin e2e_runner
 
 # Launch the interactive Slate desktop showcase application (Desktop layout)
 run:
-    cargo run -p slate-showcase
+    cd slate-rust && cargo run -p slate-showcase
 
 # Alias for run
 showcase: run
 
 # Launch the interactive Slate WebApp mirror showcase (Web layout matching webapp 1:1)
 web-mirror:
-    cargo run -p slate-showcase --bin web_mirror
+    cd slate-rust && cargo run -p slate-showcase --bin web_mirror
 
 # Render offline pixel-perfect PNG snapshots of all views into the output directory
 render out_dir="renders":
-    SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- snapshot {{out_dir}}
+    cd slate-rust && SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- snapshot {{out_dir}}
 
 # Optically compare two snapshots and generate a visual diff heatmap: `just compare a.png b.png diff.png [threshold%]`; exits non-zero above threshold
 compare img_a img_b diff_out="renders/optical-diff.png" threshold="0.0":
-    SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- compare {{img_a}} {{img_b}} {{diff_out}} --threshold {{threshold}}
+    cd slate-rust && SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- compare {{img_a}} {{img_b}} {{diff_out}} --threshold {{threshold}}
 
-# Optical regression gate: render to a temp dir and compare against examples/showcase/golden/
+# Optical regression gate: render to a temp dir and compare against slate-rust/examples/showcase/golden/
 optical-check:
     #!/usr/bin/env bash
     set -euo pipefail
-    golden=examples/showcase/golden
+    golden=slate-rust/examples/showcase/golden
     if [ ! -d "$golden" ] || [ -z "$(ls -A "$golden" 2>/dev/null)" ]; then
         echo "✗ No golden images in $golden — nothing to compare against."
         echo "  Run 'just optical-bless' to generate them, review them, and commit."
@@ -57,25 +57,39 @@ optical-check:
     fi
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
-    SLINT_BACKEND=software cargo run -q -p slate-showcase --bin render -- snapshot "$tmp"
-    SLINT_BACKEND=software cargo run -q -p slate-showcase --bin render -- check "$golden" "$tmp"
+    (cd slate-rust && SLINT_BACKEND=software cargo run -q -p slate-showcase --bin render -- snapshot "$tmp")
+    (cd slate-rust && SLINT_BACKEND=software cargo run -q -p slate-showcase --bin render -- check "$golden" "$tmp")
 
 # Regenerate golden images from the current UI (review them before committing!)
 optical-bless:
-    SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- snapshot examples/showcase/golden
-    @echo "⚠ Golden images regenerated in examples/showcase/golden — review before committing."
+    cd slate-rust && SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- snapshot examples/showcase/golden
+    @echo "⚠ Golden images regenerated in slate-rust/examples/showcase/golden — review before committing."
 
 # Format Rust code across all workspace crates
 fmt:
-    cargo fmt --all
+    cd slate-rust && cargo fmt --all
 
 # Clean Cargo build artifacts
 clean-slate:
-    cargo clean
+    cd slate-rust && cargo clean
 
 # Build standalone Linux AppImage for the Slate desktop showcase application
 appimage:
-    bash packaging/appimage/build.sh
+    bash slate-rust/packaging/appimage/build.sh
+
+# ── Slate Carbon Bindings ──────────────────────────────────
+
+# Build Slate Carbon application with Google Carbon toolchain
+carbon-build:
+    slate-carbon/examples/gallery/build.sh
+
+# Compile shared Slint UI markup into C++ header code for Carbon
+carbon-ui:
+    cd slate-carbon && bazel build //:slint_ui_cpp
+
+# Run the Slate Desktop Component Gallery via Google Carbon
+carbon-gallery:
+    slate-carbon/examples/gallery/run.sh
 
 # ── Legacy Webapp Stack (Preserved) ─────────────────────────
 

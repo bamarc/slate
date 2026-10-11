@@ -1,0 +1,21 @@
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "index.slint",
+    srcs = ["index.slint"],
+)
+
+filegroup(
+    name = "all_components",
+    srcs = glob(["components/**/*.slint"]),
+)
+
+filegroup(
+    name = "all_layouts",
+    srcs = glob(["layouts/**/*.slint"]),
+)
+
+filegroup(
+    name = "ui_root",
+    srcs = glob(["**/*"]),
+)
