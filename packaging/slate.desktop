@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Slate
+GenericName=Slint UI Framework Showcase
+Comment=Native declarative UI shell and showcase built with Slint
+Exec=slate-showcase
+Icon=slate
+Type=Application
+Categories=Development;Utility;
+Terminal=false
+StartupWMClass=slate-showcase

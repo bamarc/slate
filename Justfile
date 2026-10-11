@@ -73,6 +73,10 @@ fmt:
 clean-slate:
     cargo clean
 
+# Build standalone Linux AppImage for the Slate desktop showcase application
+appimage:
+    bash packaging/appimage/build.sh
+
 # ── Legacy Webapp Stack (Preserved) ─────────────────────────
 
 # Start the full docker compose stack (db + backend + frontend) attached.
