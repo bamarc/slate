@@ -14,6 +14,10 @@ export component SlateButton {
     in property <bool> primary: false;
     in property <string> icon: "";
     in property <bool> loading: false;
+    // Phase 3 (D3) identity contract: stable `accessible-id` for MCP/inspector
+    // targeting. Defaults to the button text; set `automation-id` when several
+    // instances share a label (duplicate accessible-ids are an error).
+    in property <string> automation-id: "";
     callback clicked();
 
     property <bool> is-sm: size == SlateButtonSize.sm;
@@ -48,6 +52,7 @@ export component SlateButton {
 
     accessible-role: button;
     accessible-label: root.text;
+    accessible-id: root.automation-id != "" ? root.automation-id : root.text;
     accessible-enabled: root.active;
     accessible-action-default => { if (root.active) { root.clicked(); } }
 

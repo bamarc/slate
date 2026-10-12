@@ -5,6 +5,8 @@ component SlatePageButton {
     in property <bool> selected: false;
     in property <bool> enabled: true;
     in property <string> label: root.text;
+    // Phase 3 (D3) identity contract: SlatePagination passes per-slot ids.
+    in property <string> automation-id: "";
     callback clicked();
 
     height: 32px;
@@ -12,6 +14,7 @@ component SlatePageButton {
     horizontal-stretch: 0;
     accessible-role: button;
     accessible-label: root.label;
+    accessible-id: root.automation-id != "" ? root.automation-id : root.label;
     accessible-checkable: true;
     accessible-checked: root.selected;
     accessible-enabled: root.enabled;
@@ -71,6 +74,9 @@ component SlatePageButton {
 export component SlatePagination {
     in-out property <int> current-page: 1;
     in property <int> total-pages: 1;
+    // Phase 3 (D3) identity contract: see SlateButton. Slot buttons derive
+    // "<automation-id>-page-<n>" so repeated paginations stay unique.
+    in property <string> automation-id: "";
     callback page-changed(int);
 
     // Slot value: page number, 0 = ellipsis, -1 = unused. Up to 7 slots.
@@ -96,6 +102,7 @@ export component SlatePagination {
     height: 32px;
     accessible-role: groupbox;
     accessible-label: "Pagination";
+    accessible-id: root.automation-id != "" ? root.automation-id : "pagination";
 
     HorizontalLayout {
         alignment: center;
@@ -104,6 +111,7 @@ export component SlatePagination {
         SlatePageButton {
             text: "‹ Previous";
             label: "Previous page";
+            automation-id: root.automation-id != "" ? root.automation-id + "-prev" : "pagination-prev";
             enabled: root.current-page > 1;
             clicked => { root.go(root.current-page - 1); }
         }
@@ -112,6 +120,7 @@ export component SlatePagination {
             if root.slot(i) > 0 : SlatePageButton {
                 text: root.slot(i);
                 label: "Page " + root.slot(i);
+                automation-id: root.automation-id != "" ? root.automation-id + "-page-" + root.slot(i) : "pagination-page-" + root.slot(i);
                 selected: root.slot(i) == root.current-page;
                 clicked => { root.go(root.slot(i)); }
             }
@@ -130,6 +139,7 @@ export component SlatePagination {
         SlatePageButton {
             text: "Next ›";
             label: "Next page";
+            automation-id: root.automation-id != "" ? root.automation-id + "-next" : "pagination-next";
             enabled: root.current-page < root.total-pages;
             clicked => { root.go(root.current-page + 1); }
         }

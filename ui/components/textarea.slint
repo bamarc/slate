@@ -7,6 +7,8 @@ export component SlateTextArea {
     in property <string> helper-text: "";
     in property <bool> enabled: true;
     in property <length> min-field-height: 80px;
+    // Phase 3 (D3) identity contract: see SlateButton.
+    in property <string> automation-id: "";
     callback edited(string);
 
     VerticalLayout {
@@ -52,6 +54,7 @@ export component SlateTextArea {
                     text <=> root.text;
                     accessible-role: text-input;
                     accessible-label: root.label != "" ? root.label : root.placeholder;
+                    accessible-id: root.automation-id != "" ? root.automation-id : (root.label != "" ? root.label : root.placeholder);
                     accessible-placeholder-text: root.placeholder;
                     font-size: SlateTheme.font-sm;
                     color: !root.enabled ? SlateTheme.text-muted : SlateTheme.text-primary;

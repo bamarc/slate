@@ -1,4 +1,14 @@
 //! Unit and integration tests for all 5 MCP standard tools.
+//!
+//! FRAMING-ONLY (Slint-first remediation plan, Phase 0): every test in this file
+//! runs against hand-rolled mock engines (`MockInspector`, `MockController`,
+//! `MockStateProvider`, `MockRenderer`, `FullMockEngine`) whose methods return
+//! canned `Ok` values without touching a Slint window. They cover JSON-RPC
+//! framing and tool dispatch (method names, argument validation, error codes)
+//! ONLY — they assert nothing about live Slint behavior (event-loop dispatch,
+//! toggle semantics, element identity). In particular, mock click counters here
+//! cannot catch double-dispatch regressions; see
+//! `real_window_interaction_tests.rs` (T1/T2) for the live-window coverage.
 
 use image::ImageEncoder;
 use std::collections::HashMap;
@@ -76,6 +86,23 @@ impl UiInspector for MockInspector {
                     children: Vec::new(),
                     properties: HashMap::new(),
                 },
+                // Phase 1 regression probe: role is non-editable ("button") but the
+                // type name contains "Input". Substring editability sniffing
+                // (role/type `.contains("input")`) wrongly treats this as
+                // editable; exact role checking must reject it.
+                UiElementNode {
+                    id: "tricky_btn".to_string(),
+                    type_name: "SlateInput".to_string(),
+                    bounds: Rect::new(260.0, 170.0, 140.0, 36.0),
+                    label: Some("Tricky Button".to_string()),
+                    role: "button".to_string(),
+                    value: None,
+                    enabled: true,
+                    focused: false,
+                    visible: true,
+                    children: Vec::new(),
+                    properties: HashMap::new(),
+                },
                 UiElementNode {
                     id: "nav_view".to_string(),
                     type_name: "SlateNavigationSplitView".to_string(),
@@ -111,7 +138,37 @@ impl UiInspector for MockInspector {
 
 struct MockController {
     click_count: AtomicI32,
+    click_element_calls: AtomicI32,
+    click_at_calls: AtomicI32,
+    send_keys_calls: AtomicI32,
+    set_value_calls: AtomicI32,
+    toggle_calls: AtomicI32,
     typed_text: Mutex<String>,
+    last_button: Mutex<Option<MouseButton>>,
+    set_value_should_fail: bool,
+}
+
+impl MockController {
+    fn new() -> Self {
+        Self {
+            click_count: AtomicI32::new(0),
+            click_element_calls: AtomicI32::new(0),
+            click_at_calls: AtomicI32::new(0),
+            send_keys_calls: AtomicI32::new(0),
+            set_value_calls: AtomicI32::new(0),
+            toggle_calls: AtomicI32::new(0),
+            typed_text: Mutex::new(String::new()),
+            last_button: Mutex::new(None),
+            set_value_should_fail: false,
+        }
+    }
+
+    fn with_failing_set_value() -> Self {
+        Self {
+            set_value_should_fail: true,
+            ..Self::new()
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -124,6 +181,7 @@ impl ElementController for MockController {
             ));
         }
         self.click_count.fetch_add(1, Ordering::SeqCst);
+        self.click_element_calls.fetch_add(1, Ordering::SeqCst);
         Ok(ActionResult::success(format!("Clicked '{}'", target)).with_element_id(target))
     }
 
@@ -133,6 +191,8 @@ impl ElementController for MockController {
         button: MouseButton,
     ) -> Result<ActionResult, AgentError> {
         self.click_count.fetch_add(1, Ordering::SeqCst);
+        self.click_at_calls.fetch_add(1, Ordering::SeqCst);
+        *self.last_button.lock().await = Some(button);
         Ok(ActionResult::success(format!(
             "Clicked at ({}, {}) with {:?}",
             point.x, point.y, button
@@ -144,6 +204,7 @@ impl ElementController for MockController {
         target: Option<&str>,
         text: &str,
     ) -> Result<ActionResult, AgentError> {
+        self.send_keys_calls.fetch_add(1, Ordering::SeqCst);
         let mut val = self.typed_text.lock().await;
         val.push_str(text);
         let msg = match target {
@@ -154,6 +215,10 @@ impl ElementController for MockController {
     }
 
     async fn set_value(&self, _target: &str, value: &str) -> Result<ActionResult, AgentError> {
+        self.set_value_calls.fetch_add(1, Ordering::SeqCst);
+        if self.set_value_should_fail {
+            return Err(AgentError::state_error("clear_first failed: backend unavailable"));
+        }
         let mut val = self.typed_text.lock().await;
         val.clear();
         val.push_str(value);
@@ -161,6 +226,7 @@ impl ElementController for MockController {
     }
 
     async fn toggle_element(&self, target: &str) -> Result<ActionResult, AgentError> {
+        self.toggle_calls.fetch_add(1, Ordering::SeqCst);
         Ok(ActionResult::success(format!("Toggled '{}'", target)))
     }
 }
@@ -232,10 +298,7 @@ impl FullMockEngine {
 
         Self {
             inspector: MockInspector,
-            controller: MockController {
-                click_count: AtomicI32::new(0),
-                typed_text: Mutex::new(String::new()),
-            },
+            controller: MockController::new(),
             state: MockStateProvider {
                 properties: Mutex::new(initial_props),
             },
@@ -362,6 +425,10 @@ async fn test_tool_inspect_tree_nonexistent_root_error() {
 
 #[tokio::test]
 async fn test_tool_click_by_id_and_double_click() {
+    // FRAMING-ONLY: counts invocations of the mock controller — it proves the
+    // tool forwards `click_count`, not that a live window double-clicks (plan
+    // E-3: the backend has no OS double-click semantics; `click_count >= 2` is
+    // an explicit two-step of single clicks).
     let (server, engine) = create_full_test_server();
 
     // Single click
@@ -525,4 +592,218 @@ async fn test_tool_unknown_name() {
     let err = resp.error.unwrap();
     assert_eq!(err.code, METHOD_NOT_FOUND);
     assert!(err.message.contains("Tool 'nonexistent_tool' not found"));
+}
+
+// ============================================================================
+// Phase 1 — single dispatch by role (Red → Green → Iterate)
+// Each tool call must produce exactly ONE backend controller action.
+// ============================================================================
+
+/// Coordinate clicks must go through the pointer path ONLY (`click_at`), even
+/// when the point overlaps a known element. Resolving an id is reporting-only
+/// and must never substitute the target (removes overlay-id hijack).
+#[tokio::test]
+async fn test_phase1_coordinate_click_uses_pointer_path_only() {
+    // FRAMING-ONLY: mock dispatch counts only — live behavior is covered in real_window_interaction_tests.rs.
+    let (server, engine) = create_full_test_server();
+    // (270, 80) sits inside `counter_btn` (260,70,140x36): old code hijacked
+    // this to `click_element`; single-dispatch requires `click_at`.
+    let raw = r#"{"jsonrpc": "2.0", "id": 101, "method": "tools/call", "params": {"name": "click_element", "arguments": {"x": 270.0, "y": 80.0}}}"#;
+    let resp: JsonRpcResponse =
+        serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
+    let res: ToolCallResult = serde_json::from_value(resp.result.unwrap()).unwrap();
+    assert!(!res.is_error);
+    assert_eq!(
+        engine.controller.click_at_calls.load(Ordering::SeqCst),
+        1,
+        "coordinate click must call click_at exactly once"
+    );
+    assert_eq!(
+        engine
+            .controller
+            .click_element_calls
+            .load(Ordering::SeqCst),
+        0,
+        "coordinate click must never call click_element (no overlay hijack)"
+    );
+}
+
+/// Element id/label clicks honor `button`: non-left buttons on the element
+/// path must be explicitly rejected (the `click_element` backend path is
+/// left-only semantic activation), not silently coerced to Left.
+#[tokio::test]
+async fn test_phase1_element_click_rejects_non_left_button() {
+    // FRAMING-ONLY: mock dispatch counts only — live behavior is covered in real_window_interaction_tests.rs.
+    let (server, engine) = create_full_test_server();
+    let raw = r#"{"jsonrpc": "2.0", "id": 102, "method": "tools/call", "params": {"name": "click_element", "arguments": {"id": "counter_btn", "button": "right"}}}"#;
+    let resp: JsonRpcResponse =
+        serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
+    let res: ToolCallResult = serde_json::from_value(resp.result.unwrap()).unwrap();
+    assert!(
+        res.is_error,
+        "element-path click with button=right must be rejected, not coerced to Left"
+    );
+    assert_eq!(
+        engine
+            .controller
+            .click_element_calls
+            .load(Ordering::SeqCst),
+        0
+    );
+    assert_eq!(engine.controller.click_at_calls.load(Ordering::SeqCst), 0);
+}
+
+/// Coordinate clicks must honor `button` through the pointer path.
+#[tokio::test]
+async fn test_phase1_coordinate_click_honors_button() {
+    // FRAMING-ONLY: mock dispatch counts only — live behavior is covered in real_window_interaction_tests.rs.
+    let (server, engine) = create_full_test_server();
+    let raw = r#"{"jsonrpc": "2.0", "id": 103, "method": "tools/call", "params": {"name": "click_element", "arguments": {"x": 500.0, "y": 600.0, "button": "right"}}}"#;
+    let resp: JsonRpcResponse =
+        serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
+    let res: ToolCallResult = serde_json::from_value(resp.result.unwrap()).unwrap();
+    assert!(!res.is_error);
+    assert_eq!(engine.controller.click_at_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(*engine.controller.last_button.lock().await, Some(MouseButton::Right));
+}
+
+/// A single element click is exactly one backend action.
+#[tokio::test]
+async fn test_phase1_element_click_is_single_backend_action() {
+    // FRAMING-ONLY: mock dispatch counts only — live behavior is covered in real_window_interaction_tests.rs.
+    let (server, engine) = create_full_test_server();
+    let raw = r#"{"jsonrpc": "2.0", "id": 104, "method": "tools/call", "params": {"name": "click_element", "arguments": {"id": "counter_btn"}}}"#;
+    let resp: JsonRpcResponse =
+        serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
+    let res: ToolCallResult = serde_json::from_value(resp.result.unwrap()).unwrap();
+    assert!(!res.is_error);
+    assert_eq!(
+        engine
+            .controller
+            .click_element_calls
+            .load(Ordering::SeqCst),
+        1
+    );
+    assert_eq!(engine.controller.click_at_calls.load(Ordering::SeqCst), 0);
+}
+
+/// Unknown target ids must fail CLOSED (no silent fallback to active element).
+#[tokio::test]
+async fn test_phase1_send_keys_unknown_id_fails_closed() {
+    // FRAMING-ONLY: mock dispatch counts only — live behavior is covered in real_window_interaction_tests.rs.
+    let (server, engine) = create_full_test_server();
+    let raw = r#"{"jsonrpc": "2.0", "id": 105, "method": "tools/call", "params": {"name": "send_keys", "arguments": {"text": "hi", "element_id": "no_such_element_xyz"}}}"#;
+    let resp: JsonRpcResponse =
+        serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
+    let res: ToolCallResult = serde_json::from_value(resp.result.unwrap()).unwrap();
+    assert!(res.is_error, "unknown element_id must fail closed");
+    assert_eq!(engine.controller.send_keys_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(engine.controller.set_value_calls.load(Ordering::SeqCst), 0);
+}
+
+/// Exact role check: `tricky_btn` has role "button" with a type name
+/// containing "Input". Substring sniffing wrongly calls it editable; the
+/// Slint AccessibleRole exact check must reject it with exactly one
+/// inspection and zero backend writes.
+#[tokio::test]
+async fn test_phase1_send_keys_rejects_non_text_role_despite_input_type() {
+    // FRAMING-ONLY: mock dispatch counts only — live behavior is covered in real_window_interaction_tests.rs.
+    let (server, engine) = create_full_test_server();
+    let raw = r#"{"jsonrpc": "2.0", "id": 106, "method": "tools/call", "params": {"name": "send_keys", "arguments": {"text": "hi", "element_id": "tricky_btn"}}}"#;
+    let resp: JsonRpcResponse =
+        serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
+    let res: ToolCallResult = serde_json::from_value(resp.result.unwrap()).unwrap();
+    assert!(
+        res.is_error,
+        "role=button must be rejected even when type contains 'Input'"
+    );
+    assert!(res.content[0]
+        .text
+        .as_ref()
+        .unwrap()
+        .contains("not an editable text input"));
+    assert_eq!(engine.controller.send_keys_calls.load(Ordering::SeqCst), 0);
+}
+
+/// `clear_first` failures must propagate instead of being discarded: one
+/// `set_value` attempt, zero `send_keys`, error result.
+#[tokio::test]
+async fn test_phase1_send_keys_clear_first_error_propagates() {
+    // FRAMING-ONLY: mock dispatch counts only — live behavior is covered in real_window_interaction_tests.rs.
+    let engine = Arc::new(FullMockEngine {
+        inspector: MockInspector,
+        controller: MockController::with_failing_set_value(),
+        state: MockStateProvider {
+            properties: Mutex::new(HashMap::new()),
+        },
+        renderer: MockRenderer,
+    });
+    let server = McpServer::new(engine.clone());
+    let raw = r#"{"jsonrpc": "2.0", "id": 107, "method": "tools/call", "params": {"name": "send_keys", "arguments": {"text": "hi", "element_id": "email_input", "clear_first": true}}}"#;
+    let resp: JsonRpcResponse =
+        serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
+    let res: ToolCallResult = serde_json::from_value(resp.result.unwrap()).unwrap();
+    assert!(res.is_error, "clear_first set_value failure must propagate");
+    assert_eq!(engine.controller.set_value_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(engine.controller.send_keys_calls.load(Ordering::SeqCst), 0);
+}
+
+/// FRAMING-ONLY: `clear_first` without a target is rejected before any backend
+/// write (M2) — no silent no-clear success. Zero `set_value`/`send_keys` calls.
+#[tokio::test]
+async fn test_send_keys_clear_first_without_target_is_rejected() {
+    let (server, engine) = create_full_test_server();
+    let raw = r#"{"jsonrpc": "2.0", "id": 201, "method": "tools/call", "params": {"name": "send_keys", "arguments": {"text": "hi", "clear_first": true}}}"#;
+    let resp: JsonRpcResponse =
+        serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
+    let res: ToolCallResult = serde_json::from_value(resp.result.unwrap()).unwrap();
+    assert!(res.is_error, "clear_first with no element_id must fail closed");
+    assert!(res.content[0]
+        .text
+        .as_ref()
+        .unwrap()
+        .contains("requires 'element_id'"));
+    assert_eq!(engine.controller.set_value_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(engine.controller.send_keys_calls.load(Ordering::SeqCst), 0);
+}
+
+/// FRAMING-ONLY: `click_count` repeats the single-click dispatch literally
+/// (M3) — a raw 3 performs three backend calls, never a silent clamp to 2.
+#[tokio::test]
+async fn test_tool_click_count_repeats_literally() {
+    let (server, engine) = create_full_test_server();
+    let raw = r#"{"jsonrpc": "2.0", "id": 202, "method": "tools/call", "params": {"name": "click_element", "arguments": {"id": "counter_btn", "click_count": 3}}}"#;
+    let resp: JsonRpcResponse =
+        serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
+    let res: ToolCallResult = serde_json::from_value(resp.result.unwrap()).unwrap();
+    assert!(!res.is_error);
+    assert_eq!(engine.controller.click_element_calls.load(Ordering::SeqCst), 3);
+}
+
+/// FRAMING-ONLY: element selector + coordinates together are rejected (M4) —
+/// exclusive targeting, fail closed. No backend call is issued.
+#[tokio::test]
+async fn test_tool_click_id_and_coordinates_rejected() {
+    let (server, engine) = create_full_test_server();
+    let raw = r#"{"jsonrpc": "2.0", "id": 203, "method": "tools/call", "params": {"name": "click_element", "arguments": {"id": "counter_btn", "x": 10.0, "y": 20.0}}}"#;
+    let resp: JsonRpcResponse =
+        serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
+    let res: ToolCallResult = serde_json::from_value(resp.result.unwrap()).unwrap();
+    assert!(res.is_error, "id+coordinates must be rejected, not silently prioritized");
+    assert!(res.content[0].text.as_ref().unwrap().contains("not both"));
+    assert_eq!(engine.controller.click_element_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(engine.controller.click_at_calls.load(Ordering::SeqCst), 0);
+}
+
+/// FRAMING-ONLY: the legacy `point: {x, y}` object remains accepted as an
+/// alias for bare `x`/`y` (documents the asymmetry; canonical form is x/y).
+#[tokio::test]
+async fn test_tool_click_legacy_point_alias_accepted() {
+    let (server, engine) = create_full_test_server();
+    let raw = r#"{"jsonrpc": "2.0", "id": 204, "method": "tools/call", "params": {"name": "click_element", "arguments": {"point": {"x": 270.0, "y": 80.0}}}}"#;
+    let resp: JsonRpcResponse =
+        serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
+    let res: ToolCallResult = serde_json::from_value(resp.result.unwrap()).unwrap();
+    assert!(!res.is_error, "legacy point alias must keep working");
+    assert_eq!(engine.controller.click_at_calls.load(Ordering::SeqCst), 1);
 }

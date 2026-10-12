@@ -47,6 +47,9 @@ export component SlateMenubar {
     ];
     // Index of the open menu, -1 when closed.
     in-out property <int> open-menu: -1;
+    // Phase 3 (D3) identity contract: see SlateButton. Menu titles/items derive
+    // "<automation-id>-menu-<i>[-item-<j>]".
+    in property <string> automation-id: "";
     // "<menu title> › <item label>" of the most recent activation.
     out property <string> last-action: "";
     callback item-selected(int, int);
@@ -86,6 +89,7 @@ export component SlateMenubar {
     min-width: 200px;
     accessible-role: tab-list;
     accessible-label: "Menu bar";
+    accessible-id: root.automation-id != "" ? root.automation-id : "menubar";
 
     // Click-away layer: extends far beyond the bar so a click anywhere else closes the menu.
     if root.open-menu >= 0 : TouchArea {
@@ -138,6 +142,8 @@ export component SlateMenubar {
 
             accessible-role: button;
             accessible-label: menu.title;
+            accessible-id: root.automation-id != "" ? root.automation-id + "-menu-" + i : "menu-" + menu.title;
+            accessible-expandable: true;
             accessible-expanded: root.open-menu == i;
             accessible-action-default => { root.open(root.open-menu == i ? -1 : i); }
 
@@ -175,6 +181,7 @@ export component SlateMenubar {
 
                 accessible-role: groupbox;
                 accessible-label: menu.title + " menu";
+                accessible-id: root.automation-id != "" ? root.automation-id + "-menu-" + i + "-popup" : "menu-" + menu.title + "-popup";
 
                 // swallow clicks on the panel padding
                 TouchArea {}
@@ -196,6 +203,7 @@ export component SlateMenubar {
 
                             accessible-role: button;
                             accessible-label: item.label;
+                            accessible-id: root.automation-id != "" ? root.automation-id + "-menu-" + i + "-item-" + j : "menu-" + menu.title + "-item-" + item.label;
                             accessible-enabled: !item.disabled;
                             accessible-action-default => { root.choose(i, j); }
 

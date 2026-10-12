@@ -6,12 +6,15 @@ export component SlateCheckbox {
     in-out property <bool> indeterminate: false;
     in property <string> text: "";
     in property <bool> enabled: true;
+    // Phase 3 (D3) identity contract: see SlateButton.
+    in property <string> automation-id: "";
     callback toggled(bool);
 
     horizontal-stretch: 0;
 
     accessible-role: checkbox;
     accessible-label: root.text;
+    accessible-id: root.automation-id != "" ? root.automation-id : root.text;
     accessible-checked: root.checked;
     accessible-enabled: root.enabled;
     accessible-action-default => { root.toggle(); }

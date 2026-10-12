@@ -9,6 +9,8 @@ export component SlateSlider {
     in property <string> label: "";
     in property <bool> enabled: true;
     in property <bool> show-value: true;
+    // Phase 3 (D3) identity contract: see SlateButton.
+    in property <string> automation-id: "";
     callback changed(float);
 
     property <length> thumb-size: 18px;
@@ -16,11 +18,17 @@ export component SlateSlider {
 
     accessible-role: slider;
     accessible-label: root.label;
+    accessible-id: root.automation-id != "" ? root.automation-id : root.label;
     accessible-value: "\{Math.round(root.value)}";
     accessible-value-minimum: root.minimum;
     accessible-value-maximum: root.maximum;
     accessible-value-step: root.step;
     accessible-enabled: root.enabled;
+    // Phase 3: semantic increment/decrement/set-value actions so MCP-assisted
+    // (and keyboard/screen-reader) clients drive the value without pointer math.
+    accessible-action-increment => { root.set-value(root.value + root.step); }
+    accessible-action-decrement => { root.set-value(root.value - root.step); }
+    accessible-action-set-value(v) => { if (v.is-float()) { root.set-value(v.to-float()); } }
 
     function set-value(v: float) {
         if (!root.enabled) { return; }

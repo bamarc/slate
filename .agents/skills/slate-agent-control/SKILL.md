@@ -22,11 +22,11 @@ Every Slate application with agent support exposes the standard 5 MCP tools:
 
 | Tool | Parameters | Description |
 |---|---|---|
-| `inspect_tree` | `root_id?: string` | Returns the hierarchical UI element tree with accessible IDs, roles, bounding rects (`x, y, width, height`), and labels. |
+| `inspect_tree` | `root_id?: string` | Returns the hierarchical UI element tree with accessible IDs, roles, bounding rects (`x, y, width, height`), and labels. Declare `accessible-id` on every interactive component (via its `automation-id` property): nodes without one get suffixed unstable IDs (`id_stable: false`, display-only, never store them), and duplicate `accessible-id`s fail the whole inspection (W2 deny-the-tree). |
 | `click_element` | `id?: string`, `x?: number`, `y?: number`, `button?: "left"\|"right"\|"middle"`, `click_count?: 1\|2` | Simulates pointer click at target element center or exact coordinates. |
 | `send_keys` | `text: string`, `element_id?: string`, `clear_first?: boolean` | Types text into active or targeted editable text field. |
 | `get_screenshot` | `mime_type?: "image/png"` | Captures rendered window frame without freezing the UI event loop (~2ms raw capture, background PNG compression). Returns PNG base64. |
-| `get_state` | `query?: string` | Queries application diagnostic metrics (heap, fps, uptime) and custom domain state. |
+| `get_state` | `keys?: string[]` | Queries application diagnostic metrics (heap, fps, uptime) and custom domain state, filtered to `keys` (legacy single-`query` string still accepted server-side, deprecated). |
 
 ### MCP Live Resources
 
@@ -37,7 +37,7 @@ Every Slate application with agent support exposes the standard 5 MCP tools:
 
 ## The `slate-mcp` CLI Helper
 
-The repository includes a native Rust CLI binary `slate-mcp` (located at `target/debug/slate-mcp` or `mcp/src/bin/slate_mcp.rs`). It acts as both a CLI controller and an stdio MCP proxy.
+The repository includes a native Rust CLI binary `slate-mcp` (built at `slate-rust/target/debug/slate-mcp` via `cargo build -p slate-mcp` inside `slate-rust/`; source at `slate-rust/mcp/src/bin/slate_mcp.rs`). It acts as both a CLI controller and an stdio MCP proxy.
 
 ### Common CLI Invocations
 
@@ -61,8 +61,8 @@ slate-mcp type "admin@example.com" --target input_email --clear
 # Capture screenshot and save directly to disk as PNG
 slate-mcp screenshot --out /tmp/current_app_frame.png
 
-# Query runtime state or metrics
-slate-mcp state --query counter
+# Query runtime state or metrics (canonical `keys` filter)
+slate-mcp state --key counter
 slate-mcp state
 
 # List available MCP tools and resources
@@ -70,8 +70,9 @@ slate-mcp tools
 slate-mcp resources
 slate-mcp read slate://app/context
 
-# Run as an stdio MCP server proxy (for Claude Desktop, Gemini, Cursor):
-slate-mcp serve --app ./target/debug/slate-showcase
+# Run as an stdio MCP server proxy (for Claude Desktop, Gemini, Cursor;
+# paths relative to the workspace root):
+slate-mcp serve --app ./slate-rust/target/debug/slate-showcase
 ```
 
 ### Options & Environment Flags

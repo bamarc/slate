@@ -2,9 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 
 use crate::error::{
@@ -99,6 +98,11 @@ pub struct JsonRpcError {
 // MCP Server Core
 // ============================================================================
 
+/// Protocol versions this server understands. `2025-06-18` (Slint's HTTP MCP
+/// server) is intentionally not listed: our stdio/in-memory surface speaks
+/// `2024-11-05` only, and the mismatch path below tells the client as much.
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2024-11-05"];
+
 #[derive(Clone)]
 pub struct McpServer {
     engine: Arc<dyn AutomationEngine>,
@@ -107,6 +111,7 @@ pub struct McpServer {
     protocol_version: String,
     initialized: Arc<AtomicBool>,
     logs: Arc<Mutex<Vec<String>>>,
+    dropped_logs: Arc<AtomicU64>,
 }
 
 impl McpServer {
@@ -127,10 +132,11 @@ impl McpServer {
             version: version.into(),
             protocol_version: "2024-11-05".to_string(),
             initialized: Arc::new(AtomicBool::new(false)),
-            logs: Arc::new(Mutex::new(vec![
-                "[INFO] Slate application initialized".to_string(),
-                "[INFO] MCP agent attached over in-memory transport".to_string(),
-            ])),
+            // No seed lines: the log buffer only ever contains lines produced
+            // by live sessions. Tests needing log content must add it via
+            // `add_log`.
+            logs: Arc::new(Mutex::new(Vec::new())),
+            dropped_logs: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -150,8 +156,19 @@ impl McpServer {
     }
 
     /// Append a log line to the live logging stream.
+    ///
+    /// The buffer is bounded at [`crate::resources::MAX_LOG_LINES`]: when full, the oldest lines
+    /// are dropped first and each drop increments the counter returned by
+    /// [`McpServer::dropped_log_count`]. Delegates to the shared
+    /// `resources::push_bounded_log` helper — the same path all tools log
+    /// through — so there is exactly one bounding implementation.
     pub async fn add_log(&self, line: impl Into<String>) {
-        self.logs.lock().await.push(line.into());
+        crate::resources::push_bounded_log(&self.logs, &self.dropped_logs, line.into()).await;
+    }
+
+    /// Number of oldest-first log lines dropped because the buffer was full.
+    pub fn dropped_log_count(&self) -> u64 {
+        self.dropped_logs.load(Ordering::SeqCst)
     }
 
     /// Process a single raw incoming JSON-RPC string line.
@@ -221,19 +238,47 @@ impl McpServer {
         match method {
             "initialize" => {
                 self.initialized.store(true, Ordering::SeqCst);
+                let requested = params
+                    .as_ref()
+                    .and_then(|p| p.get("protocolVersion"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                // Capability advertisement choice: de-advertise what is not
+                // implemented (`listChanged`, `subscribe`, `logging`) rather
+                // than implementing `logging/setLevel` + subscribe thinly.
+                // `tools/list`, `tools/call`, `resources/list`, and
+                // `resources/read` are the implemented surface, hence the bare
+                // `{}` markers below.
                 let res = McpInitializeResult {
                     protocol_version: self.protocol_version.clone(),
                     capabilities: ServerCapabilities {
-                        tools: Some(serde_json::json!({ "listChanged": true })),
-                        resources: Some(serde_json::json!({ "subscribe": true })),
-                        logging: Some(serde_json::json!({})),
+                        tools: Some(serde_json::json!({})),
+                        resources: Some(serde_json::json!({})),
+                        logging: None,
                     },
                     server_info: ServerInfo {
                         name: self.name.clone(),
                         version: self.version.clone(),
                     },
                 };
-                JsonRpcResponse::success(id, serde_json::to_value(res).unwrap())
+                let mut result = serde_json::to_value(res).unwrap();
+                match requested {
+                    Some(v) if SUPPORTED_PROTOCOL_VERSIONS.contains(&v.as_str()) => {}
+                    // Version mismatch: echo our version (already in
+                    // `protocolVersion`) plus the supported set so the
+                    // client can decide. Handshake still succeeds. `data` is
+                    // attached ONLY when the client actually requested a
+                    // version — a version-less `initialize` gets the bare
+                    // result with no `data` key.
+                    Some(v) => {
+                        result["data"] = serde_json::json!({
+                            "supportedVersions": SUPPORTED_PROTOCOL_VERSIONS,
+                            "requestedVersion": v,
+                        });
+                    }
+                    None => {}
+                }
+                JsonRpcResponse::success(id, result)
             }
             "ping" => JsonRpcResponse::success(id, serde_json::json!({})),
             "tools/list" => {
@@ -262,7 +307,14 @@ impl McpServer {
 
         let args = p.get("arguments").cloned().unwrap_or(serde_json::json!({}));
 
-        match crate::tools::dispatch_tool(self.engine.as_ref(), &self.logs, tool_name, args).await {
+        match crate::tools::dispatch_tool(
+            self.engine.as_ref(),
+            &self.logs,
+            &self.dropped_logs,
+            tool_name,
+            args,
+        )
+        .await {
             Ok(tool_result) => {
                 JsonRpcResponse::success(id, serde_json::to_value(tool_result).unwrap())
             }
@@ -297,7 +349,15 @@ impl McpServer {
             None => return JsonRpcResponse::invalid_params(id, "Missing 'uri' parameter"),
         };
 
-        match crate::resources::read_resource(self.engine.as_ref(), &self.logs, uri).await {
+        match crate::resources::read_resource(
+            self.engine.as_ref(),
+            &self.logs,
+            uri,
+            &self.name,
+            &self.version,
+            self.dropped_log_count(),
+        )
+        .await {
             Ok(content) => {
                 JsonRpcResponse::success(id, serde_json::json!({ "contents": [content] }))
             }
@@ -309,66 +369,7 @@ impl McpServer {
             }
         }
     }
-
-    /// Runs the asynchronous duplex server loop over any stream implementing `AsyncRead + AsyncWrite`.
-    pub async fn run_stream<S>(&self, stream: S) -> Result<(), std::io::Error>
-    where
-        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-    {
-        let (reader, writer) = tokio::io::split(stream);
-        self.run_duplex(reader, writer).await
-    }
-
-    /// Runs the asynchronous duplex server loop with decoupled reader and writer.
-    pub async fn run_duplex<R, W>(&self, reader: R, mut writer: W) -> Result<(), std::io::Error>
-    where
-        R: AsyncRead + Unpin + Send + 'static,
-        W: AsyncWrite + Unpin + Send + 'static,
-    {
-        let mut buf_reader = BufReader::new(reader);
-        let (resp_tx, mut resp_rx) = tokio::sync::mpsc::channel::<String>(256);
-
-        // Dedicated background writer task ensuring atomic line-flushing
-        let writer_handle = tokio::spawn(async move {
-            while let Some(mut resp_line) = resp_rx.recv().await {
-                resp_line.push('\n');
-                if writer.write_all(resp_line.as_bytes()).await.is_err() {
-                    break;
-                }
-                if writer.flush().await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        let mut line = String::new();
-        loop {
-            line.clear();
-            match buf_reader.read_line(&mut line).await {
-                Ok(0) => break, // EOF reached
-                Ok(_) => {
-                    let trimmed = line.trim().to_string();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-
-                    let server = self.clone();
-                    let tx = resp_tx.clone();
-                    tokio::spawn(async move {
-                        if let Some(resp) = server.handle_line(&trimmed).await {
-                            let _ = tx.send(resp).await;
-                        }
-                    });
-                }
-                Err(e) => {
-                    log::debug!("MCP duplex reader ended with error: {}", e);
-                    break;
-                }
-            }
-        }
-
-        drop(resp_tx);
-        let _ = writer_handle.await;
-        Ok(())
-    }
+    // NOTE: the dead `run_stream`/`run_duplex` loop was deleted here.
+    // `transport::run_line_transport` is the single server loop (queue 1024,
+    // broadcast shutdown); all transports use it.
 }

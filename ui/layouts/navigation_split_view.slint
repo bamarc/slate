@@ -10,6 +10,9 @@ export component SlateNavigationSplitView {
     in property <[NavItem]> items: [];
     in-out property <int> current-index: 0;
     in property <length> sidebar-width: 220px;
+    // Phase 3 (D3) identity contract: nav items use the model `id` when set
+    // ("<automation-id>-nav-<id>" when the view is scoped), else "nav-<idx>".
+    in property <string> automation-id: "";
     callback item-selected(int, string);
 
     width: 100%;
@@ -36,6 +39,14 @@ export component SlateNavigationSplitView {
                     background: root.current-index == idx ? SlateTheme.accent-primary
                         : nav-touch.has-hover ? SlateTheme.surface-hover : Colors.transparent;
                     animate background { duration: 120ms; }
+
+                    accessible-role: button;
+                    accessible-label: item.title;
+                    accessible-id: item.id != "" ? (root.automation-id != "" ? root.automation-id + "-nav-" + item.id : "nav-" + item.id) : "nav-" + idx;
+                    accessible-action-default => {
+                        root.current-index = idx;
+                        root.item-selected(idx, item.id);
+                    }
 
                     nav-touch := TouchArea {
                         clicked => {

@@ -73,17 +73,17 @@ pub fn inspect_tree_schema() -> Tool {
 pub fn click_element_schema() -> Tool {
     Tool::new(
         "click_element",
-        "Dispatches click events to specific elements by ID, text label, or coordinates",
+        "Dispatches click events to specific elements by ID, text label, or coordinates. Pass either an element selector ('id'/'label') or coordinates ('x'/'y'), not both.",
         serde_json::json!({
             "type": "object",
             "properties": {
                 "id": {
                     "type": "string",
-                    "description": "Target element unique ID"
+                    "description": "Target element unique ID (mutually exclusive with coordinates)"
                 },
                 "label": {
                     "type": "string",
-                    "description": "Target element accessible label or text"
+                    "description": "Target element accessible label or text (mutually exclusive with coordinates)"
                 },
                 "x": {
                     "type": "number",
@@ -103,7 +103,11 @@ pub fn click_element_schema() -> Tool {
                     "type": "integer",
                     "enum": [1, 2],
                     "default": 1,
-                    "description": "Number of clicks (1 for single click, 2 for double click)"
+                    "description": "Number of clicks (1 for single click, 2 for two sequential single clicks)"
+                },
+                "point": {
+                    "type": "object",
+                    "description": "Legacy alias for coordinates ({x, y}); prefer top-level 'x'/'y'"
                 }
             }
         }),
@@ -129,7 +133,7 @@ pub fn send_keys_schema() -> Tool {
                 "clear_first": {
                     "type": "boolean",
                     "default": false,
-                    "description": "Whether to clear existing text before typing"
+                    "description": "Whether to clear existing text before typing (requires 'element_id')"
                 }
             },
             "required": ["text"]
@@ -149,6 +153,10 @@ pub fn get_state_schema() -> Tool {
                     "type": "array",
                     "items": { "type": "string" },
                     "description": "Optional list of state property keys to filter"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Deprecated: single property key filter. Prefer `keys`. Mutually exclusive with `keys`."
                 }
             }
         }),

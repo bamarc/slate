@@ -11,6 +11,8 @@ export component SlateSheet {
     in property <string> confirm-text: "Apply Changes";
     in property <string> cancel-text: "Close";
     in property <bool> show-footer: true;
+    // Phase 3 (D3) identity contract: see SlateAlertDialog.
+    in property <string> automation-id: "";
 
     callback confirmed();
     callback cancelled();
@@ -52,6 +54,11 @@ export component SlateSheet {
         drop-shadow-color: #000000a0;
         clip: true;
 
+        accessible-role: groupbox;
+        accessible-label: root.title;
+        accessible-description: root.description;
+        accessible-id: root.automation-id != "" ? root.automation-id : root.title;
+
         // Block clicks inside drawer from dismissing backdrop
         TouchArea {}
 
@@ -89,6 +96,13 @@ export component SlateSheet {
                     background: close-touch.has-hover ? SlateTheme.surface-2 : transparent;
 
                     close-touch := TouchArea {
+                        accessible-role: button;
+                        accessible-label: "Close";
+                        accessible-id: (root.automation-id != "" ? root.automation-id : root.title) + "-close";
+                        accessible-action-default => {
+                            root.is-open = false;
+                            root.closed();
+                        }
                         clicked => {
                             root.is-open = false;
                             root.closed();
@@ -132,6 +146,7 @@ export component SlateSheet {
 
                     SlateButton {
                         text: root.cancel-text;
+                        automation-id: (root.automation-id != "" ? root.automation-id : root.title) + "-cancel";
                         variant: SlateButtonVariant.ghost;
                         size: SlateButtonSize.md;
                         clicked => {
@@ -142,6 +157,7 @@ export component SlateSheet {
 
                     SlateButton {
                         text: root.confirm-text;
+                        automation-id: (root.automation-id != "" ? root.automation-id : root.title) + "-confirm";
                         variant: SlateButtonVariant.primary;
                         size: SlateButtonSize.md;
                         clicked => {

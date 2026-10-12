@@ -1,4 +1,9 @@
 //! Unit and integration tests for MCP resources (`slate://app/context` and `slate://logs/live`).
+//!
+//! FRAMING-ONLY (Slint-first remediation plan, Phase 0): the server under test is
+//! backed by `Default*` always-Ok stub engines, so these tests cover resource
+//! framing (URIs, MIME types, JSON shape) ONLY — not live window state. See
+//! `real_window_interaction_tests.rs` (T1/T2) for live-window coverage.
 
 use slate_agent::engine::{
     DefaultAutomationEngine, DefaultElementController, DefaultStateProvider, DefaultUiInspector,
@@ -52,7 +57,9 @@ async fn test_resources_read_context() {
 
     let text = contents[0].text.as_ref().unwrap();
     let json: serde_json::Value = serde_json::from_str(text).unwrap();
-    assert_eq!(json["app"], "slate-showcase");
+    // Real server identity (crate name/version), not a hardcoded app label.
+    assert_eq!(json["app"], "slate-mcp");
+    assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(json["window_width"], 1040);
     assert_eq!(json["window_height"], 720);
 }
@@ -77,13 +84,13 @@ async fn test_resources_read_logs() {
     assert_eq!(contents[0].mime_type.as_deref(), Some("text/plain"));
 
     let text = contents[0].text.as_ref().unwrap();
-    assert!(text.contains("[INFO] Slate application initialized"));
     assert!(text.contains("[ACTION] Custom test action performed"));
 }
 
 #[tokio::test]
 async fn test_resources_read_logs_alias() {
     let server = create_test_server();
+    server.add_log("[INFO] Alias-path probe line").await;
     let raw = r#"{"jsonrpc": "2.0", "id": 4, "method": "resources/read", "params": {"uri": "slate://app/logs"}}"#;
     let resp_str = server.handle_line(raw).await.unwrap();
     let resp: JsonRpcResponse = serde_json::from_str(&resp_str).unwrap();

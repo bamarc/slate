@@ -4,6 +4,8 @@ import { SlateChevronIcon } from "icons.slint";
 export component SlateAccordion {
     in property <string> title: "Accordion Item";
     in-out property <bool> expanded: false;
+    // Phase 3 (D3) identity contract: see SlateButton.
+    in property <string> automation-id: "";
     callback toggled(bool);
 
     function toggle() {
@@ -23,6 +25,7 @@ export component SlateAccordion {
 
                 accessible-role: button;
                 accessible-label: root.title;
+                accessible-id: root.automation-id != "" ? root.automation-id : root.title;
                 accessible-expandable: true;
                 accessible-expanded: root.expanded;
                 accessible-action-default => { root.toggle(); }

@@ -4,9 +4,17 @@ export component SlateActionRow {
     in property <string> title: "Setting Title";
     in property <string> subtitle: "";
     in property <bool> activatable: false;
+    // Phase 3 (D3) identity contract: see SlateButton.
+    in property <string> automation-id: "";
     callback clicked();
 
     min-height: 52px;
+
+    accessible-role: button;
+    accessible-label: root.title;
+    accessible-id: root.automation-id != "" ? root.automation-id : root.title;
+    accessible-enabled: root.activatable;
+    accessible-action-default => { if (root.activatable) { root.clicked(); } }
 
     touch := TouchArea {
         enabled: root.activatable;

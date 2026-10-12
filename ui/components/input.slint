@@ -10,6 +10,8 @@ export component SlateInput {
     in property <string> leading-icon: "";
     in property <bool> enabled: true;
     in property <bool> password: false;
+    // Phase 3 (D3) identity contract: see SlateButton.
+    in property <string> automation-id: "";
     callback edited(string);
     callback accepted(string);
 
@@ -64,6 +66,7 @@ export component SlateInput {
                         text <=> root.text;
                         accessible-role: text-input;
                         accessible-label: root.label != "" ? root.label : root.placeholder;
+                        accessible-id: root.automation-id != "" ? root.automation-id : (root.label != "" ? root.label : root.placeholder);
                         accessible-placeholder-text: root.placeholder;
                         font-size: SlateTheme.font-sm;
                         color: !root.enabled ? SlateTheme.text-muted : SlateTheme.text-primary;
@@ -84,6 +87,12 @@ export component SlateInput {
                     }
                     accessible-role: button;
                     accessible-label: "Clear";
+                    // W2 collision fix: the clear button derives from the
+                    // input's own resolved id (automation-id > label >
+                    // placeholder), never the bare "clear" constant — three
+                    // bare SlateInputs on one window used to brick
+                    // inspect_tree with duplicate accessible-ids.
+                    accessible-id: (root.automation-id != "" ? root.automation-id : (root.label != "" ? root.label : root.placeholder)) + "-clear";
                     accessible-action-default => {
                         root.text = "";
                         root.edited("");

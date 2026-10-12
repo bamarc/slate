@@ -4,7 +4,15 @@ export component SlateCard {
     in property <string> title: "";
     in property <string> subtitle: "";
     in property <bool> interactive: false;
+    // Phase 3 (D3) identity contract: see SlateButton.
+    in property <string> automation-id: "";
     callback clicked();
+
+    accessible-role: button;
+    accessible-label: root.title;
+    accessible-id: root.automation-id != "" ? root.automation-id : root.title;
+    accessible-enabled: root.interactive;
+    accessible-action-default => { if (root.interactive) { root.clicked(); } }
 
     touch := TouchArea {
         enabled: root.interactive;

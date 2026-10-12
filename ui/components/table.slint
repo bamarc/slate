@@ -19,6 +19,9 @@ export component SlateTable {
     in property <[float]> column-weights: [35, 25, 20, 20];
     // Rows shown before the body starts scrolling.
     in property <int> max-visible-rows: 8;
+    // Phase 3 (D3) identity contract: see SlateButton. Rows derive
+    // "<automation-id>-row-<idx>" (or "row-<row.id>") so tables stay unique.
+    in property <string> automation-id: "";
     callback row-clicked(int, SlateTableRow);
 
     property <length> header-height: 40px;
@@ -57,6 +60,9 @@ export component SlateTable {
         border-width: 1px;
         border-color: SlateTheme.border-subtle;
         clip: true;
+
+        accessible-role: table;
+        accessible-id: root.automation-id != "" ? root.automation-id : "table";
 
         VerticalLayout {
             // Header Row
@@ -100,6 +106,14 @@ export component SlateTable {
                         : Math.mod(idx, 2) == 1 ? SlateTheme.surface-2.transparentize(60%)
                         : Colors.transparent;
                     animate background { duration: 80ms; }
+
+                    accessible-role: list-item;
+                    accessible-label: row.name;
+                    // W2 collision fix: the row index is always incorporated;
+                    // an empty row.id no longer collapses every unscoped row
+                    // to "row-". Scoped form keeps "<automation-id>-row-<idx>".
+                    accessible-id: root.automation-id != "" ? root.automation-id + "-row-" + idx : "row-" + idx + (row.id != "" ? "-" + row.id : "");
+                    accessible-action-default => { root.row-clicked(idx, row); }
 
                     row-touch := TouchArea {
                         clicked => {

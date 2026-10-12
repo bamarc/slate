@@ -12,6 +12,12 @@ export struct SlateToastItem {
 
 component SlateToastCard {
     in property <SlateToastItem> item;
+    // W2 collision fix: position of this card in its host loop, plus a
+    // per-loop scope ("toast" for model toasts, "toast-slot" for internal
+    // slots) — three default {id: 0} slots used to share "toast-0", and a
+    // model toast could collide with a slot holding the same item id.
+    in property <int> card-index: 0;
+    in property <string> id-scope: "toast";
     callback dismiss();
 
     property <color> tint: item.variant == SlateToastVariant.success ? SlateTheme.status-success
@@ -24,6 +30,7 @@ component SlateToastCard {
     accessible-role: groupbox;
     accessible-label: root.item.title;
     accessible-description: root.item.description;
+    accessible-id: root.id-scope + "-" + root.item.id + "-at-" + root.card-index;
 
     Rectangle {
         background: SlateTheme.surface-1;
@@ -102,6 +109,7 @@ component SlateToastCard {
                     clicked => { root.dismiss(); }
                     accessible-role: button;
                     accessible-label: "Dismiss notification";
+                    accessible-id: "toast-" + root.item.id + "-dismiss";
                     accessible-action-default => { root.dismiss(); }
 
                     Rectangle {
@@ -200,6 +208,7 @@ export component SlateToastHost {
             card := SlateToastCard {
                 width: parent.width;
                 item: item;
+                card-index: i;
                 dismiss => { root.dismissed(item.id); }
             }
             Timer {
@@ -215,6 +224,8 @@ export component SlateToastHost {
             slot-card := SlateToastCard {
                 width: parent.width;
                 item: item;
+                card-index: i;
+                id-scope: "toast-slot";
                 dismiss => { root.close-slot(i); }
             }
         }
@@ -227,12 +238,20 @@ export component SlateToast {
     in property <string> title: "Notification";
     in property <string> message: "Operation completed successfully.";
     in property <string> variant: "info"; // "info" | "success" | "warning" | "error"
+    // Phase 3 (D3) identity contract: stable id so the toast never falls back
+    // to an unstable label slug.
+    in property <string> automation-id: "";
 
     callback dismissed();
 
     visible: root.is-visible;
     width: 320px;
     height: card-layout.preferred-height;
+
+    accessible-role: groupbox;
+    accessible-label: root.title;
+    accessible-description: root.message;
+    accessible-id: root.automation-id != "" ? root.automation-id : "toast";
 
     Rectangle {
         width: 100%;

@@ -3,11 +3,15 @@ import { SlateTheme } from "theme.slint";
 export component SlateTabs {
     in property <[string]> tabs: ["Tab 1", "Tab 2", "Tab 3"];
     in-out property <int> current-tab: 0;
+    // Phase 3 (D3) identity contract: see SlateButton. Tab items derive
+    // "<automation-id>-tab-<idx>" so repeated tab bars stay unique.
+    in property <string> automation-id: "";
     callback tab-selected(int, string);
 
     height: 42px;
 
     accessible-role: tab-list;
+    accessible-id: root.automation-id != "" ? root.automation-id : "tabs";
 
     function select(idx: int) {
         if (idx >= 0 && idx < root.tabs.length && idx != root.current-tab) {
@@ -45,6 +49,7 @@ export component SlateTabs {
             for tab-title[idx] in root.tabs : tab-item := Rectangle {
                 accessible-role: tab;
                 accessible-label: tab-title;
+                accessible-id: root.automation-id != "" ? root.automation-id + "-tab-" + idx : "tab-" + idx;
                 accessible-action-default => { root.select(idx); }
 
                 touch := TouchArea {

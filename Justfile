@@ -18,9 +18,15 @@ build:
 check:
     cd slate-rust && cargo check --workspace
 
-# Run all unit and integration tests across the Slate Rust workspace
+# Run all unit and integration tests across the Slate Rust workspace.
+# SLINT_EMIT_DEBUG_INFO=1 is required at BUILD time: Slint's ElementHandle
+# query pipeline (targeting, debug-id identity) needs compiler debug info,
+# and ANY value enables it (`=0` does NOT disable — only an unset var does).
+# Changing the var needs a rebuild of Slint consumers (`cargo clean -p
+# <crate>` first): Cargo fingerprints do not track env changes, so a stale
+# build keeps the old expansion and the query-path tests fail.
 test:
-    cd slate-rust && cargo test --workspace
+    cd slate-rust && SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace
 
 # Run the comprehensive 4-tier Agent / MCP end-to-end test suite
 e2e:
@@ -90,6 +96,28 @@ carbon-ui:
 # Run the Slate Desktop Component Gallery via Google Carbon
 carbon-gallery:
     slate-carbon/examples/gallery/run.sh
+
+# ── Slint-D Bindings ─────────────────────────────────────
+
+# Activate the user-local D toolchain (~/dlang) for the chained command
+_dlang:
+    @test -d ~/dlang/dmd-*/ 2>/dev/null || { echo "✗ No D toolchain in ~/dlang. Install: curl -fsS https://dlang.org/install.sh | bash -s install dmd"; exit 1; }
+
+# Build the Rust C-ABI bridge (libslint_d_bridge) for slint-d
+d-bridge:
+    cd slint-d/bridge && cargo build
+
+# Run slint-d pure-D unit tests (no Slint runtime needed)
+d-test: _dlang
+    bash -c 'source ~/dlang/dmd-*/activate && cd slint-d && dub test'
+
+# Build the slint-d library (pure-D configuration)
+d-build: _dlang
+    bash -c 'source ~/dlang/dmd-*/activate && cd slint-d && dub build'
+
+# Run the slint-d hello example (pure-D demo unless native config is used)
+d-example: _dlang
+    bash -c 'source ~/dlang/dmd-*/activate && cd slint-d/examples/hello && dub run'
 
 # ── Legacy Webapp Stack (Preserved) ─────────────────────────
 

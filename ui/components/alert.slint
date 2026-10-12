@@ -7,6 +7,8 @@ export component SlateAlert {
     // "info" | "success" | "warning" | "error" | "destructive" (alias of "error") | "default" (neutral)
     in property <string> variant: "info";
     in property <bool> dismissible: false;
+    // Phase 3 (D3) identity contract: see SlateButton.
+    in property <string> automation-id: "";
     callback dismissed();
 
     property <bool> is-success: variant == "success";
@@ -96,6 +98,7 @@ export component SlateAlert {
 
                 accessible-role: button;
                 accessible-label: "Dismiss";
+                accessible-id: root.automation-id != "" ? root.automation-id + "-dismiss" : "alert-dismiss";
                 accessible-action-default => { root.dismissed(); }
 
                 VerticalLayout {

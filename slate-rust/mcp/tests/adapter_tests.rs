@@ -1,4 +1,10 @@
 //! Unit and integration tests for `McpAdapter` and `AgentBuilderMcpExt`.
+//!
+//! FRAMING-ONLY (Slint-first remediation plan, Phase 0): the engines here are
+//! `Default*` always-Ok stubs (`create_mock_engine`) and the builder test only
+//! exercises attach/lifecycle against a bare `TestWindow` — no interaction,
+//! inspection, or event-loop behavior is asserted. Live-window coverage lives in
+//! `real_window_interaction_tests.rs` (T1/T2).
 
 use std::sync::Arc;
 use std::time::Duration;

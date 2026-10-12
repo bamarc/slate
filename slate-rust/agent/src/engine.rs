@@ -194,6 +194,16 @@ impl StateProvider for DefaultStateProvider {
 }
 
 /// Fallback visual renderer creating synthetic frame buffers or query viewport dimensions.
+///
+/// TEST-ONLY: this renderer reports a fixed configured size and synthesizes a
+/// blank frame. Production paths must attach a real renderer whose
+/// `get_viewport_size` returns the window size in logical px — the single
+/// source of truth shared by click bounds-checking (`slate-mcp` click tool)
+/// and the `slate://app/context` resource. Logical px (not physical/device px)
+/// is the contract: inputs arrive in logical coordinates, so viewports must be
+/// logical too. The kept default dimensions (800x600) exist only so existing
+/// framing tests have a deterministic size; they must never be mistaken for a
+/// real window measurement.
 pub struct DefaultVisualRenderer {
     width: u32,
     height: u32,

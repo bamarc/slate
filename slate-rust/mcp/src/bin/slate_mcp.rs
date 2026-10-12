@@ -43,7 +43,7 @@ enum SubCommand {
         out_path: Option<PathBuf>,
     },
     State {
-        query: Option<String>,
+        keys: Vec<String>,
     },
     Tools,
     Resources,
@@ -71,7 +71,7 @@ SUBCOMMANDS:
     click --x <X> --y <Y>            Click element by coordinates
     type <TEXT> [--target <ID>]      Type text into active or targeted input
     screenshot [--out <FILE.png>]    Capture window frame and optionally save PNG
-    state [--query <KEY>]            Query runtime metrics and diagnostic state
+    state [--key <KEY>]...          Query runtime metrics and diagnostic state
     tools                            List all available MCP tools on the target
     resources                        List all available MCP resources
     read <URI>                       Read a specific MCP resource by URI
@@ -80,7 +80,7 @@ SUBCOMMANDS:
     help, --help, -h                 Print this help documentation
 
 GLOBAL OPTIONS:
-    --app <PATH>         Path to Slate application binary (default: target/debug/slate-showcase)
+    --app <PATH>         Path to Slate application binary (default: slate-rust/target/debug/slate-showcase)
     --app-arg <ARG>      Additional arguments passed to application (repeatable)
     --gui                Run with visual window (disables default --headless)
     --timeout <SECS>     Command timeout in seconds (default: 15)
@@ -98,8 +98,10 @@ EXAMPLES:
     # Type search term into input field
     slate-mcp type "Hello Slate" --target search_box
 
-    # Run as stdio MCP server for agent IDEs / tools:
-    slate-mcp serve --app ./target/debug/slate-showcase
+    # Run as stdio MCP server for agent IDEs / tools
+    # (paths relative to the workspace root; build the binary first with
+    # `cargo build -p slate-showcase` inside slate-rust/):
+    slate-mcp serve --app ./slate-rust/target/debug/slate-showcase
 "#
     );
 }
@@ -110,6 +112,8 @@ fn resolve_default_app() -> PathBuf {
     }
 
     let candidates = [
+        "slate-rust/target/debug/slate-showcase",
+        "slate-rust/target/release/slate-showcase",
         "target/debug/slate-showcase",
         "target/release/slate-showcase",
         "../target/debug/slate-showcase",
@@ -330,18 +334,20 @@ fn parse_cli_args() -> Result<CliConfig, String> {
             SubCommand::Screenshot { out_path }
         }
         "state" => {
-            let mut query = None;
+            // Canonical `--key <K>` (repeatable); legacy `--query <K>` or a
+            // bare positional arg map to the same single-key filter.
+            let mut keys = Vec::new();
             let mut j = 0;
             while j < sub_args.len() {
-                if sub_args[j] == "--query" && j + 1 < sub_args.len() {
-                    query = Some(sub_args[j + 1].clone());
+                if (sub_args[j] == "--key" || sub_args[j] == "--query") && j + 1 < sub_args.len() {
+                    keys.push(sub_args[j + 1].clone());
                     j += 1;
-                } else if !sub_args[j].starts_with('-') && query.is_none() {
-                    query = Some(sub_args[j].clone());
+                } else if !sub_args[j].starts_with('-') && keys.is_empty() {
+                    keys.push(sub_args[j].clone());
                 }
                 j += 1;
             }
-            SubCommand::State { query }
+            SubCommand::State { keys }
         }
         "tools" => SubCommand::Tools,
         "resources" => SubCommand::Resources,
@@ -414,7 +420,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !config.app_bin.exists() {
         eprintln!(
             "Error: Target application binary not found at '{}'.\n\
-             Ensure the binary is built (e.g. 'cargo build --example slate-showcase')\n\
+             Ensure the binary is built (e.g. 'cargo build -p slate-showcase' inside 'slate-rust/')\n\
              or specify the binary with '--app <path>'.",
             config.app_bin.display()
         );
@@ -526,8 +532,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        SubCommand::State { query } => {
-            let res = client.get_state(query.as_deref()).await;
+        SubCommand::State { keys } => {
+            let filter = if keys.is_empty() { None } else { Some(keys) };
+            let res = client.get_state(filter).await;
             handle_output(res, config.json_output)
         }
         SubCommand::Tools => {
@@ -606,6 +613,13 @@ fn save_screenshot(val: &serde_json::Value, out_path: &Path) -> Result<(), Box<d
         .decode(b64)
         .map_err(|e| format!("Base64 decoding failed: {}", e))?;
 
+    // Validate PNG magic bytes before writing: a valid PNG starts with the
+    // 8-byte signature 89 50 4E 47 0D 0A 1A 0A.
+    const PNG_MAGIC: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    if bytes.len() < PNG_MAGIC.len() || bytes[..PNG_MAGIC.len()] != PNG_MAGIC {
+        return Err("Screenshot payload is not a valid PNG (bad magic bytes)".into());
+    }
+
     if let Some(parent) = out_path.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent)?;
@@ -617,6 +631,12 @@ fn save_screenshot(val: &serde_json::Value, out_path: &Path) -> Result<(), Box<d
 }
 
 /// Runs a transparent stdio proxy forwarding JSON-RPC between parent stdio and the child Slate process.
+///
+/// Shutdown propagation: if EITHER pipe direction ends (client stdin EOF or
+/// child stdout EOF) or the child exits, the other direction is aborted and
+/// the child is killed + reaped so no orphan or zombie is left behind. The
+/// pre-fix `select!` returned after the first finished branch without killing
+/// the child on the pipe-EOF paths.
 async fn run_stdio_proxy(cmd: &str, args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
     let mut child = tokio::process::Command::new(cmd)
         .args(args)
@@ -631,23 +651,30 @@ async fn run_stdio_proxy(cmd: &str, args: &[&str]) -> Result<(), Box<dyn std::er
     let mut stdin_reader = tokio::io::BufReader::new(tokio::io::stdin());
     let mut stdout_writer = tokio::io::stdout();
 
-    let to_child = tokio::spawn(async move {
+    let mut to_child = tokio::spawn(async move {
         tokio::io::copy(&mut stdin_reader, &mut child_stdin).await
     });
 
-    let from_child = tokio::spawn(async move {
+    let mut from_child = tokio::spawn(async move {
         tokio::io::copy(&mut child_stdout, &mut stdout_writer).await
     });
 
     tokio::select! {
-        _ = to_child => {},
-        _ = from_child => {},
+        _ = &mut to_child => {},
+        _ = &mut from_child => {},
         status = child.wait() => {
             let code = status?.code().unwrap_or(0);
+            to_child.abort();
+            from_child.abort();
             std::process::exit(code);
         }
     }
 
+    // One side closed first: stop the other copy direction, then terminate
+    // and reap the child (kill is a no-op error if it already exited).
+    to_child.abort();
+    from_child.abort();
     let _ = child.kill().await;
+    let _ = child.wait().await;
     Ok(())
 }

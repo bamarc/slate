@@ -9,6 +9,11 @@ description = "Core decoupled automation engine, Slint bridge, and ACP extension
 [dependencies]
 slint.workspace = true
 i-slint-core.workspace = true
+# Phase 2 (D1): production use of the Slint 1.18 ElementHandle query pipeline
+# (ElementQuery/ElementHandle) for Slint-first targeting. The query API only
+# ships in i-slint-backend-testing in 1.18 (no `mcp` feature enabled, no new
+# crates); the testing *backend* itself is never installed by production code.
+i-slint-backend-testing.workspace = true
 slate-core = { path = "../core" }
 slate-utils = { path = "../utils" }
 thiserror.workspace = true
@@ -24,4 +29,3 @@ base64 = "0.23"
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full", "macros"] }
 env_logger.workspace = true
-i-slint-backend-testing.workspace = true

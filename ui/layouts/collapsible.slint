@@ -5,6 +5,8 @@ export component SlateCollapsible {
     in-out property <bool> is-open: true;
     in property <string> title: "Collapsible Section";
     in property <string> subtitle: "";
+    // Phase 3 (D3) identity contract: see SlateButton.
+    in property <string> automation-id: "";
     callback toggled(bool);
 
     VerticalLayout {
@@ -18,6 +20,16 @@ export component SlateCollapsible {
             border-width: 1px;
             border-color: SlateTheme.border-subtle;
             animate background { duration: 120ms; }
+
+            accessible-role: button;
+            accessible-label: root.title;
+            accessible-id: root.automation-id != "" ? root.automation-id : root.title;
+            accessible-expandable: true;
+            accessible-expanded: root.is-open;
+            accessible-action-default => {
+                root.is-open = !root.is-open;
+                root.toggled(root.is-open);
+            }
 
             touch := TouchArea {
                 clicked => {

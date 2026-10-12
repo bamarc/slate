@@ -3,12 +3,15 @@ import { SlateTheme } from "theme.slint";
 export component SlateSegmentedControl {
     in property <[string]> options: ["Option 1", "Option 2", "Option 3"];
     in-out property <int> selected-index: 0;
+    // Phase 3 (D3) identity contract: see SlateTabs.
+    in property <string> automation-id: "";
     callback selected(int, string);
 
     height: 36px;
     horizontal-stretch: 0;
 
     accessible-role: tab-list;
+    accessible-id: root.automation-id != "" ? root.automation-id : "segmented";
 
     function select(idx: int) {
         if (idx >= 0 && idx < root.options.length && idx != root.selected-index) {
@@ -52,6 +55,7 @@ export component SlateSegmentedControl {
 
                 accessible-role: radio-button;
                 accessible-label: opt;
+                accessible-id: root.automation-id != "" ? root.automation-id + "-segment-" + idx : "segment-" + idx;
                 accessible-checked: root.selected-index == idx;
                 accessible-action-default => { root.select(idx); }
 

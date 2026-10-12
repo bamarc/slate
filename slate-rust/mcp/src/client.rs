@@ -213,6 +213,9 @@ impl<W: AsyncWrite + Unpin + Send + 'static> McpClient<W> {
     }
 
     /// Clicks an element by ID or coordinates (`click_element`).
+    ///
+    /// Sends a single coordinate form (`x`/`y` only). The legacy duplicated
+    /// `point: {x, y}` object is intentionally omitted.
     pub async fn click_element(
         &self,
         id: Option<&str>,
@@ -225,7 +228,6 @@ impl<W: AsyncWrite + Unpin + Send + 'static> McpClient<W> {
         if let Some((x, y)) = point {
             args.insert("x".to_string(), serde_json::json!(x));
             args.insert("y".to_string(), serde_json::json!(y));
-            args.insert("point".to_string(), serde_json::json!({ "x": x, "y": y }));
         }
 
         self.call_tool("click_element", serde_json::Value::Object(args))
@@ -233,6 +235,10 @@ impl<W: AsyncWrite + Unpin + Send + 'static> McpClient<W> {
     }
 
     /// Sends keystrokes to active or targeted element (`send_keys`).
+    ///
+    /// Sends the canonical `element_id` only. The server still accepts the
+    /// legacy `target_id` alias for old clients, but new callers must not
+    /// send both forms.
     pub async fn send_keys(
         &self,
         text: &str,
@@ -242,7 +248,6 @@ impl<W: AsyncWrite + Unpin + Send + 'static> McpClient<W> {
         args.insert("text".to_string(), serde_json::json!(text));
         if let Some(id) = target_id {
             args.insert("element_id".to_string(), serde_json::json!(id));
-            args.insert("target_id".to_string(), serde_json::json!(id));
         }
 
         self.call_tool("send_keys", serde_json::Value::Object(args))
@@ -255,10 +260,16 @@ impl<W: AsyncWrite + Unpin + Send + 'static> McpClient<W> {
     }
 
     /// Queries application state and metrics (`get_state`).
-    pub async fn get_state(&self, query: Option<&str>) -> Result<serde_json::Value, ClientError> {
+    ///
+    /// Sends the canonical `keys` array filter. The legacy single-`query`
+    /// string form is deprecated server-side but still accepted there.
+    pub async fn get_state(
+        &self,
+        keys: Option<Vec<String>>,
+    ) -> Result<serde_json::Value, ClientError> {
         let mut args = serde_json::Map::new();
-        if let Some(q) = query {
-            args.insert("query".to_string(), serde_json::json!(q));
+        if let Some(ks) = keys {
+            args.insert("keys".to_string(), serde_json::json!(ks));
         }
 
         self.call_tool("get_state", serde_json::Value::Object(args))
@@ -329,9 +340,19 @@ impl ProcessMcpClient {
         &mut self.client
     }
 
-    /// Shuts down the child process.
+    /// Shuts down the child process and reaps it.
+    ///
+    /// `kill` alone would leave a zombie: the child must be `wait`ed on so the
+    /// OS releases its exit status. An already-exited child is not an error.
     pub async fn kill(&mut self) -> Result<(), ClientError> {
-        self.child.kill().await.map_err(ClientError::Io)
+        match self.child.kill().await {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(ClientError::Io(e)),
+        }
+        // Reap the child process so no zombie entry is left behind.
+        self.child.wait().await.map_err(ClientError::Io)?;
+        Ok(())
     }
 
     /// Waits for the child process to exit.

@@ -4,6 +4,8 @@ import { SlateCloseIcon, SlateSearchIcon } from "icons.slint";
 export component SlateSearchInput {
     in-out property <string> text: "";
     in property <string> placeholder: "Search...";
+    // Phase 3 (D3) identity contract: see SlateButton.
+    in property <string> automation-id: "";
     callback edited(string);
     callback accepted(string);
 
@@ -46,6 +48,7 @@ export component SlateSearchInput {
                     text <=> root.text;
                     accessible-role: text-input;
                     accessible-label: root.placeholder;
+                    accessible-id: root.automation-id != "" ? root.automation-id : root.placeholder;
                     accessible-placeholder-text: root.placeholder;
                     font-size: SlateTheme.font-sm;
                     color: SlateTheme.text-primary;
@@ -64,6 +67,10 @@ export component SlateSearchInput {
                 }
                 accessible-role: button;
                 accessible-label: "Clear";
+                // W2 collision fix: derived from this input's own resolved id
+                // (automation-id > placeholder), never the bare "clear"
+                // constant (see SlateInput).
+                accessible-id: (root.automation-id != "" ? root.automation-id : root.placeholder) + "-clear";
                 accessible-action-default => {
                     root.text = "";
                     root.edited("");

@@ -641,6 +641,7 @@ export component MainWindow inherits Window {
                         spacing: SlateTheme.spacing-md;
 
                         SlateTabs {
+                            automation-id: "showcase-horizontal-tabs";
                             tabs: ["Overview", "Metrics", "Audit Logs", "Security", "Settings"];
                             current-tab <=> root.demo-horizontal-tab;
                         }

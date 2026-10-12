@@ -18,6 +18,7 @@ pub use tree as inspect;
 
 use crate::schema::ToolCallResult;
 use slate_agent::traits::AutomationEngine;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -30,16 +31,22 @@ pub enum ToolDispatchError {
 }
 
 /// Dispatches a tool by name against the AutomationEngine.
+///
+/// `dropped` is the server's bounded-log eviction counter; tools log through
+/// `resources::push_bounded_log` so overflow is counted, never silently lost.
 pub async fn dispatch_tool(
     engine: &dyn AutomationEngine,
     logs: &Arc<Mutex<Vec<String>>>,
+    dropped: &Arc<AtomicU64>,
     name: &str,
     arguments: serde_json::Value,
 ) -> Result<ToolCallResult, ToolDispatchError> {
     match name {
         "get_screenshot" => Ok(screenshot::handle_screenshot(engine, arguments).await),
         "inspect_tree" => Ok(tree::handle_inspect_tree(engine, arguments).await),
-        "click_element" => Ok(click::handle_click_element(engine, logs, arguments).await),
+        "click_element" => {
+            Ok(click::handle_click_element(engine, logs, dropped, arguments).await)
+        }
         "send_keys" => {
             let text = match arguments.get("text").and_then(|v| v.as_str()) {
                 Some(t) => t,
@@ -58,7 +65,7 @@ pub async fn dispatch_tool(
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
 
-            Ok(keys::handle_send_keys(engine, logs, text, element_id, clear_first).await)
+            Ok(keys::handle_send_keys(engine, logs, dropped, text, element_id, clear_first).await)
         }
         "get_state" => Ok(state::handle_get_state(engine, arguments).await),
         unknown => Err(ToolDispatchError::NotFound(unknown.to_string())),

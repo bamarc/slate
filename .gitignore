@@ -64,6 +64,13 @@ renders/
 bazel-*
 slate-carbon/**/bin/
 
+# D / DUB build artifacts
+.dub/
+dub.selections.json
+slint-d/*.a
+slint-d/slint-d-test-library
+slint-d/examples/hello/hello
+
 # Local, user-owned material
 old/
 .cargo/config.toml

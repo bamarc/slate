@@ -16,6 +16,8 @@ export component SlateDrawer {
     in property <string> title: "Drawer";
     in property <string> description: "";
     in property <length> panel-width: 360px;
+    // Phase 3 (D3) identity contract: see SlateButton.
+    in property <string> automation-id: "";
     callback closed();
 
     property <length> shown-width: Math.min(root.panel-width, root.width - 24px);
@@ -82,6 +84,7 @@ export component SlateDrawer {
             accessible-role: groupbox;
             accessible-label: root.title;
             accessible-description: root.description;
+            accessible-id: root.automation-id != "" ? root.automation-id : root.title;
 
             // Block clicks on the panel from dismissing via the backdrop
             TouchArea {}
@@ -117,6 +120,7 @@ export component SlateDrawer {
                         height: 28px;
                         accessible-role: button;
                         accessible-label: "Close";
+                        accessible-id: (root.automation-id != "" ? root.automation-id : root.title) + "-close";
                         accessible-action-default => { root.dismiss(); }
                         clicked => { root.dismiss(); }
 

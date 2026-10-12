@@ -425,11 +425,19 @@ async fn test_adversarial_click_element_parameters() {
         serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
     assert_eq!(resp["result"]["isError"], true);
 
-    // 5. Invalid mouse button string defaults safely to Left
+    // 5. Invalid mouse button string is rejected, never coerced to Left
+    // (Phase 1: unknown `button` values are an explicit error so callers
+    // cannot silently get a left click they did not ask for).
     let raw = r#"{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "click_element", "arguments": {"x": 100.0, "y": 100.0, "button": "unknown_button"}}}"#;
     let resp: serde_json::Value =
         serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
-    assert_eq!(resp["result"]["isError"], false);
+    assert_eq!(resp["result"]["isError"], true);
+    assert!(
+        resp["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Unsupported button")
+    );
 }
 
 #[tokio::test]
@@ -471,17 +479,22 @@ async fn test_adversarial_inspect_tree_parameters() {
 async fn test_adversarial_get_state_parameters() {
     let server = create_test_server();
 
-    // 1. Non-array keys argument is ignored gracefully
+    // 1. Non-array keys argument fails CLOSED (no fail-open to unfiltered
+    // state — strict validation; see protocol_minimums_tests).
     let raw = r#"{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_state", "arguments": {"keys": "not_an_array"}}}"#;
     let resp: serde_json::Value =
         serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
-    assert_eq!(resp["result"]["isError"], false);
+    assert_eq!(resp["result"]["isError"], true);
+    assert!(resp["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("'keys' must be an array"));
 
-    // 2. Array with mixed non-string types
+    // 2. Array with mixed non-string types fails CLOSED for the same reason.
     let raw = r#"{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "get_state", "arguments": {"keys": [1, null, true, "valid_key"]}}}"#;
     let resp: serde_json::Value =
         serde_json::from_str(&server.handle_line(raw).await.unwrap()).unwrap();
-    assert_eq!(resp["result"]["isError"], false);
+    assert_eq!(resp["result"]["isError"], true);
 }
 
 // ============================================================================

@@ -6,6 +6,9 @@ export component SlatePopover {
     in property <length> anchor-x: 0px;
     in property <length> anchor-y: 0px;
     in property <length> popover-width: 280px;
+    // Phase 3 (D3) identity contract: popovers rarely carry a title, so the id
+    // is purely author-assigned (empty falls back to the debug-id path).
+    in property <string> automation-id: "";
 
     callback closed();
 
@@ -45,6 +48,9 @@ export component SlatePopover {
         drop-shadow-color: #00000080;
         drop-shadow-offset-y: 6px;
         clip: true;
+
+        accessible-role: groupbox;
+        accessible-id: root.automation-id;
 
         TouchArea {}
 

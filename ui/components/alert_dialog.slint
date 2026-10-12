@@ -10,6 +10,9 @@ export component SlateAlertDialog {
     in property <string> action-text: "Delete";
     in property <string> cancel-text: "Cancel";
     in property <string> variant: "destructive"; // "destructive" | "warning"
+    // Phase 3 (D3) identity contract: see SlateButton. Footer buttons derive
+    // "<automation-id>-cancel/-confirm" so repeated dialogs stay unique.
+    in property <string> automation-id: "";
 
     callback action-confirmed();
     callback cancelled();
@@ -42,6 +45,11 @@ export component SlateAlertDialog {
         drop-shadow-color: #000000b0;
         drop-shadow-offset-y: 12px;
         clip: true;
+
+        accessible-role: groupbox;
+        accessible-label: root.title;
+        accessible-description: root.description;
+        accessible-id: root.automation-id != "" ? root.automation-id : root.title;
 
         TouchArea {}
 
@@ -98,6 +106,7 @@ export component SlateAlertDialog {
 
                 SlateButton {
                     text: root.cancel-text;
+                    automation-id: (root.automation-id != "" ? root.automation-id : root.title) + "-cancel";
                     variant: SlateButtonVariant.outline;
                     size: SlateButtonSize.md;
                     clicked => {
@@ -108,6 +117,7 @@ export component SlateAlertDialog {
 
                 SlateButton {
                     text: root.action-text;
+                    automation-id: (root.automation-id != "" ? root.automation-id : root.title) + "-confirm";
                     variant: root.variant == "destructive" ? SlateButtonVariant.destructive : SlateButtonVariant.primary;
                     size: SlateButtonSize.md;
                     clicked => {
