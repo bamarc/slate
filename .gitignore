@@ -67,9 +67,15 @@ slate-carbon/**/bin/
 # D / DUB build artifacts
 .dub/
 dub.selections.json
+*.o
+*.obj
 slint-d/*.a
-slint-d/slint-d-test-library
+slint-d/*-test-*
 slint-d/examples/hello/hello
+slint-d/examples/menushow/menushow
+slint-d/examples/gallery/gallery
+slate-dlang/*.a
+slate-dlang/*-test-*
 
 # Local, user-owned material
 old/

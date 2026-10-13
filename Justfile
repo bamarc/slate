@@ -119,6 +119,20 @@ d-build: _dlang
 d-example: _dlang
     bash -c 'source ~/dlang/dmd-*/activate && cd slint-d/examples/hello && dub run'
 
+# Render the Slate showcase gallery from D offscreen into renders/dlang-gallery
+d-gallery out_dir="../../../renders/dlang-gallery": _dlang
+    bash -c 'source ~/dlang/dmd-*/activate && cd slint-d/examples/gallery && LD_LIBRARY_PATH="$PWD/../../bridge/target/debug:$LD_LIBRARY_PATH" SLINT_BACKEND=software dub run --config=native -- {{out_dir}}'
+
+# ── Slate-DLang Framework ────────────────────────────────
+
+# Run slate-dlang pure-D unit tests (no Slint runtime needed)
+slate-test: _dlang
+    bash -c 'source ~/dlang/dmd-*/activate && cd slate-dlang && dub test'
+
+# Build the slate-dlang library (pure-D configuration)
+slate-build: _dlang
+    bash -c 'source ~/dlang/dmd-*/activate && cd slate-dlang && dub build'
+
 # ── Legacy Webapp Stack (Preserved) ─────────────────────────
 
 # Start the full docker compose stack (db + backend + frontend) attached.

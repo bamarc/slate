@@ -1,0 +1,33 @@
+{
+    "name": "slate",
+    "description": "Slate: declarative desktop UI framework on Slint, in DLang. Ports slate-rust (core theme/tasks, utils, extensions, AppBuilder, ComputeController, demo) against slint-d.",
+    "authors": ["Slate Contributors"],
+    "license": "MIT OR Apache-2.0",
+    "homepage": "https://github.com/slate-framework/slate",
+    "targetType": "library",
+    "sourcePaths": ["source"],
+    "importPaths": ["source"],
+    "targetName": "slate",
+    "dependencies": {
+        "slint-d": {"path": "../slint-d"}
+    },
+    "configurations": [
+        {
+            "name": "library",
+            "targetType": "library"
+        },
+        {
+            "name": "native",
+            "targetType": "library",
+            "versions": ["SlintNative"],
+            "subConfigurations": {
+                "slint-d": "native"
+            }
+        }
+    ],
+    "buildTypes": {
+        "unittest": {
+            "buildOptions": ["unittests", "debugMode", "debugInfo"]
+        }
+    }
+}

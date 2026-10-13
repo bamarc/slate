@@ -1,0 +1,22 @@
+export component MainWindow inherits Window {
+    callback clicked <=> i-touch-area.clicked;
+
+    in-out property <int> counter: 42;
+
+    width: 400px;
+    height: 200px;
+
+    VerticalLayout {
+        Text {
+            text: "Counter: \{root.counter}";
+        }
+
+        i-touch-area := TouchArea {
+            width: 200px;
+            height: 40px;
+            Text {
+                text: "Increase value";
+            }
+        }
+    }
+}

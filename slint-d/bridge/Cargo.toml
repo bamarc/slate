@@ -1,0 +1,19 @@
+# Copyright © SixtyFPS GmbH <info@slint.dev> (upstream API), Slate Contributors (bridge)
+# SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0
+
+[package]
+name = "slint-d-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "C ABI bridge exposing slint-interpreter to the slint-d DLang bindings"
+license = "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+path = "src/lib.rs"
+
+[dependencies]
+slint-interpreter = "=1.18.1"
+i-slint-core = "=1.18.1"
+spin_on = "0.1"
+serde_json = "1.0"

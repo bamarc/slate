@@ -1,0 +1,29 @@
+{
+    "name": "slint-d",
+    "description": "DLang bindings for Slint (declarative GUI toolkit), mirroring the official Node.js (api/node) and Python (api/python) bindings. Idiomatic D layer over a Rust cdylib bridge built on slint-interpreter.",
+    "authors": ["Slate Contributors"],
+    "license": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+    "homepage": "https://slint.dev",
+    "targetType": "library",
+    "sourcePaths": ["source"],
+    "importPaths": ["source"],
+    "targetName": "slint-d",
+    "configurations": [
+        {
+            "name": "library",
+            "targetType": "library"
+        },
+        {
+            "name": "native",
+            "targetType": "library",
+            "versions": ["SlintNative"],
+            "libs": ["slint_d_bridge"],
+            "lflags": ["-L$PACKAGE_DIR/bridge/target/debug", "-L$PACKAGE_DIR/bridge/target/release"]
+        }
+    ],
+    "buildTypes": {
+        "unittest": {
+            "buildOptions": ["unittests", "debugMode", "debugInfo"]
+        }
+    }
+}

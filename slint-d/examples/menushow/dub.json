@@ -1,0 +1,23 @@
+{
+    "name": "menushow",
+    "description": "Slate menu gallery driven from D; auto-quits for scripted screenshots.",
+    "license": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+    "targetType": "executable",
+    "sourcePaths": ["source"],
+    "importPaths": ["source"],
+    "dependencies": {
+        "slint-d": {"path": "../.."}
+    },
+    "configurations": [
+        {
+            "name": "application"
+        },
+        {
+            "name": "native",
+            "targetType": "executable",
+            "subConfigurations": {
+                "slint-d": "native"
+            }
+        }
+    ]
+}

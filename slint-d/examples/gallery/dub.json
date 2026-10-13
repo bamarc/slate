@@ -1,0 +1,25 @@
+{
+    "name": "gallery",
+    "description": "Slate component gallery driven from D: wires the Rust showcase markup and renders every tab offscreen.",
+    "license": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+    "targetType": "executable",
+    "sourcePaths": ["source"],
+    "importPaths": ["source"],
+    "dependencies": {
+        "slint-d": {"path": "../.."},
+        "slate": {"path": "../../../slate-dlang"}
+    },
+    "configurations": [
+        {
+            "name": "application"
+        },
+        {
+            "name": "native",
+            "targetType": "executable",
+            "subConfigurations": {
+                "slint-d": "native",
+                "slate": "native"
+            }
+        }
+    ]
+}
