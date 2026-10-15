@@ -12,6 +12,8 @@ Slate is a multi-language UI framework with a shared declarative Slint UI layer:
 | `ui/` | Shared Slint components (`components/`), layouts (`layouts/`), and registry (`index.slint`) |
 | `slate-rust/` | Rust implementation, crates, agent/MCP control, and showcase desktop application |
 | `slate-carbon/` | Google Carbon bindings, C++ runtime bridge, and Bazel workspace |
+| `slint-d/` | Dlang bindings for Slint runtime via C ABI bridge (`slint-d/bridge/`) |
+| `slate-dlang/` | Slate Dlang framework, MCP server, agents, tasks, and fibers |
 
 ### Rust Crates (`slate-rust/`)
 
@@ -35,6 +37,13 @@ Slate is a multi-language UI framework with a shared declarative Slint UI layer:
 | `slate-carbon/src/` | C++ runtime implementation on top of Slint C++ |
 | `slate-carbon/slint.bzl` | Bazel rule compiling `ui/index.slint` into C++ headers |
 | `slate-carbon/examples/` | Example Carbon desktop application |
+
+### Dlang Packages (`slate-dlang/` & `slint-d/`)
+
+| Path | Package | Purpose |
+|------|---------|---------|
+| `slint-d/` | `slint-d` | Dlang bindings for Slint runtime via C ABI bridge crate (`slint-d/bridge/`) |
+| `slate-dlang/` | `slate` | Slate framework port to D: declarative JSON serialization, MCP server, agents, tasks, fibers |
 
 ## Just recipes
 

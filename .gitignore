@@ -76,6 +76,9 @@ slint-d/examples/menushow/menushow
 slint-d/examples/gallery/gallery
 slate-dlang/*.a
 slate-dlang/*-test-*
+slate-dlang/bin/
+!slate-dlang/source/slate/bin/
+lib/
 
 # Local, user-owned material
 old/

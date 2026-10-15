@@ -1,56 +1,105 @@
 # Slate
 
-Slate is a declarative desktop UI framework for **Rust + [Slint](https://slint.dev)**, inspired by
-Libadwaita/Kirigami and mirroring a web-app design language 1:1.
+Slate is a high-performance, declarative desktop UI framework written in **DLang** on top of **[Slint](https://slint.dev)**, inspired by Libadwaita/Kirigami and mirroring a modern web-app design language 1:1. Slate combines the expressive power, type safety, and `@nogc` real-time capabilities of D with Slint's reactive declarative UI and rich multi-protocol agent automation.
 
 ## Workspace Layout
 
-Slate is a multi-language UI framework with a shared declarative Slint UI layer:
+Slate is designed with **DLang at its core**, featuring native D bindings to Slint, a complete D application framework, network stacks (HTTP/1.1, HTTP/2, HTTP/3 QUIC), embedded Model Context Protocol (MCP) server, and cross-language interoperability (Rust and Carbon):
 
-| Path | Purpose |
-|------|---------|
-| `ui/` | Shared Slint components (`components/`), layouts (`layouts/`), and registry (`index.slint`) |
-| `slate-rust/` | Rust implementation, crates, agent/MCP control, and showcase desktop application |
-| `slate-carbon/` | Google Carbon bindings, C++ runtime bridge, and Bazel workspace |
+| Path | Package / Layer | Purpose |
+|------|-----------------|---------|
+| `slate-dlang/` | `slate` (DUB) | **Core Slate DLang framework**: AppBuilder, reactive controllers, theme engine, fibers/tasks, HTTP/3 QUIC, MCP server & agent automation, rich component controllers |
+| `slint-d/` | `slint-d` (DUB) | **DLang Slint runtime bindings**: idiomatic D bindings to Slint runtime via C-ABI bridge crate (`bridge/`) |
+| `ui/` | Shared UI Markup | Declarative Slint components (`components/`), layouts (`layouts/`), charts, media, data grid, and entry point (`index.slint`) |
+| `slate-rust/` | Multi-language / Reference | Rust crates, reference implementation, agent/MCP test harnesses, and desktop showcase |
+| `slate-carbon/` | Google Carbon bindings | Carbon package definitions and C++ runtime bridge on top of Slint C++ |
 
-### Rust Crates (`slate-rust/`)
+---
 
-| Path | Crate | Purpose |
-|------|-------|---------|
-| `slate-rust/core/` | `slate-core` | Theme modes, background tasks (`spawn_compute`, `TaskCancellation`) |
-| `slate-rust/utils/` | `slate-utils` | Formatting and color helpers |
-| `slate-rust/extensions/` | `slate-extensions` | Platform detection (system dark mode), plugins |
-| `slate-rust/agent/` | `slate-agent` | Agent automation, ACP protocol adapter, tree inspection |
-| `slate-rust/mcp/` | `slate-mcp` | Model Context Protocol (MCP) server, stdio/memory transports, CLI |
-| `slate-rust/lib/` | `slate` | Public facade: re-exports crates and generated Slint types; `AppBuilder` |
-| `slate-rust/test/` | `slate-tests` | Comprehensive cross-crate and end-to-end tests |
-| `slate-rust/examples/showcase/` | `slate-showcase` | Desktop showcase, `web_mirror` and `render` binaries |
+## DLang Core Architecture (`slate-dlang` & `slint-d`)
 
-### Carbon Bindings (`slate-carbon/`)
+### 1. `slate-dlang` — The Core Slate Framework (`dub: slate`)
 
-| Path | Purpose |
-|------|---------|
-| `slate-carbon/carbon/` | Carbon package definitions (`package Slate library "ui"`, theme tokens) |
-| `slate-carbon/include/slate/` | C++ lifecycle and `AppBuilder` headers |
-| `slate-carbon/src/` | C++ runtime implementation on top of Slint C++ |
-| `slate-carbon/slint.bzl` | Bazel rule compiling `ui/index.slint` into C++ headers |
-| `slate-carbon/examples/` | Example Carbon desktop application |
+The core framework provides all building blocks needed for full-featured, reactive desktop applications:
 
-## Just recipes
+* **Application Lifecycle & Builder (`slate.app`)**: Fluent `AppBuilder` value-type builder for window configuration, event loops, theme selection, and plugin registration.
+* **Component Controllers & Widgets (`slate.components.*`)**:
+  * `layouts`: Resizable panel groups, bento grids, master-detail, dock, wizard, and wrap layouts.
+  * `datagrid`: Reactive data table controller with sorting, filtering, and selection models.
+  * `log_viewer`: High-throughput, virtualized log viewer with level filtering and search.
+  * `media`: Media player controller with playback state, volume, scrubbing, and duration tracking.
+  * `dropzone` & `file_dialog`: Drag-and-drop file upload integration and native file/directory dialogs.
+* **Agent Automation & Bridge (`slate.agent.*`)**:
+  * Full UI inspection, element tree querying, and action dispatching.
+  * Decoupled architecture: `model`, `engine`, `protocol`, `bridge`, `fiber`, and `slint_backend`.
+  * Declarative traits and builders to connect AI agents directly to running UI components.
+* **Model Context Protocol Server (`slate.mcp.*`)**:
+  * Embedded JSON-RPC 2.0 / MCP endpoint exposing UI automation tools to LLMs and agents.
+  * Standardized tools: `get_state`, `inspect_tree`, `click_element`, `send_keys`, `get_screenshot`.
+  * Transports: stdio (`slate.mcp.transport.stdio`) and in-memory (`slate.mcp.transport.memory`).
+* **High-Performance Networking (`slate.http` & `slate.quic`)**:
+  * `slate.http`: Memory-safe, idiomatic libcurl client supporting HTTP/1.1, HTTP/2, and HTTP/3 with asynchronous tasks (`HttpTask`).
+  * `slate.quic`: Pure D, sans-I/O implementation of the complete QUIC protocol suite (RFC 9000, 9001, 9002), including wire codecs, crypto (AEAD, HP, initial keys via OpenSSL), stream maps, and loss recovery/congestion control.
+  * `slate.bin.durl`: CLI tool showcasing the HTTP/QUIC networking engine.
+* **Theme & UI State (`slate.theme`, `slate.controller`, `slate.tasks`)**:
+  * Dark/Light mode theme switching and system theme integration (`slate.platform`).
+  * `ComputeController`: Background compute scheduling with cooperative cancellation (`TaskCancellation`).
+  * `slate.tasks`: Thread-pool and fiber-backed background concurrency with UI event loop marshaling.
+* **Utilities (`slate.utils.*`)**:
+  * Color manipulation and palette generation (`slate.utils.color`).
+  * Number and string formatting (`slate.utils.format`).
+  * Fast JSON serialization/deserialization helpers (`slate.utils.json`).
+  * Pure math routines and PRNG demo workloads (`slate.utils.math`, `slate.demo`).
+  * Chart data series adapters (`slate.utils.chart`).
+
+### 2. `slint-d` — Slint Bindings for D (`dub: slint-d`)
+
+Idiomatic D bindings wrapping Slint's dynamic runtime via a high-performance C-ABI bridge crate:
+* **Value & Types (`slint.value`)**: Bi-directional conversion between D types and Slint dynamic values (strings, numbers, booleans, structs, brushes/colors, arrays).
+* **Compiler & Loader (`slint.compiler`, `slint.loader`)**: On-the-fly and ahead-of-time compilation of `.slint` markup files with diagnostics reporting.
+* **Component Instance & Callbacks (`slint.instance`, `slint.callback`)**: Dynamic property access, global singleton access, and callback handler registration with scoped lifetimes.
+* **Models (`slint.model`)**: `Model!T`, `ArrayModel!T`, and dynamic adapters feeding Slint `for ... in` repeaters.
+* **Event Loop & Timers (`slint.eventloop`, `slint.timer`)**: Event loop control, native timers, and thread-safe UI marshaling (`invokeFromEventLoop`).
+* **Fiber Integration (`slint.fiber`)**: Cooperative UI tasks executed on D fibers.
+
+---
+
+## Quick Start (DLang)
+
+### Prerequisites
+
+* **DMD 2.113+** and **DUB 1.42+**:
+  ```sh
+  curl -fsS https://dlang.org/install.sh | bash -s install dmd
+  source ~/dlang/dmd-*/activate
+  ```
+* **Rust Toolchain** (required for building the `slint-d` C-ABI bridge):
+  ```sh
+  cargo --version
+  ```
+
+### Building & Running with Just
+
+| Recipe | Description |
+|--------|-------------|
+| `just d-test` | Run all `slint-d` pure-D unit tests (no display needed) |
+| `just d-build` | Build `slint-d` library package |
+| `just d-bridge` | Build the Rust C-ABI bridge (`libslint_d_bridge`) |
+| `just d-example` | Run the `slint-d` hello counter example |
+| `just d-gallery` | Render the component gallery from D offscreen into `renders/dlang-gallery` |
+| `just slate-test` | Run `slate-dlang` pure-D unit tests |
+| `just slate-build` | Build `slate-dlang` core framework |
+
+### Additional Toolchain Recipes
 
 | Recipe | What it does |
 |--------|--------------|
-| `just build` / `check` / `test` / `fmt` | cargo build / check / test / fmt for the workspace |
-| `just run` (`showcase`) | Desktop showcase |
+| `just build` / `check` / `test` / `fmt` | Cargo commands for Rust crates / reference implementation |
+| `just run` (`showcase`) | Launch interactive desktop showcase app |
 | `just web-mirror` | Web-layout mirror showcase |
 | `just render [dir]` | Offline PNG snapshots (software renderer) into `renders/` |
-| `just compare a b [diff] [threshold]` | Pixel diff of two PNGs; non-zero exit above threshold % |
-| `just optical-check` | Render to a temp dir and compare with `examples/showcase/golden/`; fails if none exist |
-| `just optical-bless` | Regenerate the golden images (review before committing) |
-
-Conventions: Conventional Commits with DCO sign-off (`git commit -s`), no new dependencies without
-approval, never edit generated code. `.cargo/config.toml` is local and gitignored (see
-`.cargo/config.toml.example`).
+| `just optical-check` | Render to temp dir and compare with golden images |
+| `just optical-bless` | Regenerate golden images |
 
 ---
 
