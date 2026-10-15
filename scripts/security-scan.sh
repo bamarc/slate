@@ -34,9 +34,12 @@ CHANGED_DEPS=$(git diff --cached --name-only -- 'backend/pyproject.toml' 'fronte
 
 if [ -n "$CHANGED_DEPS" ]; then
   for dep_file in $CHANGED_DEPS; do
+    if [ ! -f "$dep_file" ]; then
+      continue
+    fi
     if [[ "$dep_file" == *"frontend/package.json"* ]]; then
       echo "📦 Scanning Frontend (pnpm audit)..."
-      (cd frontend && pnpm audit --prod --audit-level=high) || {
+      (cd "$(dirname "$dep_file")" && pnpm audit --prod --audit-level=high) || {
         echo "❌ Frontend has high/critical vulnerability dependencies."
         BLOCK_COMMIT=1
       }
@@ -44,7 +47,7 @@ if [ -n "$CHANGED_DEPS" ]; then
     if [[ "$dep_file" == *"backend/pyproject.toml"* ]]; then
       echo "📦 Scanning Backend (pip-audit)..."
       if command -v uv >/dev/null 2>&1; then
-        (cd backend && uv pip compile pyproject.toml -o requirements.txt && uv run pip-audit --no-deps --disable-pip -r requirements.txt && rm requirements.txt) || {
+        (cd "$(dirname "$dep_file")" && uv pip compile pyproject.toml -o requirements.txt && uv run pip-audit --no-deps --disable-pip -r requirements.txt && rm requirements.txt) || {
           echo "❌ Backend has vulnerability dependencies."
           BLOCK_COMMIT=1
         }

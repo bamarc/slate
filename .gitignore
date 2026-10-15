@@ -18,6 +18,8 @@ build/
 # generated
 frontend/src/api/generated/
 backend/app/models/_generated/
+reference/frontend/src/api/generated/
+reference/backend/app/models/_generated/
 # database
 *.db
 *.sqlite3
@@ -41,12 +43,15 @@ htmlcov/
 # vite/vitest
 frontend/coverage/
 frontend/.vite/
+reference/frontend/coverage/
+reference/frontend/.vite/
 
 # typescript build cache
 *.tsbuildinfo
 
 # msw — generated service worker
 frontend/public/mockServiceWorker.js
+reference/frontend/public/mockServiceWorker.js
 
 # Terraform / OpenTofu caches and state files
 **/.terraform/
@@ -84,6 +89,7 @@ lib/
 old/
 .cargo/config.toml
 webapp-template-python-react-main.zip
+reference/webapp-template-python-react-main.zip
 
 # OS files
 .DS_Store

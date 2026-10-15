@@ -111,6 +111,10 @@ d-bridge:
 d-test: _dlang
     bash -c 'source ~/dlang/dmd-*/activate && cd slint-d && dub test'
 
+# Run slint-d native unit tests with headless software renderer
+d-test-native: _dlang d-bridge
+    bash -c 'source ~/dlang/dmd-*/activate && cd slint-d && LD_LIBRARY_PATH="$PWD/bridge/target/debug:$LD_LIBRARY_PATH" SLINT_BACKEND=software dub test --config=native'
+
 # Build the slint-d library (pure-D configuration)
 d-build: _dlang
     bash -c 'source ~/dlang/dmd-*/activate && cd slint-d && dub build'
@@ -129,64 +133,53 @@ d-gallery out_dir="../../../renders/dlang-gallery": _dlang
 slate-test: _dlang
     bash -c 'source ~/dlang/dmd-*/activate && cd slate-dlang && dub test'
 
+# Run slate-dlang native Slint + MCP E2E unit tests with headless software renderer
+slate-test-native: _dlang d-bridge
+    bash -c 'source ~/dlang/dmd-*/activate && cd slate-dlang && LD_LIBRARY_PATH="$PWD/../slint-d/bridge/target/debug:$LD_LIBRARY_PATH" SLINT_BACKEND=software dub test --config=native'
+
 # Build the slate-dlang library (pure-D configuration)
 slate-build: _dlang
     bash -c 'source ~/dlang/dmd-*/activate && cd slate-dlang && dub build'
 
-# ── Legacy Webapp Stack (Preserved) ─────────────────────────
+# ── Reference Webapp Stack (reference/) ────────────────────
 
-# Start the full docker compose stack (db + backend + frontend) attached.
+# Start the reference docker compose stack attached.
 dev: _ensure-env
-    scripts/dev.sh
+    cd reference && ../scripts/dev.sh
 
-# Bring the compose stack up in the background.
+# Bring the reference compose stack up in the background.
 up: _ensure-env
-    docker compose up -d --build
+    cd reference && docker compose up -d --build
 
-# Stop and remove the compose stack (keeps volumes).
+# Stop and remove the reference compose stack (keeps volumes).
 down:
-    docker compose down
+    cd reference && docker compose down
 
 # Hard reset: stop + remove containers AND the postgres volume.
 down-hard:
-    docker compose down -v
+    cd reference && docker compose down -v
 
-# Tail logs for all services (or one: `just logs backend`).
+# Tail logs for all reference services (or one: `just logs backend`).
 logs service="":
-    docker compose logs -f {{service}}
+    cd reference && docker compose logs -f {{service}}
 
-# Open a psql shell on the db container.
+# Open a psql shell on the reference db container.
 psql:
-    docker compose exec db psql -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-postgres}"
+    cd reference && docker compose exec db psql -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-postgres}"
 
-# Backend pytest + frontend vitest.
-test-legacy:
-    scripts/test.sh
-
-# Backend tests only.
-test-backend *args:
-    scripts/test.sh backend {{args}}
-
-# Frontend tests only.
+# Reference frontend tests.
 test-frontend *args:
-    cd frontend && pnpm test {{args}}
+    cd reference/frontend && pnpm test {{args}}
 
-# Frontend lint only.
+# Reference frontend lint.
 lint-frontend:
-    cd frontend && pnpm lint
+    cd reference/frontend && pnpm lint
 
-# Frontend TypeScript typecheck only.
+# Reference frontend TypeScript typecheck.
 typecheck-frontend:
-    cd frontend && pnpm exec tsc --noEmit
+    cd reference/frontend && pnpm exec tsc --noEmit
 
-# Regenerate backend models + frontend client from api/openapi.yaml.
-generate:
-    scripts/generate.sh
-
-# Apply all pending alembic migrations.
-migrate:
-    scripts/migrate.sh upgrade
-
-# Ensure .env exists — copies from .env.example on first run.
+# Ensure reference/.env exists — copies from reference/.env.example on first run.
 _ensure-env:
-    @test -f .env || { echo "⚠  No .env found. Copying .env.example → .env"; echo "Edit .env to set secrets, then re-run."; cp .env.example .env; exit 1; }
+    @test -f reference/.env || { echo "⚠  No reference/.env found. Copying reference/.env.example → reference/.env"; cp reference/.env.example reference/.env; exit 1; }
+

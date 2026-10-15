@@ -1,237 +1,167 @@
-# Slate
+# Slate — Declarative Desktop UI & Agent Framework in DLang + Slint
 
-Slate is a high-performance, declarative desktop UI framework written in **DLang** on top of **[Slint](https://slint.dev)**, inspired by Libadwaita/Kirigami and mirroring a modern web-app design language 1:1. Slate combines the expressive power, type safety, and `@nogc` real-time capabilities of D with Slint's reactive declarative UI and rich multi-protocol agent automation.
-
-## Workspace Layout
-
-Slate is designed with **DLang at its core**, featuring native D bindings to Slint, a complete D application framework, network stacks (HTTP/1.1, HTTP/2, HTTP/3 QUIC), embedded Model Context Protocol (MCP) server, and cross-language interoperability (Rust and Carbon):
-
-| Path | Package / Layer | Purpose |
-|------|-----------------|---------|
-| `slate-dlang/` | `slate` (DUB) | **Core Slate DLang framework**: AppBuilder, reactive controllers, theme engine, fibers/tasks, HTTP/3 QUIC, MCP server & agent automation, rich component controllers |
-| `slint-d/` | `slint-d` (DUB) | **DLang Slint runtime bindings**: idiomatic D bindings to Slint runtime via C-ABI bridge crate (`bridge/`) |
-| `ui/` | Shared UI Markup | Declarative Slint components (`components/`), layouts (`layouts/`), charts, media, data grid, and entry point (`index.slint`) |
-| `slate-rust/` | Multi-language / Reference | Rust crates, reference implementation, agent/MCP test harnesses, and desktop showcase |
-| `slate-carbon/` | Google Carbon bindings | Carbon package definitions and C++ runtime bridge on top of Slint C++ |
+**Slate** is a declarative desktop UI and application framework written in **DLang** on top of **[Slint](https://slint.dev)**. It pairs Slint's GPU- and software-accelerated `.slint` markup with idiomatic D2 (`@safe`, RAII, compile-time reflection, fibers, and Design-by-Contract) and first-class, trait-driven **Model Context Protocol (MCP)** automation.
 
 ---
 
-## DLang Core Architecture (`slate-dlang` & `slint-d`)
+## Workspace Structure
 
-### 1. `slate-dlang` — The Core Slate Framework (`dub: slate`)
-
-The core framework provides all building blocks needed for full-featured, reactive desktop applications:
-
-* **Application Lifecycle & Builder (`slate.app`)**: Fluent `AppBuilder` value-type builder for window configuration, event loops, theme selection, and plugin registration.
-* **Component Controllers & Widgets (`slate.components.*`)**:
-  * `layouts`: Resizable panel groups, bento grids, master-detail, dock, wizard, and wrap layouts.
-  * `datagrid`: Reactive data table controller with sorting, filtering, and selection models.
-  * `log_viewer`: High-throughput, virtualized log viewer with level filtering and search.
-  * `media`: Media player controller with playback state, volume, scrubbing, and duration tracking.
-  * `dropzone` & `file_dialog`: Drag-and-drop file upload integration and native file/directory dialogs.
-* **Agent Automation & Bridge (`slate.agent.*`)**:
-  * Full UI inspection, element tree querying, and action dispatching.
-  * Decoupled architecture: `model`, `engine`, `protocol`, `bridge`, `fiber`, and `slint_backend`.
-  * Declarative traits and builders to connect AI agents directly to running UI components.
-* **Model Context Protocol Server (`slate.mcp.*`)**:
-  * Embedded JSON-RPC 2.0 / MCP endpoint exposing UI automation tools to LLMs and agents.
-  * Standardized tools: `get_state`, `inspect_tree`, `click_element`, `send_keys`, `get_screenshot`.
-  * Transports: stdio (`slate.mcp.transport.stdio`) and in-memory (`slate.mcp.transport.memory`).
-* **High-Performance Networking (`slate.http` & `slate.quic`)**:
-  * `slate.http`: Memory-safe, idiomatic libcurl client supporting HTTP/1.1, HTTP/2, and HTTP/3 with asynchronous tasks (`HttpTask`).
-  * `slate.quic`: Pure D, sans-I/O implementation of the complete QUIC protocol suite (RFC 9000, 9001, 9002), including wire codecs, crypto (AEAD, HP, initial keys via OpenSSL), stream maps, and loss recovery/congestion control.
-  * `slate.bin.durl`: CLI tool showcasing the HTTP/QUIC networking engine.
-* **Theme & UI State (`slate.theme`, `slate.controller`, `slate.tasks`)**:
-  * Dark/Light mode theme switching and system theme integration (`slate.platform`).
-  * `ComputeController`: Background compute scheduling with cooperative cancellation (`TaskCancellation`).
-  * `slate.tasks`: Thread-pool and fiber-backed background concurrency with UI event loop marshaling.
-* **Utilities (`slate.utils.*`)**:
-  * Color manipulation and palette generation (`slate.utils.color`).
-  * Number and string formatting (`slate.utils.format`).
-  * Fast JSON serialization/deserialization helpers (`slate.utils.json`).
-  * Pure math routines and PRNG demo workloads (`slate.utils.math`, `slate.demo`).
-  * Chart data series adapters (`slate.utils.chart`).
-
-### 2. `slint-d` — Slint Bindings for D (`dub: slint-d`)
-
-Idiomatic D bindings wrapping Slint's dynamic runtime via a high-performance C-ABI bridge crate:
-* **Value & Types (`slint.value`)**: Bi-directional conversion between D types and Slint dynamic values (strings, numbers, booleans, structs, brushes/colors, arrays).
-* **Compiler & Loader (`slint.compiler`, `slint.loader`)**: On-the-fly and ahead-of-time compilation of `.slint` markup files with diagnostics reporting.
-* **Component Instance & Callbacks (`slint.instance`, `slint.callback`)**: Dynamic property access, global singleton access, and callback handler registration with scoped lifetimes.
-* **Models (`slint.model`)**: `Model!T`, `ArrayModel!T`, and dynamic adapters feeding Slint `for ... in` repeaters.
-* **Event Loop & Timers (`slint.eventloop`, `slint.timer`)**: Event loop control, native timers, and thread-safe UI marshaling (`invokeFromEventLoop`).
-* **Fiber Integration (`slint.fiber`)**: Cooperative UI tasks executed on D fibers.
+| Path | Package / Layer | Description |
+|------|-----------------|-------------|
+| [`slate-dlang/`](slate-dlang/) | `slate` (DUB) | **Core DLang Framework**: `AppBuilder`, component controllers, declarative MCP traits & JSON-RPC 2.0 server, fiber task scheduling, and native QUIC / HTTP/3 networking |
+| [`slint-d/`](slint-d/) | `slint-d` (DUB) | **DLang Slint Bindings**: Idiomatic D bindings over the Slint runtime (`Value`, `StructModel!T`, `TreeModel!T`, `WindowHandle`, callbacks, timers, and C-ABI bridge in [`slint-d/bridge/`](slint-d/bridge/)) |
+| [`ui/`](ui/) | Slint UI Library | **Shared Slint Component Library**: 45+ declarative components and layouts exported via [`ui/index.slint`](ui/index.slint) |
+| [`reference/`](reference/) | Reference Archive | Archived web application stack (`frontend/`, `backend/`, `api/`, `infrastructure/`) kept as design and layout reference |
 
 ---
 
-## Quick Start (DLang)
+## Key Capabilities
+
+### 1. Layouts & Data Representations ([`ui/`](ui/) + [`slate.components`](slate-dlang/source/slate/components/))
+
+Slate ships a comprehensive suite of dark-theme-first desktop layouts and data visualization components:
+
+#### Application & Workspace Layouts ([`ui/layouts/`](ui/layouts/))
+- **[`SlateDockLayout`](ui/layouts/dock_layout.slint) & [`WorkspaceDockController`](slate-dlang/source/slate/components/layouts.d)**: IDE/Studio dockable workspace with collapsible Left, Right, and Bottom tool panels and dimension validation.
+- **[`SlateMasterDetailLayout`](ui/layouts/master_detail_layout.slint) & [`MasterDetailController`](slate-dlang/source/slate/components/layouts.d)**: Searchable master list pane, resizable split handle, and automatic empty-selection fallback (`SlateStatusPage`).
+- **[`SlateWizardLayout`](ui/layouts/wizard_layout.slint) & [`WizardController`](slate-dlang/source/slate/components/layouts.d)**: Multi-step progression bar with completed/active step states and `Back` / `Next` / `Finish` navigation.
+- **[`SlatePageHeader`](ui/layouts/page_header.slint) & [`SlateBreadcrumbs`](ui/layouts/page_header.slint)**: Hierarchical breadcrumb trail, status badge, and primary/secondary action buttons.
+- **[`SlateToolbar`](ui/layouts/toolbar_status_bar.slint) & [`SlateStatusBar`](ui/layouts/toolbar_status_bar.slint)**: Command action bar and bottom status bar with live task progress indicator.
+- **[`SlateBentoGrid`](ui/layouts/bento_grid.slint), [`SlateFormLayout`](ui/layouts/form_layout.slint), [`SlateWrapLayout`](ui/layouts/wrap_layout.slint), [`SlateSplitView`](ui/layouts/resizable_panel_group.slint)**: Responsive dashboard tiles, structured field groups with validation errors, tag flows, and draggable splitters.
+
+#### Data Representations & Vector Charts ([`ui/components/`](ui/components/))
+- **[`SlateDataGrid`](ui/components/data_grid.slint) & [`DataGridController!T`](slate-dlang/source/slate/components/datagrid.d)**: Generic reactive data grid supporting custom D row structs, tri-state column sorting (`none` -> `asc` -> `desc`), live substring filtering, single/multi-row selection, status badges, and pagination.
+- **[`SlateTreeView`](ui/components/tree_view.slint) & [`TreeModel!T`](slint-d/source/slint/model.d)**: Depth-indented hierarchical tree view with expand/collapse chevrons and bounded recursion (`maxTreeDepth = 128`).
+- **[`SlateStatGroup`](ui/components/stat_group.slint) & [`SlateSparkline`](ui/components/sparkline.slint)**: KPI metric strips with delta badges and inline SVG polyline/area sparklines.
+- **[`SlateBarChart`](ui/components/charts.slint), [`SlateLineChart`](ui/components/charts.slint), [`SlateDonutChart`](ui/components/charts.slint)**: Pure vector charts powered by [`slate.utils.chart`](slate-dlang/source/slate/utils/chart.d) (`buildSparklinePath`, `buildAreaPath`, `buildDonutArcPath`).
+- **[`SlateKanbanBoard`](ui/components/kanban_board.slint)**: 4-lane workflow board (`To Do`, `In Progress`, `Review`, `Done`) with card tags and MCP lane-move actions.
+- **[`SlateTimeline`](ui/components/timeline.slint), [`SlateDescriptionList`](ui/components/description_list.slint), [`SlateTagList`](ui/components/tag_list.slint)**: Chronological activity feed, key-value metadata inspector with copy actions, and interactive filter chips.
+- **[`SlateLogViewer`](ui/components/log_viewer.slint) & [`RingBufferLogModel`](slate-dlang/source/slate/components/log_viewer.d)**: Bounded ring-buffer streaming log console with severity pills (`all`, `info`, `warn`, `error`) and search filtering.
+
+---
+
+### 2. Media Player, Dropzone, Drag-and-Drop & Sandboxed File Dialog
+
+- **[`SlateMediaPlayer`](ui/components/media_player.slint) & [`MediaPlayerController`](slate-dlang/source/slate/components/media.d)**:
+  - Supports `"video"`, `"audio-deck"`, and `"mini-bar"` presentation modes.
+  - Transport controls (play/pause, stop, previous/next track, loop mode, shuffle, playback speed `0.5x`–`2.0x`, mute/volume, fullscreen).
+  - Timeline scrubber with buffered range, chapter/event marker ticks (`SlateMediaMarker`), SVG waveform overlay, and selectable playlist queue (`SlateMediaTrack`).
+- **[`SlateDropzone`](ui/components/dropzone.slint) & [`UploadQueueController`](slate-dlang/source/slate/components/dropzone.d)**:
+  - Interactive drag-over drop target, extension allow-list & max-byte validation, per-file upload progress bars, and MCP file-drop injection.
+- **[`SlateDraggable`](ui/components/drag_drop.slint) & [`SlateDropTarget`](ui/components/drag_drop.slint)**:
+  - Reusable drag-and-drop primitives with pointer tracking and headless MCP drop-target activation.
+- **[`SlateFileDialog`](ui/components/file_dialog.slint) & [`FileDialogController`](slate-dlang/source/slate/components/file_dialog.d)**:
+  - Supports `"open-file"`, `"open-multiple"`, `"select-directory"`, and `"save-file"` modes.
+  - Pluggable `IFileSystemProvider` (`InMemoryFileSystem` for deterministic unit tests and `LocalFileSystem` for host I/O) with strict sandbox root confinement, sibling-prefix collision protection, and symlink/filename traversal guards.
+
+---
+
+### 3. Trait-Driven Declarative MCP Automation ([`slate.agent`](slate-dlang/source/slate/agent/) & [`slate.mcp`](slate-dlang/source/slate/mcp/))
+
+Every Slate component and Dlang controller integrates with the embedded **Model Context Protocol (MCP)** server (`JSON-RPC 2.0`) through compile-time introspected capability interfaces in [`slate.agent.traits`](slate-dlang/source/slate/agent/traits.d):
+
+| Interface | Capability Tag | Purpose |
+|-----------|----------------|---------|
+| `McpControllable` | `"controllable"` | Base state snapshot (`mcpSnapshot`), property mutation (`mcpSetProperty`), and transactional rollback (`mcpRestoreSnapshot`) |
+| `McpBindable` | `"bindable"` | Two-way binding between Dlang controller state and a live `slint.instance.WindowHandle` |
+| `McpSeekable` | `"seekable"` | Timeline scrubbing and playback transport (`seekTo`, `play`, `pause`, `stop`) |
+| `McpSortable` | `"sortable"` | Column sorting (`sortByColumn`, `sortColumn`, `sortDirection`) |
+| `McpFilterable` | `"filterable"` | Live query filtering (`setFilterQuery`, `clearFilter`) |
+| `McpExpandable` | `"expandable"` | Tree/collapsible node expansion (`expandNode`, `collapseNode`, `toggleNode`) |
+| `McpDropReceiver` | `"drop-receiver"` | Headless file/payload drop injection (`dropFiles`, `dropPayload`) |
+| `McpSelectable` | `"selectable"` | Single and multi-item selection (`selectIndex`, `selectById`) |
+
+#### Example: Wiring a Controller into the MCP Server
+
+```d
+import slate.agent.builder : AgentBuilder;
+import slate.agent.declarative : McpStateRegistry;
+import slate.components;
+import slate.mcp.server : McpServer;
+
+auto registry = new McpStateRegistry();
+
+auto media = new MediaPlayerController([
+    MediaTrackData("t1", "Telemetry Stream", "Flight Ops", 180.0f),
+]);
+auto dropzone = new UploadQueueController([".mp4", ".json", ".png"]);
+
+registry.registerController(media);
+registry.registerController(dropzone);
+
+auto handle = AgentBuilder.forWindow(win, registry).build();
+auto server = new McpServer(handle.engine());
+
+// Execute MCP JSON-RPC 2.0 tool calls (stdio or in-memory):
+// - tools/call: inspect_tree, click_element, send_keys, get_state, get_screenshot
+string responseJson = server.handleLine(
+    `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_state","arguments":{"query":"media"}}}`
+);
+```
+
+---
+
+### 4. High-Performance Networking ([`slate.quic`](slate-dlang/source/slate/quic/) & [`slate.http`](slate-dlang/source/slate/http/))
+
+- **`slate.quic`**: Pure-D, sans-I/O implementation of QUIC (`RFC 9000`, `RFC 9001`, `RFC 9002`), including variable-length integer & packet wire codecs, OpenSSL TLS 1.3 key derivation & header protection, stream flow control, and NewReno/Cubic congestion control with loss detection.
+- **`slate.http`**: Memory-safe HTTP/1.1, HTTP/2, and HTTP/3 client (`HttpClient`, `HttpTask`) plus native HTTP/3 framing (`RFC 9114`) and QPACK header compression (`RFC 9204`).
+- **`durl` CLI ([`slate.bin.durl`](slate-dlang/source/slate/bin/durl.d))**: Command-line HTTP/QUIC diagnostic client.
+
+---
+
+## Quick Start & Commands
 
 ### Prerequisites
 
-* **DMD 2.113+** and **DUB 1.42+**:
-  ```sh
-  curl -fsS https://dlang.org/install.sh | bash -s install dmd
-  source ~/dlang/dmd-*/activate
-  ```
-* **Rust Toolchain** (required for building the `slint-d` C-ABI bridge):
-  ```sh
-  cargo --version
-  ```
+1. **DMD `2.111+` / DUB**:
+   ```bash
+   curl -fsS https://dlang.org/install.sh | bash -s install dmd
+   source ~/dlang/dmd-*/activate
+   ```
+2. **Rust Toolchain** (builds the `slint-d` C-ABI bridge crate `libslint_d_bridge.so`):
+   ```bash
+   cd slint-d/bridge && cargo build
+   ```
 
-### Building & Running with Just
+### Running Tests & Builds
 
-| Recipe | Description |
-|--------|-------------|
-| `just d-test` | Run all `slint-d` pure-D unit tests (no display needed) |
-| `just d-build` | Build `slint-d` library package |
-| `just d-bridge` | Build the Rust C-ABI bridge (`libslint_d_bridge`) |
-| `just d-example` | Run the `slint-d` hello counter example |
-| `just d-gallery` | Render the component gallery from D offscreen into `renders/dlang-gallery` |
-| `just slate-test` | Run `slate-dlang` pure-D unit tests |
-| `just slate-build` | Build `slate-dlang` core framework |
+Use `just` recipes from the repository root (or run `dub` directly):
 
-### Additional Toolchain Recipes
+| Command | Description |
+|---------|-------------|
+| `just d-bridge` | Build the Rust C-ABI bridge (`slint-d/bridge`) |
+| `just d-test` | Run `slint-d` pure-D unit tests (`14/14` modules) |
+| `just d-test-native` | Run `slint-d` native unit tests with `SLINT_BACKEND=software` |
+| `just slate-test` | Run `slate-dlang` pure-D unit tests (`81/81` modules) |
+| `just slate-test-native` | Run `slate-dlang` native Slint + MCP E2E tests (`SLINT_BACKEND=software`) |
+| `just d-build` | Build `slint-d` library |
+| `just slate-build` | Build `slate-dlang` library |
+| `just d-gallery` | Render offscreen PNG component snapshots from D into `renders/dlang-gallery` |
 
-| Recipe | What it does |
-|--------|--------------|
-| `just build` / `check` / `test` / `fmt` | Cargo commands for Rust crates / reference implementation |
-| `just run` (`showcase`) | Launch interactive desktop showcase app |
-| `just web-mirror` | Web-layout mirror showcase |
-| `just render [dir]` | Offline PNG snapshots (software renderer) into `renders/` |
-| `just optical-check` | Render to temp dir and compare with golden images |
-| `just optical-bless` | Regenerate golden images |
+#### Direct DUB Commands
 
----
-
-## Legacy webapp stack (preserved, not the Slate framework)
-
-The remainder of this file describes the original Python/React webapp template that still lives in
-`backend/`, `frontend/`, `api/`, `infrastructure/`.
-
-# ${{ values.projectTitle }} (`${{ values.projectName }}`)
-
-> ${{ values.projectDescription }}
-
-- **Jira Onboarding Ticket**: `${{ values.jiraTicket }}`
-- **LeanIX Application ID (APL)**: `${{ values.aplId }}`
-- **Application Class**: `${{ values.applicationClass | upper }}`
-- **Domain**: `${{ values.domain }}`
-- **Contact Person**: `${{ values.contactPerson }}`
-
----
-
-## Architecture Overview
-
-This template adopts a highly optimized **Combined Container** design for production execution, alongside decoupled standalone services for local development:
-
-```
-Combined Production Runtime Container (Port 80)
- └── Supervisord (Process Manager, PID 1)
-      ├── Nginx (Reverse Proxy & Static Files server for React SPA at `/`)
-      └── FastAPI / Uvicorn (FastAPI API server running at `http://127.0.0.1:8000`)
-```
-
-### Key Benefits
-* **Shared Session Security**: Both frontend and backend share the same origin, allowing Azure Easy Auth to protect both paths transparently.
-* **No CORS Issues**: Local development and production use single-port routing, completely eliminating CORS configuration bugs.
-* **Cost Efficiency**: Runs as a single container instance inside Azure Container Apps (ACA).
-
----
-
-## Identity & Access Management (Dual-Mode Auth)
-
-The template implements a dual-mode authentication model to make local development fast and effortless, while retaining strict zero-trust identity extraction in cloud environments.
-
-### 1. Production Mode (Azure Easy Auth)
-When deployed to Azure, the application relies entirely on gateway-level authentication:
-* **Mechanism**: Azure App Service / Container Apps verify the user identity and forward the verified claims to the container in the `X-MS-CLIENT-PRINCIPAL` base64-encoded header.
-* **FastAPI Extraction**: The backend automatically base64-decodes the header and maps identity claims (`preferred_username` -> `kid`, `name`, `email`) and roles (from Entra App Registration).
-* **VNet Safety**: Eliminates outbound connection requirements (JWKS endpoints) from inside secure backends.
-
-### 2. Local Development & Testing Mode
-When running locally (detected via `ENV=local` or `ENV=development`):
-* **Fallback Bearer Verification**: FastAPI falls back to validating standard signed JWTs on the `Authorization: Bearer <token>` header.
-* **Mock Token Issuer**: Exposes a POST endpoint `/api/v1/auth/mock-token` to issue signed mock JWTs with customizable roles and identity claims for debugging.
-* **Environment Protection**: The `/mock-token` endpoint returns `HTTP 404 Not Found` in non-local environments.
-
-### 3. Role-Based Access Control (RBAC)
-Roles are mapped to granular permission strings defined centrally in `app/core/rbac.py`:
-```python
-ROLE_PERMISSIONS = {
-    UserRole.user: ["User.Read"],
-    UserRole.admin: ["User.Read", "Administration.Read"],
-}
-```
-Route protection is enforced via declarative FastAPI dependencies:
-```python
-@router.get("/admin/dashboard", dependencies=[Depends(RequirePermission("Administration.Read"))])
-async def admin_dashboard():
-    return {"message": "Welcome, Administrator."}
-```
-
----
-
-## Local Development Setup
-
-### Prerequisites
-* [uv](https://github.com/astral-sh/uv) (Fast Python Package Installer & Resolver)
-* [pnpm](https://pnpm.io/) & [Node.js 22](https://nodejs.org/)
-* Docker & Docker Compose
-
-### Fast Bootstrap
-Run the bootstrap script to install dependencies for both the frontend and backend, generate API clients, and set up git pre-commit hooks:
 ```bash
-scripts/bootstrap.sh
-```
+# Activate D toolchain
+source ~/dlang/dmd-*/activate
 
-### Running Locally
-To launch the database, backend development server, and Vite frontend hot-reload server simultaneously:
-```bash
-scripts/dev.sh
+# Run slint-d pure-D and SlintNative software-rendered tests
+cd slint-d
+dub test
+LD_LIBRARY_PATH="$PWD/bridge/target/debug:$LD_LIBRARY_PATH" SLINT_BACKEND=software dub test --config=native
+
+# Run slate-dlang pure-D and SlintNative software-rendered tests (including E2E MCP + PNG screenshots)
+cd ../slate-dlang
+dub test
+LD_LIBRARY_PATH="$PWD/../slint-d/bridge/target/debug:$LD_LIBRARY_PATH" SLINT_BACKEND=software dub test --config=native
 ```
 
 ---
 
-## CI/CD & Enterprise Deployment (ACA + JFrog Artifactory)
+## Development Workflow
 
-Azure Container Apps (ACA) is the only supported hosting target. **JFrog Artifactory** is the mandatory container image registry; Azure Container Registry (ACR) is not supported.
-
-### Required CI/CD Variables
-Before enabling image build and deployment jobs in your own GitLab project, ensure that the following variables are configured in GitLab CI/CD settings:
-* `ARTIFACTORY_USERNAME`: Your enterprise technical user or personal Artifactory username.
-* `ARTIFACTORY_TOKEN`: Your Artifactory API key or access token.
-* `JFROG_REGISTRY`: The JFrog registry host/repository path.
-
-The infrastructure layer also requires Atlantis-managed VNet and delegated
-subnets. The app subnet must be delegated to `Microsoft.App/environments` and
-the database subnet to `Microsoft.DBforPostgreSQL/flexibleServers`.
-
-The local Compose stack always includes an OpenTelemetry collector sidecar and
-Jaeger. Open `http://localhost:16686` to inspect traces.
-
-### Image Build & Deployment Workflow
-The centralized pipeline (`ci-support` `v1.2.0-beta`) supports both single-container and multi-container architectures:
-- **Single-Container Mode (Default)**: Builds the unified container image using the root `Dockerfile` (combining the FastAPI API and built React static assets behind port 80) and deploys it to the target Azure Container App.
-- **Multi-Container Mode**: For applications requiring separate containers (e.g., dedicated backend and frontend containers, or worker/optimizer sidecars), specify a `containers.json` file (see `containers.example.json`) or configure the `containers` JSON input in `.gitlab-ci.yml`. The CI pipeline automatically iterates through each defined container for both Docker build/push and Azure Container App deployment.
-
-
----
-
-## Testing & Verification
-
-### Run Automated Tests
-```bash
-scripts/test.sh          # Runs pytest (backend) and vitest (frontend)
-scripts/test.sh backend  # Runs backend-only pytest with coverage enforcement
-```
-
-### Build & Run Combined Docker Locally
-To verify the production Combined target on your local machine:
-```bash
-# Build combined stage
-docker build --target combined -t ${{ values.projectName }}:local .
-
-# Run with local database or mock configuration
-docker run -p 8080:80 -e ENV=local -e AUTH_REQUIRED=false ${{ values.projectName }}:local
-```
-Visit `http://localhost:8080` to interact with the SPA and verify routing proxies.
+1. **Test-Driven Development (`Red -> Green -> Iterate`)**:
+   - Every behavior change starts with a failing unit test (`unittest`) annotated with a `// Spec:` header and `/// Example:` doc block.
+2. **Adversarial TDD Verification (`/adversarial-tdd-workflow`)**:
+   - Production changes are audited by fresh-context read-only Spec/TDD Reviewer and Security Auditor subagents (`slate-dlang`, `slint-d`, `ui`).
+3. **Structured Commits**:
+   - Validate commit messages with `python3 scripts/validate-commit-msg.py` and run `./scripts/security-scan.sh` before committing.
