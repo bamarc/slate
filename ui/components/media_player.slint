@@ -1,0 +1,634 @@
+// Media Player Component — General-purpose video, audio-deck, and mini-bar player
+// with transport controls, timeline scrubber, volume control, markers, and playlist queue.
+
+import { SlateTheme } from "theme.slint";
+import {
+    SlatePlayIcon,
+    SlatePauseIcon,
+    SlateStopIcon,
+    SlateSkipPrevIcon,
+    SlateSkipNextIcon,
+    SlateVolumeIcon,
+    SlateFullscreenIcon,
+    SlateRepeatIcon,
+    SlateShuffleIcon
+} from "icons.slint";
+import { SlateMcpValueTarget } from "mcp.slint";
+
+export struct SlateMediaTrack {
+    id: string,
+    title: string,
+    artist: string,
+    duration-seconds: float,
+    duration-label: string,
+}
+
+export struct SlateMediaMarker {
+    id: string,
+    label: string,
+    time-seconds: float,
+}
+
+export component SlateMediaPlayer inherits Rectangle {
+    in property <string> automation-id: "media-player";
+    in property <string> mode: "video"; // "video" | "audio-deck" | "mini-bar"
+    in property <string> title: "Untitled Media";
+    in property <string> subtitle: "";
+    in property <image> video-frame;
+    in property <bool> has-video-frame: false;
+
+    in-out property <bool> playing: false;
+    in-out property <float> position-seconds: 0.0;
+    in property <float> duration-seconds: 100.0;
+    in property <float> buffered-seconds: 0.0;
+    in property <string> position-label: "00:00";
+    in property <string> duration-label: "01:40";
+
+    in-out property <float> volume: 0.8;
+    in-out property <bool> muted: false;
+    in-out property <float> playback-rate: 1.0;
+    in-out property <string> repeat-mode: "none"; // "none" | "one" | "all"
+    in-out property <bool> shuffle: false;
+    in-out property <bool> fullscreen: false;
+
+    in property <[SlateMediaTrack]> playlist: [];
+    in-out property <int> active-track-index: 0;
+    in property <[SlateMediaMarker]> markers: [];
+    in property <string> waveform-svg-commands: "";
+    in property <bool> show-playlist: false;
+
+    callback play-pause-toggled();
+    callback stop-requested();
+    callback prev-requested();
+    callback next-requested();
+    callback seek-requested(float /* seconds */);
+    callback volume-changed(float /* volume 0..1 */);
+    callback mute-toggled();
+    callback speed-cycled();
+    callback repeat-cycled();
+    callback shuffle-toggled();
+    callback fullscreen-toggled();
+    callback track-selected(int /* index */);
+
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: "Media Player: " + root.title;
+    accessible-description: "mcp:controllable,seekable,selectable";
+
+    background: SlateTheme.surface-1;
+    border-radius: SlateTheme.radius-md;
+    border-width: 1px;
+    border-color: SlateTheme.border-subtle;
+    clip: true;
+
+    VerticalLayout {
+        spacing: 0px;
+
+        // Viewport / Waveform area (hidden in mini-bar mode)
+        if root.mode != "mini-bar" : Rectangle {
+            vertical-stretch: 1;
+            min-height: root.mode == "video" ? 160px : 96px;
+            background: #090b10;
+            accessible-role: image;
+            accessible-id: root.automation-id + "-viewport";
+            accessible-label: root.title + (root.playing ? " (Playing)" : " (Paused)");
+
+            if root.mode == "video" && root.has-video-frame : Image {
+                width: 100%;
+                height: 100%;
+                source: root.video-frame;
+                image-fit: contain;
+            }
+
+            if root.mode == "audio-deck" && root.waveform-svg-commands != "" : Path {
+                width: parent.width - 32px;
+                height: parent.height - 32px;
+                x: 16px;
+                y: 16px;
+                viewbox-width: 100;
+                viewbox-height: 40;
+                commands: root.waveform-svg-commands;
+                stroke: SlateTheme.accent-primary;
+                stroke-width: 1.5px;
+            }
+
+            // Center overlay badge when no frame
+            if !root.has-video-frame : VerticalLayout {
+                alignment: center;
+                spacing: SlateTheme.spacing-xs;
+
+                Text {
+                    text: root.title;
+                    color: #f8fafc;
+                    font-size: SlateTheme.font-md;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                }
+
+                if root.subtitle != "" : Text {
+                    text: root.subtitle;
+                    color: #94a3b8;
+                    font-size: SlateTheme.font-xs;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+
+        // Scrubber bar
+        Rectangle {
+            height: 28px;
+            background: SlateTheme.surface-2;
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-sm;
+                padding-right: SlateTheme.spacing-sm;
+                spacing: SlateTheme.spacing-sm;
+
+                Text {
+                    width: 40px;
+                    text: root.position-label;
+                    color: SlateTheme.text-secondary;
+                    font-family: "monospace";
+                    font-size: SlateTheme.font-xs;
+                    vertical-alignment: center;
+                }
+
+                scrubber-target := SlateMcpValueTarget {
+                    horizontal-stretch: 1;
+                    height: 18px;
+                    y: (parent.height - self.height) / 2;
+                    automation-id: root.automation-id + "-scrubber";
+                    label: "Timeline Scrubber";
+                    mcp-capabilities: "controllable,seekable,value";
+                    numeric-value <=> root.position-seconds;
+                    minimum: 0.0;
+                    maximum: Math.max(1.0, root.duration-seconds);
+                    step: 5.0;
+                    value-submitted(val) => {
+                        if (val.is-float()) {
+                            root.position-seconds = Math.max(0.0, Math.min(root.duration-seconds, val.to-float()));
+                            root.seek-requested(root.position-seconds);
+                        }
+                    }
+                    stepped(new-val) => {
+                        root.position-seconds = new-val;
+                        root.seek-requested(new-val);
+                    }
+
+                    // Track background
+                    Rectangle {
+                        y: (parent.height - 6px) / 2;
+                        width: 100%;
+                        height: 6px;
+                        border-radius: 3px;
+                        background: SlateTheme.surface-3;
+
+                        // Buffered progress
+                        Rectangle {
+                            x: 0px;
+                            width: parent.width * Math.min(1.0, Math.max(0.0, root.buffered-seconds / Math.max(1.0, root.duration-seconds)));
+                            height: 100%;
+                            border-radius: 3px;
+                            background: SlateTheme.border-strong;
+                        }
+
+                        // Playback progress
+                        Rectangle {
+                            x: 0px;
+                            width: parent.width * Math.min(1.0, Math.max(0.0, root.position-seconds / Math.max(1.0, root.duration-seconds)));
+                            height: 100%;
+                            border-radius: 3px;
+                            background: SlateTheme.accent-primary;
+                        }
+                    }
+
+                    for marker[midx] in root.markers : Rectangle {
+                        x: parent.width * Math.min(1.0, Math.max(0.0, marker.time-seconds / Math.max(1.0, root.duration-seconds)));
+                        width: 2px;
+                        height: 10px;
+                        y: (parent.height - self.height) / 2;
+                        background: SlateTheme.status-warning;
+                        accessible-role: none;
+                    }
+
+                    scrubber-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            if (self.width > 0px) {
+                                root.position-seconds = Math.max(0.0, Math.min(root.duration-seconds, (self.mouse-x / self.width) * root.duration-seconds));
+                                root.seek-requested(root.position-seconds);
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    width: 40px;
+                    text: root.duration-label;
+                    color: SlateTheme.text-secondary;
+                    font-family: "monospace";
+                    font-size: SlateTheme.font-xs;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Transport bar
+        Rectangle {
+            height: 44px;
+            background: SlateTheme.surface-1;
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-sm;
+                padding-right: SlateTheme.spacing-sm;
+                spacing: SlateTheme.spacing-xs;
+                alignment: space-between;
+
+                // Left transport buttons
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+
+                    // Prev
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: prev-touch.has-hover ? SlateTheme.surface-hover : transparent;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-prev";
+                        accessible-label: "Previous Track";
+                        accessible-action-default => {
+                            if (root.playlist.length > 0) {
+                                root.active-track-index = (root.active-track-index - 1) >= 0 ? root.active-track-index - 1 : root.playlist.length - 1;
+                            }
+                            root.prev-requested();
+                        }
+
+                        SlateSkipPrevIcon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            icon-color: SlateTheme.text-primary;
+                        }
+                        prev-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                if (root.playlist.length > 0) {
+                                    root.active-track-index = (root.active-track-index - 1) >= 0 ? root.active-track-index - 1 : root.playlist.length - 1;
+                                }
+                                root.prev-requested();
+                            }
+                        }
+                    }
+
+                    // Play / Pause
+                    Rectangle {
+                        width: 34px;
+                        height: 34px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-sm;
+                        background: SlateTheme.accent-primary;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-play-pause";
+                        accessible-label: root.playing ? "Pause" : "Play";
+                        accessible-action-default => {
+                            root.playing = !root.playing;
+                            root.play-pause-toggled();
+                        }
+
+                        if !root.playing : SlatePlayIcon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            icon-color: #ffffff;
+                        }
+                        if root.playing : SlatePauseIcon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            icon-color: #ffffff;
+                        }
+
+                        play-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.playing = !root.playing;
+                                root.play-pause-toggled();
+                            }
+                        }
+                    }
+
+                    // Stop
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: stop-touch.has-hover ? SlateTheme.surface-hover : transparent;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-stop";
+                        accessible-label: "Stop";
+                        accessible-action-default => {
+                            root.playing = false;
+                            root.position-seconds = 0.0;
+                            root.stop-requested();
+                        }
+
+                        SlateStopIcon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            icon-color: SlateTheme.text-primary;
+                        }
+                        stop-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.playing = false;
+                                root.position-seconds = 0.0;
+                                root.stop-requested();
+                            }
+                        }
+                    }
+
+                    // Next
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: next-touch.has-hover ? SlateTheme.surface-hover : transparent;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-next";
+                        accessible-label: "Next Track";
+                        accessible-action-default => {
+                            if (root.playlist.length > 0) {
+                                root.active-track-index = (root.active-track-index + 1) < root.playlist.length ? root.active-track-index + 1 : 0;
+                            }
+                            root.next-requested();
+                        }
+
+                        SlateSkipNextIcon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            icon-color: SlateTheme.text-primary;
+                        }
+                        next-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                if (root.playlist.length > 0) {
+                                    root.active-track-index = (root.active-track-index + 1) < root.playlist.length ? root.active-track-index + 1 : 0;
+                                }
+                                root.next-requested();
+                            }
+                        }
+                    }
+                }
+
+                // Right controls: Volume, Speed, Repeat, Shuffle, Fullscreen
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: end;
+
+                    // Mute toggle
+                    Rectangle {
+                        width: 28px;
+                        height: 28px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: mute-touch.has-hover ? SlateTheme.surface-hover : transparent;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-mute";
+                        accessible-label: root.muted ? "Unmute" : "Mute";
+                        accessible-checkable: true;
+                        accessible-checked: root.muted;
+                        accessible-action-default => {
+                            root.muted = !root.muted;
+                            root.mute-toggled();
+                        }
+
+                        SlateVolumeIcon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            muted: root.muted;
+                            icon-color: root.muted ? SlateTheme.status-error : SlateTheme.text-secondary;
+                        }
+                        mute-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.muted = !root.muted;
+                                root.mute-toggled();
+                            }
+                        }
+                    }
+
+                    // Volume slider
+                    SlateMcpValueTarget {
+                        width: 68px;
+                        height: 18px;
+                        y: (parent.height - self.height) / 2;
+                        automation-id: root.automation-id + "-volume";
+                        label: "Volume";
+                        numeric-value <=> root.volume;
+                        minimum: 0.0;
+                        maximum: 1.0;
+                        step: 0.1;
+                        value-submitted(val) => {
+                            if (val.is-float()) {
+                                root.volume = Math.max(0.0, Math.min(1.0, val.to-float()));
+                                root.volume-changed(root.volume);
+                            }
+                        }
+                        stepped(new-val) => {
+                            root.volume = new-val;
+                            root.volume-changed(new-val);
+                        }
+
+                        Rectangle {
+                            y: (parent.height - 4px) / 2;
+                            width: 100%;
+                            height: 4px;
+                            border-radius: 2px;
+                            background: SlateTheme.surface-3;
+
+                            Rectangle {
+                                width: parent.width * (root.muted ? 0.0 : Math.min(1.0, Math.max(0.0, root.volume)));
+                                height: 100%;
+                                border-radius: 2px;
+                                background: SlateTheme.accent-primary;
+                            }
+                        }
+                    }
+
+                    // Speed button
+                    Rectangle {
+                        width: 40px;
+                        height: 26px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: SlateTheme.surface-2;
+                        border-width: 1px;
+                        border-color: SlateTheme.border-subtle;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-speed";
+                        accessible-label: "Playback Speed";
+                        accessible-value: "\{root.playback-rate}x";
+                        accessible-action-default => { root.speed-cycled(); }
+
+                        Text {
+                            text: "\{root.playback-rate}x";
+                            color: SlateTheme.text-secondary;
+                            font-size: SlateTheme.font-xs;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.speed-cycled(); }
+                        }
+                    }
+
+                    // Repeat button
+                    Rectangle {
+                        width: 28px;
+                        height: 28px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: root.repeat-mode != "none" ? SlateTheme.accent-primary-subtle : transparent;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-repeat";
+                        accessible-label: "Repeat Mode: " + root.repeat-mode;
+                        accessible-value: root.repeat-mode;
+                        accessible-action-default => { root.repeat-cycled(); }
+
+                        SlateRepeatIcon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            icon-color: root.repeat-mode != "none" ? SlateTheme.accent-primary : SlateTheme.text-secondary;
+                        }
+                        TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.repeat-cycled(); }
+                        }
+                    }
+
+                    // Shuffle button
+                    Rectangle {
+                        width: 28px;
+                        height: 28px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: root.shuffle ? SlateTheme.accent-primary-subtle : transparent;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-shuffle";
+                        accessible-label: "Shuffle";
+                        accessible-checkable: true;
+                        accessible-checked: root.shuffle;
+                        accessible-action-default => {
+                            root.shuffle = !root.shuffle;
+                            root.shuffle-toggled();
+                        }
+
+                        SlateShuffleIcon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            icon-color: root.shuffle ? SlateTheme.accent-primary : SlateTheme.text-secondary;
+                        }
+                        TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.shuffle = !root.shuffle;
+                                root.shuffle-toggled();
+                            }
+                        }
+                    }
+
+                    // Fullscreen button
+                    Rectangle {
+                        width: 28px;
+                        height: 28px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: root.fullscreen ? SlateTheme.accent-primary-subtle : transparent;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-fullscreen";
+                        accessible-label: "Toggle Fullscreen";
+                        accessible-checkable: true;
+                        accessible-checked: root.fullscreen;
+                        accessible-action-default => {
+                            root.fullscreen = !root.fullscreen;
+                            root.fullscreen-toggled();
+                        }
+
+                        SlateFullscreenIcon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            icon-color: root.fullscreen ? SlateTheme.accent-primary : SlateTheme.text-secondary;
+                        }
+                        TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.fullscreen = !root.fullscreen;
+                                root.fullscreen-toggled();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Optional Playlist Drawer
+        if root.show-playlist && root.playlist.length > 0 : Rectangle {
+            background: SlateTheme.surface-2;
+
+            VerticalLayout {
+                padding: SlateTheme.spacing-xs;
+                spacing: 2px;
+
+                for track[idx] in root.playlist : Rectangle {
+                    height: 28px;
+                    border-radius: SlateTheme.radius-xs;
+                    background: idx == root.active-track-index ? SlateTheme.accent-primary-subtle : transparent;
+                    accessible-role: list-item;
+                    accessible-id: root.automation-id + "-track-" + idx;
+                    accessible-label: track.title + (track.artist != "" ? " - " + track.artist : "");
+                    accessible-checkable: true;
+                    accessible-checked: idx == root.active-track-index;
+                    accessible-action-default => {
+                        root.active-track-index = idx;
+                        root.track-selected(idx);
+                    }
+
+                    HorizontalLayout {
+                        padding-left: SlateTheme.spacing-sm;
+                        padding-right: SlateTheme.spacing-sm;
+                        alignment: space-between;
+
+                        Text {
+                            text: track.title;
+                            color: idx == root.active-track-index ? SlateTheme.accent-primary : SlateTheme.text-primary;
+                            font-size: SlateTheme.font-xs;
+                            font-weight: idx == root.active-track-index ? 600 : 400;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: track.duration-label;
+                            color: SlateTheme.text-secondary;
+                            font-family: "monospace";
+                            font-size: SlateTheme.font-xs;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.active-track-index = idx;
+                            root.track-selected(idx);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

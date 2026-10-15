@@ -1,0 +1,82 @@
+// Drag-and-Drop Primitives — SlateDraggable and SlateDropTarget with MCP drop-receiver support.
+
+import { SlateTheme } from "theme.slint";
+import { SlateMcpDropTarget } from "mcp.slint";
+
+export component SlateDraggable inherits Rectangle {
+    in property <string> automation-id: "draggable";
+    in property <string> payload: "";
+    in property <string> label: "Draggable Item";
+    in property <bool> enabled: true;
+    out property <bool> dragging: drag-touch.pressed;
+    out property <length> drag-offset-x: drag-touch.pressed ? drag-touch.mouse-x - drag-touch.pressed-x : 0px;
+    out property <length> drag-offset-y: drag-touch.pressed ? drag-touch.mouse-y - drag-touch.pressed-y : 0px;
+
+    callback drag-started(string /* payload */);
+    callback drag-moved(length /* dx */, length /* dy */);
+    callback drag-ended(string /* payload */);
+
+    accessible-role: button;
+    accessible-id: root.automation-id;
+    accessible-label: root.label;
+    accessible-value: root.payload;
+    accessible-description: "mcp:controllable,draggable";
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if (root.enabled) {
+            root.drag-started(root.payload);
+            root.drag-ended(root.payload);
+        }
+    }
+
+    opacity: root.dragging ? 0.78 : 1.0;
+
+    @children
+
+    drag-touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: self.pressed ? grabbing : grab;
+        pointer-event(ev) => {
+            if (ev.kind == PointerEventKind.down) {
+                root.drag-started(root.payload);
+            } else if (ev.kind == PointerEventKind.up || ev.kind == PointerEventKind.cancel) {
+                root.drag-ended(root.payload);
+            }
+        }
+        moved => {
+            if (self.pressed) {
+                root.drag-moved(self.mouse-x - self.pressed-x, self.mouse-y - self.pressed-y);
+            }
+        }
+    }
+}
+
+export component SlateDropTarget inherits Rectangle {
+    in property <string> automation-id: "drop-target";
+    in property <string> label: "Drop Target";
+    in-out property <bool> drag-over: false;
+    in-out property <string> last-dropped-payload: "";
+    in property <bool> enabled: true;
+
+    callback payload-dropped(string /* payload */);
+
+    border-radius: SlateTheme.radius-md;
+    border-width: root.drag-over ? 2px : 1px;
+    border-color: root.drag-over ? SlateTheme.accent-primary : SlateTheme.border-subtle;
+    background: root.drag-over ? SlateTheme.accent-primary-subtle : SlateTheme.surface-1;
+
+    SlateMcpDropTarget {
+        width: 100%;
+        height: 100%;
+        automation-id: root.automation-id;
+        label: root.label;
+        enabled: root.enabled;
+        payload-dropped(payload) => {
+            root.last-dropped-payload = payload;
+            root.drag-over = false;
+            root.payload-dropped(payload);
+        }
+
+        @children
+    }
+}

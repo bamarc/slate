@@ -1,0 +1,458 @@
+// File / Directory Dialog Component — In-window file & directory browser supporting
+// open-file, open-multiple, select-directory, and save-file modes with bookmarks,
+// path breadcrumbs, search, extension filter, and MCP automation hooks.
+
+import { SlateTheme } from "theme.slint";
+import { SlateFolderIcon, SlateFileIcon } from "icons.slint";
+import { SlateMcpValueTarget } from "mcp.slint";
+
+export struct SlateFileEntry {
+    name: string,
+    path: string,
+    is-dir: bool,
+    size-label: string,
+    modified-label: string,
+    selected: bool,
+}
+
+export struct SlateBookmarkItem {
+    id: string,
+    label: string,
+    path: string,
+}
+
+export component SlateFileDialog inherits Rectangle {
+    in property <string> automation-id: "file-dialog";
+    in property <string> mode: "open-file"; // "open-file" | "open-multiple" | "select-directory" | "save-file"
+    in property <string> title: "Select File";
+    in-out property <string> current-path: "/";
+    in property <[string]> breadcrumbs: ["/"];
+    in property <[SlateBookmarkItem]> bookmarks: [];
+    in property <[SlateFileEntry]> entries: [];
+    in-out property <int> selected-index: -1;
+    in-out property <string> search-query: "";
+    in-out property <string> filename-input: "";
+    in-out property <string> extension-filter: "*";
+    in property <string> error-message: "";
+
+    callback navigate-to(string /* path */);
+    callback navigate-up();
+    callback breadcrumb-clicked(int /* index */);
+    callback bookmark-clicked(string /* path */);
+    callback entry-clicked(int /* index */);
+    callback entry-activated(int /* index */);
+    callback search-changed(string /* query */);
+    callback filename-changed(string /* name */);
+    callback confirm-requested();
+    callback cancel-requested();
+
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: root.title;
+    accessible-description: "mcp:controllable,filterable,selectable";
+
+    background: SlateTheme.surface-1;
+    border-radius: SlateTheme.radius-md;
+    border-width: 1px;
+    border-color: SlateTheme.border-subtle;
+    clip: true;
+
+    VerticalLayout {
+        spacing: 0px;
+
+        // Dialog Header + Path Bar + Search
+        Rectangle {
+            height: 44px;
+            background: SlateTheme.surface-2;
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-sm;
+                padding-right: SlateTheme.spacing-sm;
+                spacing: SlateTheme.spacing-sm;
+                alignment: space-between;
+
+                // Up button + Breadcrumbs
+                HorizontalLayout {
+                    spacing: 4px;
+                    horizontal-stretch: 1;
+                    alignment: start;
+
+                    Rectangle {
+                        width: 28px;
+                        height: 28px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: up-touch.has-hover ? SlateTheme.surface-hover : SlateTheme.surface-1;
+                        border-width: 1px;
+                        border-color: SlateTheme.border-subtle;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-up";
+                        accessible-label: "Parent Directory";
+                        accessible-action-default => { root.navigate-up(); }
+
+                        Text {
+                            text: "↑";
+                            color: SlateTheme.text-primary;
+                            font-size: SlateTheme.font-sm;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        up-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.navigate-up(); }
+                        }
+                    }
+
+                    // Breadcrumb pills
+                    for crumb[cidx] in root.breadcrumbs : Rectangle {
+                        width: 64px;
+                        height: 26px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: crumb-touch.has-hover ? SlateTheme.surface-hover : transparent;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-crumb-" + cidx;
+                        accessible-label: "Breadcrumb " + crumb;
+                        accessible-action-default => { root.breadcrumb-clicked(cidx); }
+
+                        Text {
+                            text: crumb;
+                            color: SlateTheme.text-primary;
+                            font-size: SlateTheme.font-xs;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        crumb-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.breadcrumb-clicked(cidx); }
+                        }
+                    }
+                }
+
+                // Search input
+                SlateMcpValueTarget {
+                    width: 160px;
+                    height: 28px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: SlateTheme.radius-xs;
+                    background: SlateTheme.surface-1;
+                    border-width: 1px;
+                    border-color: SlateTheme.border-subtle;
+                    automation-id: root.automation-id + "-search";
+                    label: "Search files";
+                    text-value <=> root.search-query;
+                    value-submitted(val) => {
+                        root.search-query = val;
+                        root.search-changed(val);
+                    }
+
+                    TextInput {
+                        x: SlateTheme.spacing-xs;
+                        width: parent.width - 2 * SlateTheme.spacing-xs;
+                        height: 100%;
+                        text <=> root.search-query;
+                        color: SlateTheme.text-primary;
+                        font-size: SlateTheme.font-xs;
+                        vertical-alignment: center;
+                        edited => {
+                            root.search-changed(self.text);
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                width: 100%;
+                background: SlateTheme.border-subtle;
+            }
+        }
+
+        // Error banner
+        if root.error-message != "" : Rectangle {
+            height: 32px;
+            background: SlateTheme.status-error-bg;
+            accessible-role: text;
+            accessible-id: root.automation-id + "-error";
+            accessible-label: root.error-message;
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-sm;
+                padding-right: SlateTheme.spacing-sm;
+                spacing: SlateTheme.spacing-sm;
+                alignment: start;
+
+                Text {
+                    text: root.error-message;
+                    color: SlateTheme.status-error;
+                    font-size: SlateTheme.font-xs;
+                    font-weight: 500;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+
+        // Body: Bookmarks Sidebar + File List
+        HorizontalLayout {
+            vertical-stretch: 1;
+            spacing: 0px;
+
+            // Bookmarks sidebar
+            if root.bookmarks.length > 0 : Rectangle {
+                width: 150px;
+                background: SlateTheme.surface-2;
+
+                VerticalLayout {
+                    padding: SlateTheme.spacing-xs;
+                    spacing: 2px;
+                    alignment: start;
+
+                    for bm[bidx] in root.bookmarks : Rectangle {
+                        height: 30px;
+                        border-radius: SlateTheme.radius-xs;
+                        background: root.current-path == bm.path ? SlateTheme.accent-primary-subtle : transparent;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-bookmark-" + bm.id;
+                        accessible-label: bm.label;
+                        accessible-action-default => { root.bookmark-clicked(bm.path); }
+
+                        HorizontalLayout {
+                            padding-left: SlateTheme.spacing-sm;
+                            padding-right: SlateTheme.spacing-sm;
+                            spacing: 6px;
+
+                            SlateFolderIcon {
+                                y: (parent.height - self.height) / 2;
+                                icon-color: SlateTheme.accent-primary;
+                            }
+                            Text {
+                                text: bm.label;
+                                color: SlateTheme.text-primary;
+                                font-size: SlateTheme.font-xs;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+
+                        TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.bookmark-clicked(bm.path); }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    x: parent.width - 1px;
+                    width: 1px;
+                    height: 100%;
+                    background: SlateTheme.border-subtle;
+                }
+            }
+
+            // File table
+            VerticalLayout {
+                horizontal-stretch: 1;
+                padding: SlateTheme.spacing-xs;
+                spacing: 2px;
+                alignment: start;
+
+                for entry[eidx] in root.entries : Rectangle {
+                    height: 32px;
+                    border-radius: SlateTheme.radius-xs;
+                    background: (entry.selected || eidx == root.selected-index)
+                        ? SlateTheme.accent-primary-subtle
+                        : (entry-touch.has-hover ? SlateTheme.surface-2 : transparent);
+                    accessible-role: list-item;
+                    accessible-id: root.automation-id + "-entry-" + eidx;
+                    accessible-label: entry.name;
+                    accessible-value: entry.path;
+                    accessible-checkable: true;
+                    accessible-checked: entry.selected || eidx == root.selected-index;
+                    accessible-action-default => {
+                        root.selected-index = eidx;
+                        root.entry-clicked(eidx);
+                        if (!entry.is-dir && root.mode != "save-file") {
+                            root.filename-input = entry.name;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-left: SlateTheme.spacing-sm;
+                        padding-right: SlateTheme.spacing-sm;
+                        spacing: SlateTheme.spacing-sm;
+                        alignment: space-between;
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-sm;
+                            horizontal-stretch: 1;
+
+                            if entry.is-dir : SlateFolderIcon {
+                                y: (parent.height - self.height) / 2;
+                                icon-color: SlateTheme.accent-primary;
+                            }
+                            if !entry.is-dir : SlateFileIcon {
+                                y: (parent.height - self.height) / 2;
+                                icon-color: SlateTheme.text-secondary;
+                            }
+
+                            Text {
+                                text: entry.name;
+                                color: SlateTheme.text-primary;
+                                font-size: SlateTheme.font-xs;
+                                font-weight: entry.is-dir ? 600 : 400;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: SlateTheme.spacing-md;
+                            alignment: end;
+
+                            Text {
+                                width: 64px;
+                                text: entry.is-dir ? "--" : entry.size-label;
+                                color: SlateTheme.text-secondary;
+                                font-size: SlateTheme.font-xs;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                            }
+
+                            Text {
+                                width: 84px;
+                                text: entry.modified-label;
+                                color: SlateTheme.text-muted;
+                                font-size: SlateTheme.font-xs;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    entry-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.selected-index = eidx;
+                            root.entry-clicked(eidx);
+                        }
+                        double-clicked => {
+                            root.entry-activated(eidx);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Footer: Filename Input + Cancel / Confirm buttons
+        Rectangle {
+            height: 48px;
+            background: SlateTheme.surface-2;
+
+            Rectangle {
+                y: 0px;
+                height: 1px;
+                width: 100%;
+                background: SlateTheme.border-subtle;
+            }
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-sm;
+                padding-right: SlateTheme.spacing-sm;
+                spacing: SlateTheme.spacing-sm;
+                alignment: space-between;
+
+                // Filename input
+                SlateMcpValueTarget {
+                    horizontal-stretch: 1;
+                    height: 30px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: SlateTheme.radius-xs;
+                    background: SlateTheme.surface-1;
+                    border-width: 1px;
+                    border-color: SlateTheme.border-subtle;
+                    automation-id: root.automation-id + "-filename";
+                    label: "File Name";
+                    text-value <=> root.filename-input;
+                    value-submitted(val) => {
+                        root.filename-input = val;
+                        root.filename-changed(val);
+                    }
+
+                    TextInput {
+                        x: SlateTheme.spacing-xs;
+                        width: parent.width - 2 * SlateTheme.spacing-xs;
+                        height: 100%;
+                        text <=> root.filename-input;
+                        color: SlateTheme.text-primary;
+                        font-size: SlateTheme.font-xs;
+                        vertical-alignment: center;
+                        edited => {
+                            root.filename-changed(self.text);
+                        }
+                    }
+                }
+
+                // Action buttons
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-xs;
+                    alignment: end;
+
+                    Rectangle {
+                        width: 72px;
+                        height: 30px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: cancel-touch.has-hover ? SlateTheme.surface-hover : SlateTheme.surface-1;
+                        border-width: 1px;
+                        border-color: SlateTheme.border-subtle;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-cancel";
+                        accessible-label: "Cancel";
+                        accessible-action-default => { root.cancel-requested(); }
+
+                        Text {
+                            text: "Cancel";
+                            color: SlateTheme.text-primary;
+                            font-size: SlateTheme.font-xs;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        cancel-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.cancel-requested(); }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 84px;
+                        height: 30px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: confirm-touch.has-hover ? SlateTheme.accent-primary-hover : SlateTheme.accent-primary;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-confirm";
+                        accessible-label: root.mode == "save-file" ? "Save" : "Open";
+                        accessible-action-default => { root.confirm-requested(); }
+
+                        Text {
+                            text: root.mode == "save-file" ? "Save" : "Open";
+                            color: #ffffff;
+                            font-size: SlateTheme.font-xs;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        confirm-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.confirm-requested(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

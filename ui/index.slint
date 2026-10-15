@@ -2,8 +2,42 @@
 // Re-export all components and layouts for developer convenience
 
 export { SlateTheme } from "components/theme.slint";
+export {
+    SlateMcp,
+    SlateMcpControl,
+    SlateMcpValueTarget,
+    SlateMcpExpandable,
+    SlateMcpDropTarget
+} from "components/mcp.slint";
 export { SlateButton, SlateButtonVariant, SlateButtonSize } from "components/button.slint";
-export { SlateCheckIcon, SlateMinusIcon, SlateCloseIcon, SlateSearchIcon, SlateChevronIcon, SlateSpinner, SlateHomeIcon, SlateShieldIcon, SlateGridIcon, SlatePaletteIcon } from "components/icons.slint";
+export {
+    SlateCheckIcon,
+    SlateMinusIcon,
+    SlateCloseIcon,
+    SlateSearchIcon,
+    SlateChevronIcon,
+    SlateSpinner,
+    SlateHomeIcon,
+    SlateShieldIcon,
+    SlateGridIcon,
+    SlatePaletteIcon,
+    SlatePlayIcon,
+    SlatePauseIcon,
+    SlateStopIcon,
+    SlateSkipPrevIcon,
+    SlateSkipNextIcon,
+    SlateVolumeIcon,
+    SlateFullscreenIcon,
+    SlateRepeatIcon,
+    SlateShuffleIcon,
+    SlateUploadIcon,
+    SlateFolderIcon,
+    SlateFileIcon,
+    SlateSortIcon,
+    SlateCopyIcon,
+    SlateFilterIcon,
+    SlateSidebarIcon
+} from "components/icons.slint";
 export { SlateCard } from "components/card.slint";
 export { SlateBadge } from "components/badge.slint";
 export { SlateActionRow } from "components/action_row.slint";
@@ -34,11 +68,38 @@ export { SlateAlertDialog } from "components/alert_dialog.slint";
 export { SlatePopover } from "components/popover.slint";
 export { SlateTooltip } from "components/tooltip.slint";
 
+// Data Representations
+export { SlateDataGrid, SlateGridColumn, SlateGridRow } from "components/data_grid.slint";
+export { SlateTreeView, SlateTreeNodeRow } from "components/tree_view.slint";
+export { SlateDescriptionList, SlateKeyValueItem } from "components/description_list.slint";
+export { SlateSparkline } from "components/sparkline.slint";
+export { SlateStatGroup, SlateStatItem } from "components/stat_group.slint";
+export { SlateBarChart, SlateLineChart, SlateDonutChart, SlateChartBarItem } from "components/charts.slint";
+export { SlateTimeline, SlateTimelineEvent } from "components/timeline.slint";
+export { SlateKanbanBoard, SlateKanbanCard } from "components/kanban_board.slint";
+export { SlateTagList, SlateTagItem } from "components/tag_list.slint";
+export { SlateLogViewer, SlateLogEntry } from "components/log_viewer.slint";
+
+// Media, Drag-and-Drop, Dropzone & File Dialog
+export { SlateMediaPlayer, SlateMediaTrack, SlateMediaMarker } from "components/media_player.slint";
+export { SlateDraggable, SlateDropTarget } from "components/drag_drop.slint";
+export { SlateDropzone, SlateUploadItem } from "components/dropzone.slint";
+export { SlateFileDialog, SlateFileEntry, SlateBookmarkItem } from "components/file_dialog.slint";
+
+// Layouts
 export { SlateWindow } from "layouts/window.slint";
 export { SlateNavigationSplitView, NavItem } from "layouts/navigation_split_view.slint";
 export { SlateWebAppLayout, SlateWebCard, SlateWebNavItem } from "layouts/web_app_layout.slint";
 export { SlateStatusPage } from "layouts/status_page.slint";
 export { SlatePreferencesGroup } from "layouts/preferences_page.slint";
-export { SlateResizableHandle } from "layouts/resizable_panel_group.slint";
+export { SlateResizableHandle, SlateSplitView } from "layouts/resizable_panel_group.slint";
 export { SlateThreePanelLayout } from "layouts/three_panel_layout.slint";
 export { SlateCollapsible } from "layouts/collapsible.slint";
+export { SlateMasterDetailLayout, SlateMasterItem } from "layouts/master_detail_layout.slint";
+export { SlatePageHeader, SlateBreadcrumbs, SlateBreadcrumbItem } from "layouts/page_header.slint";
+export { SlateBentoGrid, SlateBentoTile } from "layouts/bento_grid.slint";
+export { SlateDockLayout } from "layouts/dock_layout.slint";
+export { SlateFormLayout, SlateFieldGroup } from "layouts/form_layout.slint";
+export { SlateToolbar, SlateToolbarItem, SlateStatusBar, SlateStatusItem } from "layouts/toolbar_status_bar.slint";
+export { SlateWizardLayout, SlateWizardStep } from "layouts/wizard_layout.slint";
+export { SlateWrapLayout } from "layouts/wrap_layout.slint";
