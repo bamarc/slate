@@ -1,0 +1,1003 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>slate.quic.crypto.aead</title>
+    <style type="text/css" media="screen">
+      html, body, div, span, object, iframe, h1, h2, h3, h4, h5, h6, p,
+      blockquote, pre, a, abbr, address, cite, code, del, dfn, em, figure,
+      img, ins, kbd, q, s, samp, small, strong, sub, sup, var, b, u, i, dl,
+      dt, dd, ol, ul, li, fieldset, form, label, legend, table, caption,
+      tbody, tfoot, thead, tr, th, td {
+        background: transparent none repeat scroll 0 0;
+        border: 0 none;
+        font-size: 100%;
+        margin: 0;
+        outline: 0 none;
+        padding: 0;
+        vertical-align: baseline;
+      }
+
+      h1 { font-size: 200%; }
+      h2 { font-size: 160%; }
+      h3 { font-size: 120%; }
+      h4 { font-size: 100%; }
+      h5 { font-size: 80%; }
+      h6 { font-size: 80%; font-weight: normal; }
+
+      ul, ol {
+        margin: 1.4em 0;
+      }
+      ul ul, ol ol, ul ol, ol ul {
+        margin-top: 0;
+        margin-bottom: 0;
+      }
+      ul, ol {
+        margin-left: 2.8em;
+      }
+
+      ol {
+        list-style: decimal;
+      }
+      ol ol {
+        list-style: lower-alpha;
+      }
+      ol ol ol {
+        list-style: lower-roman;
+      }
+      ol ol ol ol {
+        list-style: decimal;
+      }
+
+      blockquote {
+        margin: 0.1em;
+        margin-left: 1em;
+        border-left: 2px solid #cccccc;
+        padding-left: 0.7em;
+      }
+
+      .color_red { color: #dc322f; }
+      .color_blue { color: #268bd2; }
+      .color_green { color: #859901; }
+      .color_yellow { color: #b58901; }
+      .color_black { color: black; }
+      .color_white { color: white; }
+
+      .font_big {
+        font-size: 1.2em;
+      }
+
+      .ddoc_section_h {
+        font-weight: bold;
+        font-size: 13px;
+        line-height: 19.5px;
+        margin-top: 11px;
+        display: block;
+      }
+
+      body.dlang .dlang {
+        display: inline-block;
+      }
+
+      body.dlang .declaration .dlang {
+          display: block;
+      }
+
+      body.dlang .ddoc_header_anchor a.dlang {
+        display: block;
+        color: rgba(0, 136, 204, 1);
+        text-decoration: none;
+      }
+
+      body.dlang .ddoc_header_anchor .code {
+        color: rgba(0, 136, 204, 1);
+      }
+
+      #ddoc_main .module {
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          overflow-x: hidden;
+          padding: 15px;
+      }
+
+      #ddoc_main .section .section {
+        margin-top: 0;
+      }
+
+      #ddoc_main .ddoc_module_members_section {
+          padding: 1px 0 0;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members section.intro {
+          background: #fff none repeat scroll 0 0;
+          list-style-type: none;
+          width: 100%;
+      }
+
+      #ddoc_main .ddoc_header_anchor {
+          font-size: 1.4em;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_header_anchor > .code {
+          display: inline-block;
+
+      }
+
+      #ddoc_main .ddoc_decl {
+        background-color: transparent;
+        height: 100%;
+        left: 0;
+        top: 0;
+        padding: 0;
+        padding-left: 15px;
+      }
+
+      #ddoc_main .ddoc_decl .section, #ddoc_main .section.ddoc_sections {
+        background: white none repeat scroll 0 0;
+        margin: 0;
+        padding: 5px;
+        position: relative;
+        border-radius: 5px;
+      }
+
+      #ddoc_main .ddoc_decl .section h4:first-of-type, #ddoc_main .section.ddoc_sections h4:first-of-type {
+        font-size: 13px;
+        line-height: 1.5;
+        margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration {
+          margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration .code {
+          color: rgba(0, 0, 0, 1);
+          margin-bottom: 15px;
+          padding-bottom: 6px;
+      }
+
+      #ddoc_main .declaration div .para {
+          margin-bottom: 0;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr td:first-of-type {
+        padding: 7px;
+        text-align: right;
+        vertical-align: top;
+        word-break: normal;
+        white-space: nowrap;
+      }
+
+      #ddoc_main .ddoc_params .graybox {
+        border: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox td {
+        border-color: rgba(214, 214, 214, 1);
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:first-child > td {
+        border-top: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:last-child > td {
+        border-bottom: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:first-child {
+        border-left: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:last-child {
+        border-right: 0 none;
+        width: 100%;
+      }
+
+      #ddoc_main em.term, #ddoc_main em.term .code {
+        color: rgba(65, 65, 65, 1);
+        font-size: 12px;
+        font-style: italic;
+        line-height: 1.5;
+      }
+
+      #ddoc_main .see-also {
+        cursor: pointer;
+        font-family: Menlo,monospace;
+      }
+
+      #ddoc_main .ddoc_decl .section > div:last-of-type {
+        margin-bottom: 15px;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members {
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .code_sample {
+        background: inherit;
+      }
+
+      #ddoc_main .declaration .code-line {
+          display: block;
+          font: 1em Menlo,monospace;
+      }
+
+      #ddoc_main a[name] {
+        margin: -112px 0 0;
+        padding-top: 112px;
+      }
+
+      #ddoc_main .ddoc_decl td {
+        max-width: inherit;
+      }
+
+      #ddoc_main .declaration a {
+        color: inherit;
+      }
+
+      #ddoc_main .declaration a:hover {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: underline;
+      }
+
+      body.ddoc {
+        background-color: transparent;
+        color: rgba(0, 0, 0, 1);
+        font-family: Helvetica,Arial,sans-serif;
+        font-size: 62.5%;
+        margin: 0;
+        border: 0;
+        left: 0;
+        top: 0;
+        padding: 0;
+      }
+
+      .ddoc a[name] {
+        display: block;
+        height: 0;
+        margin: -85px 0 0;
+        padding-top: 85px;
+        width: 0;
+      }
+
+      .ddoc .module {
+          border-color: transparent;
+          background-color: rgba(255, 255, 255, 1);
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-image: none;
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          box-shadow: 0 0 1px rgba(0, 0, 0, 0.07);
+          display: block;
+          margin-left: 0;
+          min-height: calc(100% - 173px);
+          overflow: auto;
+          padding-bottom: 100px;
+      }
+
+      .ddoc .content_wrapper {
+          background-color: rgba(242, 242, 242, 1);
+          margin: 0 auto;
+          max-width: 980px;
+      }
+
+      .ddoc .section {
+        padding: 15px 25px 30px;
+      }
+
+      .ddoc .section .section {
+        margin: 30px 0 0;
+        padding: 0;
+      }
+
+      .ddoc .para {
+        color: rgba(65, 65, 65, 1);
+        font-size: 1.4em;
+        line-height: 145%;
+        margin-bottom: 15px;
+      }
+
+      .ddoc .ddoc_examples .para {
+        margin-bottom: 0;
+      }
+
+      .ddoc .module_name {
+          color: rgba(0, 0, 0, 1);
+          display: block;
+          font-family: Helvetica;
+          font-size: 2.8em;
+          font-weight: 100;
+          margin-bottom: 0;
+          padding: 15px 0;
+      }
+
+      .ddoc .module a {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: none;
+      }
+
+      .ddoc .code {
+        color: rgba(128, 128, 128, 1);
+        font-family: Menlo,monospace;
+        font-size: 0.85em;
+        word-wrap: break-word;
+      }
+
+      .ddoc .code i {
+        font-style: normal;
+      }
+
+      .ddoc .code .code {
+        font-size: 1em;
+      }
+
+      .ddoc .code_sample {
+        background-clip: padding-box;
+        margin: 1px 0;
+        text-align: left;
+      }
+
+      .ddoc .code_sample {
+        display: block;
+        font-size: 1.4em;
+        margin-left: 21px;
+      }
+
+      .ddoc ol .code_sample {
+        font-size: 1em;
+      }
+
+      .ddoc .code_lines {
+        counter-reset: li;
+        line-height: 1.6em;
+        list-style: outside none none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .ddoc .code_listing .code_sample div {
+        margin-left: 13px;
+        width: 93%;
+      }
+
+      .ddoc .code_listing .code_sample div .code_lines li {
+        list-style-type: none;
+        margin: 0;
+        padding-right: 10px;
+      }
+
+      .ddoc .code_sample div .code_lines li::before {
+        margin-left: -33px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+10)::before {
+        margin-left: -39px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+100)::before {
+        margin-left: -46px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample .code_lines .code {
+        color: #000;
+      }
+
+      .ddoc div.dlang {
+        margin: 10px 0 21px;
+        padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+          margin: 10px 0 21px;
+          padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+        border-left: 5px solid rgba(0, 155, 51, 0.2);
+      }
+
+      .ddoc .code_lines li::before {
+        color: rgba(128, 128, 128, 1);
+        content: counter(li, decimal);
+        counter-increment: li;
+        font-family: Menlo,monospace;
+        font-size: 0.9em;
+        margin-right: 16px;
+      }
+
+      .ddoc .code_lines li {
+        padding-left: 0;
+        white-space: pre-wrap;
+      }
+
+      .ddoc .code_lines pre {
+        display: contents;
+      }
+
+      .ddoc .code_lines li:only-of-type::before {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:only-of-type {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:nth-child(n+10) {
+        text-indent: -17px;
+      }
+
+      .ddoc .code_lines li:nth-child(n+10)::before {
+        margin-right: 12px;
+      }
+
+      .ddoc .graybox {
+        border: 1px solid rgba(233, 233, 233, 1);
+        border-collapse: collapse;
+        border-spacing: 0;
+        empty-cells: hide;
+        margin: 20px 0 36px;
+        text-align: left;
+      }
+
+      .ddoc .graybox p {
+        margin: 0;
+        min-width: 50px;
+      }
+
+      .ddoc th {
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: bottom;
+      }
+
+      .ddoc td {
+        border: 1px solid rgba(233, 233, 233, 1);
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: middle;
+      }
+
+      .punctuation {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .comment {
+        color: rgba(0, 131, 18, 1);
+      }
+
+      .operator {
+        color: #000;
+      }
+
+      .keyword {
+        color: rgba(170, 13, 145, 1);
+      }
+
+      .keyword_type {
+        color: rgba(170, 51, 145, 1);
+      }
+
+      .string_literal {
+        color: rgba(196, 26, 22, 1);
+      }
+
+      .ddoc_psuper_symbol {
+        color: rgba(92, 38, 153, 1);
+      }
+
+      .param {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .psymbol {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .ddoc_member_header .ddoc_header_anchor .code {
+        font-size: 1em;
+      }
+    </style>
+  </head>
+  <body id="ddoc_main" class="ddoc dlang">
+    <div class="content_wrapper">
+      <article class="module">
+        <h1 class="module_name">slate.quic.crypto.aead</h1>
+        <section id="module_content">
+<section class="section ddoc_module_members_section">
+  <div class="ddoc_module_members">
+    <ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#RETRY_KEY_V1" id="RETRY_KEY_V1"><code class="code">RETRY_KEY_V1</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="RETRY_KEY_V1"></span>immutable ubyte[16] <code class="code">RETRY_KEY_V1</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    RFC 9001 Section 5.8 fixed key and nonce for Retry Packet Integrity Tag.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#AeadKey" id="AeadKey"><code class="code">AeadKey</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="AeadKey"></span>struct <code class="code">AeadKey</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    RAII wrapper for AEAD packet encryption and decryption (RFC 9001 Section 5.3).
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Holds pre-initialized OpenSSL EVP_CIPHER_CTX handles to avoid heap allocations
+ on the per-packet hot path.
+  </p>
+</div>
+
+</section>
+<ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#AeadKey.this" id="AeadKey.this"><code class="code">this</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="AeadKey.this"></span>nothrow @nogc @trusted this(CipherSuite <code class="code">suite</code>, const(ubyte)[] <code class="code">key</code>, const(ubyte)[] <code class="code">iv</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Initializes an AeadKey with a cipher <code class="code">suite</code>, <code class="code">key</code>, and IV.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#AeadKey.init" id="AeadKey.init"><code class="code">init</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="AeadKey.init"></span>nothrow @nogc @trusted void <code class="code">init</code>(CipherSuite <code class="code">suite</code>, const(ubyte)[] <code class="code">key</code>, const(ubyte)[] <code class="code">iv</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Re-initializes or initializes in-place.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#AeadKey.moveFrom" id="AeadKey.moveFrom"><code class="code">moveFrom</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="AeadKey.moveFrom"></span>nothrow @nogc @trusted void <code class="code">moveFrom</code>(ref AeadKey <code class="code">other</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Move state from another AeadKey.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#AeadKey.deriveNonce" id="AeadKey.deriveNonce"><code class="code">deriveNonce</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="AeadKey.deriveNonce"></span>pure nothrow @nogc @safe void <code class="code">deriveNonce</code>(ulong <code class="code">packetNumber</code>, ref ubyte[12] <code class="code">nonceOut</code>) const;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Derives the 12-byte AEAD nonce by XORing IV with the reconstructed packet number (RFC 9001 Section 5.3).
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#AeadKey.encryptInPlace" id="AeadKey.encryptInPlace"><code class="code">encryptInPlace</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="AeadKey.encryptInPlace"></span>nothrow @nogc @trusted QuicCryptoError <code class="code">encryptInPlace</code>(ulong <code class="code">packetNumber</code>, const(ubyte)[] <code class="code">aad</code>, ubyte[] <code class="code">inoutPayload</code>, size_t <code class="code">plaintextLen</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Encrypts plaintext in-place and appends the 16-byte authentication tag (RFC 9001 Section 5.3).
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    <code class="code">inoutPayload</code> must have length &gt;= <code class="code">plaintextLen</code> + 16.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#AeadKey.decryptInPlace" id="AeadKey.decryptInPlace"><code class="code">decryptInPlace</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="AeadKey.decryptInPlace"></span>nothrow @nogc @trusted QuicCryptoError <code class="code">decryptInPlace</code>(ulong <code class="code">packetNumber</code>, const(ubyte)[] <code class="code">aad</code>, ubyte[] <code class="code">inoutPayload</code>, out size_t <code class="code">plaintextLen</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Decrypts ciphertext in-place and verifies the 16-byte authentication tag (RFC 9001 Section 5.3).
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    <code class="code">inoutPayload</code> contains ciphertext || tag.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li>
+</ul>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#computeRetryIntegrityTag" id="computeRetryIntegrityTag"><code class="code">computeRetryIntegrityTag</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="computeRetryIntegrityTag"></span>nothrow @nogc @trusted void <code class="code">computeRetryIntegrityTag</code>(const(ubyte)[] <code class="code">originalDcid</code>, const(ubyte)[] <code class="code">retryPacketWithoutTag</code>, ref ubyte[16] <code class="code">tagOut</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Computes the 16-byte Retry Packet Integrity Tag (RFC 9001 Section 5.8).
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#verifyRetryIntegrityTag" id="verifyRetryIntegrityTag"><code class="code">verifyRetryIntegrityTag</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="verifyRetryIntegrityTag"></span>nothrow @nogc @trusted bool <code class="code">verifyRetryIntegrityTag</code>(const(ubyte)[] <code class="code">originalDcid</code>, const(ubyte)[] <code class="code">retryPacketWithTag</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Verifies the 16-byte Retry Packet Integrity Tag (RFC 9001 Section 5.8).
+  </p>
+</div>
+<div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="keyword">const</span> <span class="keyword">ubyte</span>[8] <span class="param">originalDcid</span> = [0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08];
+<span class="keyword">const</span> <span class="keyword">ubyte</span>[20] retryPktWithoutTag = [
+    0xff, 0x00, 0x00, 0x00, 0x01, 0x00, 0x08, 0xf0,
+    0x67, 0xa5, 0x50, 0x2a, 0x42, 0x62, 0xb5, 0x74,
+    0x6f, 0x6b, 0x65, 0x6e
+];
+
+<span class="keyword">ubyte</span>[16] tag;
+computeRetryIntegrityTag(<span class="param">originalDcid</span>, retryPktWithoutTag, tag);
+
+<span class="keyword">const</span> <span class="keyword">ubyte</span>[16] expectedTag = [
+    0x04, 0xa2, 0x65, 0xba, 0x2e, 0xff, 0x4d, 0x82,
+    0x90, 0x58, 0xfb, 0x3f, 0x0f, 0x24, 0x96, 0xba
+];
+<span class="keyword">assert</span>(tag == expectedTag, <span class="string_literal">"Retry integrity tag mismatch"</span>);
+
+<span class="keyword">ubyte</span>[36] fullRetryPacket;
+fullRetryPacket[0 .. 20] = retryPktWithoutTag[];
+fullRetryPacket[20 .. 36] = tag[];
+<span class="keyword">assert</span>(<span class="psymbol">verifyRetryIntegrityTag</span>(<span class="param">originalDcid</span>, fullRetryPacket), <span class="string_literal">"Valid retry packet must verify"</span>);
+
+<span class="comment">// Corrupt one byte of tag
+</span>fullRetryPacket[35] ^= 0x01;
+<span class="keyword">assert</span>(!<span class="psymbol">verifyRetryIntegrityTag</span>(<span class="param">originalDcid</span>, fullRetryPacket), <span class="string_literal">"Corrupted retry packet must not verify"</span>);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div><div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="keyword">const</span> <span class="keyword">ubyte</span>[32] key = [
+    0xc6, 0xd9, 0x8f, 0xf3, 0x44, 0x1c, 0x3f, 0xe1,
+    0xb2, 0x18, 0x20, 0x94, 0xf6, 0x9c, 0xaa, 0x2e,
+    0xd4, 0xb7, 0x16, 0xb6, 0x54, 0x88, 0x96, 0x0a,
+    0x7a, 0x98, 0x49, 0x79, 0xfb, 0x23, 0xe1, 0xc8
+];
+<span class="keyword">const</span> <span class="keyword">ubyte</span>[12] iv = [
+    0xe0, 0x45, 0x9b, 0x34, 0x74, 0xbd, 0xd0, 0xe4,
+    0x4a, 0x41, 0xc1, 0x44
+];
+
+AeadKey aead;
+aead.init(CipherSuite.TLS_CHACHA20_POLY1305_SHA256, key, iv);
+
+<span class="keyword">const</span> <span class="keyword">ulong</span> pn = 654360564;
+<span class="keyword">const</span> <span class="keyword">ubyte</span>[4] aad = [0x42, 0x00, 0xbf, 0xf4];
+<span class="keyword">const</span> <span class="keyword">ubyte</span>[1] plaintext = [0x01];
+
+<span class="keyword">ubyte</span>[17] payloadBuf;
+payloadBuf[0] = plaintext[0];
+
+<span class="keyword">const</span> err = aead.encryptInPlace(pn, aad, payloadBuf, 1);
+<span class="keyword">assert</span>(err == QuicCryptoError.none, <span class="string_literal">"Encryption failed"</span>);
+
+<span class="keyword">const</span> <span class="keyword">ubyte</span>[17] expectedCiphertext = [
+    0x65, 0x5e, 0x5c, 0xd5, 0x5c, 0x41, 0xf6, 0x90,
+    0x80, 0x57, 0x5d, 0x79, 0x99, 0xc2, 0x5a, 0x5b,
+    0xfb
+];
+<span class="keyword">assert</span>(payloadBuf == expectedCiphertext, <span class="string_literal">"ChaCha20-Poly1305 ciphertext mismatch"</span>);
+
+<span class="comment">// Decrypt in-place
+</span>size_t decryptedLen = 0;
+<span class="keyword">const</span> decErr = aead.decryptInPlace(pn, aad, payloadBuf, decryptedLen);
+<span class="keyword">assert</span>(decErr == QuicCryptoError.none, <span class="string_literal">"Decryption failed"</span>);
+<span class="keyword">assert</span>(decryptedLen == 1, <span class="string_literal">"Decrypted length mismatch"</span>);
+<span class="keyword">assert</span>(payloadBuf[0] == 0x01, <span class="string_literal">"Decrypted plaintext mismatch"</span>);
+
+<span class="comment">// Test tamper failure (W1)
+</span>payloadBuf[0] ^= 0x40;
+size_t tamperLen = 0;
+<span class="keyword">const</span> tamperErr = aead.decryptInPlace(pn, aad, payloadBuf, tamperLen);
+<span class="keyword">assert</span>(tamperErr == QuicCryptoError.aeadTagMismatch, <span class="string_literal">"Tampered ciphertext must fail AEAD tag check"</span>);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div><div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="keyword">const</span> <span class="keyword">ubyte</span>[16] key = 0x5A;
+<span class="keyword">const</span> <span class="keyword">ubyte</span>[12] iv = 0x3C;
+AeadKey aead;
+aead.init(CipherSuite.TLS_AES_128_GCM_SHA256, key, iv);
+
+<span class="keyword">const</span> <span class="keyword">ubyte</span>[20] aad = 0xAA;
+<span class="keyword">ubyte</span>[16] payloadBuf = 0; <span class="comment">// 0-byte plaintext + 16-byte tag
+</span>
+<span class="keyword">const</span> encErr = aead.encryptInPlace(1, aad, payloadBuf, 0);
+<span class="keyword">assert</span>(encErr == QuicCryptoError.none, <span class="string_literal">"Zero-length payload encryption failed"</span>);
+
+size_t decLen = 99;
+<span class="keyword">const</span> decErr = aead.decryptInPlace(1, aad, payloadBuf, decLen);
+<span class="keyword">assert</span>(decErr == QuicCryptoError.none, <span class="string_literal">"Zero-length payload decryption failed"</span>);
+<span class="keyword">assert</span>(decLen == 0, <span class="string_literal">"Decrypted length must be 0"</span>);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div>
+</section>
+
+</div>
+
+</li>
+</ul>
+  </div>
+</section>
+</section>
+      </article>
+    </div>
+  </body>
+</html>

@@ -11,6 +11,9 @@
     "dependencies": {
         "slint-d": {"path": "../slint-d"}
     },
+    "libs": ["curl", "ssl", "crypto"],
+    "lflags-posix": ["-L/home/developer/.local/lib", "-Llib", "-L/usr/local/lib"],
+    "systemDependencies": "Requires libcurl >= 8.6 (pkg-config libcurl) with nghttp2 for HTTP/2 and ngtcp2+nghttp3 or OpenSSL 3.2+ for HTTP/3",
     "configurations": [
         {
             "name": "library",
@@ -23,6 +26,29 @@
             "subConfigurations": {
                 "slint-d": "native"
             }
+        },
+        {
+            "name": "h3",
+            "targetType": "library",
+            "versions": ["HaveCurlHttp3"]
+        },
+        {
+            "name": "integration",
+            "targetType": "library",
+            "versions": ["IntegrationTest"]
+        },
+        {
+            "name": "debug-http",
+            "targetType": "library",
+            "versions": ["SlateHttpDebug"]
+        },
+        {
+            "name": "durl",
+            "targetType": "executable",
+            "targetName": "durl",
+            "targetPath": "bin",
+            "mainSourceFile": "source/slate/bin/durl.d",
+            "versions": ["SlateHttpDebug"]
         }
     ],
     "buildTypes": {

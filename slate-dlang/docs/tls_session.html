@@ -1,0 +1,1224 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>slate.quic.crypto.tls_session</title>
+    <style type="text/css" media="screen">
+      html, body, div, span, object, iframe, h1, h2, h3, h4, h5, h6, p,
+      blockquote, pre, a, abbr, address, cite, code, del, dfn, em, figure,
+      img, ins, kbd, q, s, samp, small, strong, sub, sup, var, b, u, i, dl,
+      dt, dd, ol, ul, li, fieldset, form, label, legend, table, caption,
+      tbody, tfoot, thead, tr, th, td {
+        background: transparent none repeat scroll 0 0;
+        border: 0 none;
+        font-size: 100%;
+        margin: 0;
+        outline: 0 none;
+        padding: 0;
+        vertical-align: baseline;
+      }
+
+      h1 { font-size: 200%; }
+      h2 { font-size: 160%; }
+      h3 { font-size: 120%; }
+      h4 { font-size: 100%; }
+      h5 { font-size: 80%; }
+      h6 { font-size: 80%; font-weight: normal; }
+
+      ul, ol {
+        margin: 1.4em 0;
+      }
+      ul ul, ol ol, ul ol, ol ul {
+        margin-top: 0;
+        margin-bottom: 0;
+      }
+      ul, ol {
+        margin-left: 2.8em;
+      }
+
+      ol {
+        list-style: decimal;
+      }
+      ol ol {
+        list-style: lower-alpha;
+      }
+      ol ol ol {
+        list-style: lower-roman;
+      }
+      ol ol ol ol {
+        list-style: decimal;
+      }
+
+      blockquote {
+        margin: 0.1em;
+        margin-left: 1em;
+        border-left: 2px solid #cccccc;
+        padding-left: 0.7em;
+      }
+
+      .color_red { color: #dc322f; }
+      .color_blue { color: #268bd2; }
+      .color_green { color: #859901; }
+      .color_yellow { color: #b58901; }
+      .color_black { color: black; }
+      .color_white { color: white; }
+
+      .font_big {
+        font-size: 1.2em;
+      }
+
+      .ddoc_section_h {
+        font-weight: bold;
+        font-size: 13px;
+        line-height: 19.5px;
+        margin-top: 11px;
+        display: block;
+      }
+
+      body.dlang .dlang {
+        display: inline-block;
+      }
+
+      body.dlang .declaration .dlang {
+          display: block;
+      }
+
+      body.dlang .ddoc_header_anchor a.dlang {
+        display: block;
+        color: rgba(0, 136, 204, 1);
+        text-decoration: none;
+      }
+
+      body.dlang .ddoc_header_anchor .code {
+        color: rgba(0, 136, 204, 1);
+      }
+
+      #ddoc_main .module {
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          overflow-x: hidden;
+          padding: 15px;
+      }
+
+      #ddoc_main .section .section {
+        margin-top: 0;
+      }
+
+      #ddoc_main .ddoc_module_members_section {
+          padding: 1px 0 0;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members section.intro {
+          background: #fff none repeat scroll 0 0;
+          list-style-type: none;
+          width: 100%;
+      }
+
+      #ddoc_main .ddoc_header_anchor {
+          font-size: 1.4em;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_header_anchor > .code {
+          display: inline-block;
+
+      }
+
+      #ddoc_main .ddoc_decl {
+        background-color: transparent;
+        height: 100%;
+        left: 0;
+        top: 0;
+        padding: 0;
+        padding-left: 15px;
+      }
+
+      #ddoc_main .ddoc_decl .section, #ddoc_main .section.ddoc_sections {
+        background: white none repeat scroll 0 0;
+        margin: 0;
+        padding: 5px;
+        position: relative;
+        border-radius: 5px;
+      }
+
+      #ddoc_main .ddoc_decl .section h4:first-of-type, #ddoc_main .section.ddoc_sections h4:first-of-type {
+        font-size: 13px;
+        line-height: 1.5;
+        margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration {
+          margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration .code {
+          color: rgba(0, 0, 0, 1);
+          margin-bottom: 15px;
+          padding-bottom: 6px;
+      }
+
+      #ddoc_main .declaration div .para {
+          margin-bottom: 0;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr td:first-of-type {
+        padding: 7px;
+        text-align: right;
+        vertical-align: top;
+        word-break: normal;
+        white-space: nowrap;
+      }
+
+      #ddoc_main .ddoc_params .graybox {
+        border: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox td {
+        border-color: rgba(214, 214, 214, 1);
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:first-child > td {
+        border-top: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:last-child > td {
+        border-bottom: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:first-child {
+        border-left: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:last-child {
+        border-right: 0 none;
+        width: 100%;
+      }
+
+      #ddoc_main em.term, #ddoc_main em.term .code {
+        color: rgba(65, 65, 65, 1);
+        font-size: 12px;
+        font-style: italic;
+        line-height: 1.5;
+      }
+
+      #ddoc_main .see-also {
+        cursor: pointer;
+        font-family: Menlo,monospace;
+      }
+
+      #ddoc_main .ddoc_decl .section > div:last-of-type {
+        margin-bottom: 15px;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members {
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .code_sample {
+        background: inherit;
+      }
+
+      #ddoc_main .declaration .code-line {
+          display: block;
+          font: 1em Menlo,monospace;
+      }
+
+      #ddoc_main a[name] {
+        margin: -112px 0 0;
+        padding-top: 112px;
+      }
+
+      #ddoc_main .ddoc_decl td {
+        max-width: inherit;
+      }
+
+      #ddoc_main .declaration a {
+        color: inherit;
+      }
+
+      #ddoc_main .declaration a:hover {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: underline;
+      }
+
+      body.ddoc {
+        background-color: transparent;
+        color: rgba(0, 0, 0, 1);
+        font-family: Helvetica,Arial,sans-serif;
+        font-size: 62.5%;
+        margin: 0;
+        border: 0;
+        left: 0;
+        top: 0;
+        padding: 0;
+      }
+
+      .ddoc a[name] {
+        display: block;
+        height: 0;
+        margin: -85px 0 0;
+        padding-top: 85px;
+        width: 0;
+      }
+
+      .ddoc .module {
+          border-color: transparent;
+          background-color: rgba(255, 255, 255, 1);
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-image: none;
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          box-shadow: 0 0 1px rgba(0, 0, 0, 0.07);
+          display: block;
+          margin-left: 0;
+          min-height: calc(100% - 173px);
+          overflow: auto;
+          padding-bottom: 100px;
+      }
+
+      .ddoc .content_wrapper {
+          background-color: rgba(242, 242, 242, 1);
+          margin: 0 auto;
+          max-width: 980px;
+      }
+
+      .ddoc .section {
+        padding: 15px 25px 30px;
+      }
+
+      .ddoc .section .section {
+        margin: 30px 0 0;
+        padding: 0;
+      }
+
+      .ddoc .para {
+        color: rgba(65, 65, 65, 1);
+        font-size: 1.4em;
+        line-height: 145%;
+        margin-bottom: 15px;
+      }
+
+      .ddoc .ddoc_examples .para {
+        margin-bottom: 0;
+      }
+
+      .ddoc .module_name {
+          color: rgba(0, 0, 0, 1);
+          display: block;
+          font-family: Helvetica;
+          font-size: 2.8em;
+          font-weight: 100;
+          margin-bottom: 0;
+          padding: 15px 0;
+      }
+
+      .ddoc .module a {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: none;
+      }
+
+      .ddoc .code {
+        color: rgba(128, 128, 128, 1);
+        font-family: Menlo,monospace;
+        font-size: 0.85em;
+        word-wrap: break-word;
+      }
+
+      .ddoc .code i {
+        font-style: normal;
+      }
+
+      .ddoc .code .code {
+        font-size: 1em;
+      }
+
+      .ddoc .code_sample {
+        background-clip: padding-box;
+        margin: 1px 0;
+        text-align: left;
+      }
+
+      .ddoc .code_sample {
+        display: block;
+        font-size: 1.4em;
+        margin-left: 21px;
+      }
+
+      .ddoc ol .code_sample {
+        font-size: 1em;
+      }
+
+      .ddoc .code_lines {
+        counter-reset: li;
+        line-height: 1.6em;
+        list-style: outside none none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .ddoc .code_listing .code_sample div {
+        margin-left: 13px;
+        width: 93%;
+      }
+
+      .ddoc .code_listing .code_sample div .code_lines li {
+        list-style-type: none;
+        margin: 0;
+        padding-right: 10px;
+      }
+
+      .ddoc .code_sample div .code_lines li::before {
+        margin-left: -33px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+10)::before {
+        margin-left: -39px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+100)::before {
+        margin-left: -46px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample .code_lines .code {
+        color: #000;
+      }
+
+      .ddoc div.dlang {
+        margin: 10px 0 21px;
+        padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+          margin: 10px 0 21px;
+          padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+        border-left: 5px solid rgba(0, 155, 51, 0.2);
+      }
+
+      .ddoc .code_lines li::before {
+        color: rgba(128, 128, 128, 1);
+        content: counter(li, decimal);
+        counter-increment: li;
+        font-family: Menlo,monospace;
+        font-size: 0.9em;
+        margin-right: 16px;
+      }
+
+      .ddoc .code_lines li {
+        padding-left: 0;
+        white-space: pre-wrap;
+      }
+
+      .ddoc .code_lines pre {
+        display: contents;
+      }
+
+      .ddoc .code_lines li:only-of-type::before {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:only-of-type {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:nth-child(n+10) {
+        text-indent: -17px;
+      }
+
+      .ddoc .code_lines li:nth-child(n+10)::before {
+        margin-right: 12px;
+      }
+
+      .ddoc .graybox {
+        border: 1px solid rgba(233, 233, 233, 1);
+        border-collapse: collapse;
+        border-spacing: 0;
+        empty-cells: hide;
+        margin: 20px 0 36px;
+        text-align: left;
+      }
+
+      .ddoc .graybox p {
+        margin: 0;
+        min-width: 50px;
+      }
+
+      .ddoc th {
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: bottom;
+      }
+
+      .ddoc td {
+        border: 1px solid rgba(233, 233, 233, 1);
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: middle;
+      }
+
+      .punctuation {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .comment {
+        color: rgba(0, 131, 18, 1);
+      }
+
+      .operator {
+        color: #000;
+      }
+
+      .keyword {
+        color: rgba(170, 13, 145, 1);
+      }
+
+      .keyword_type {
+        color: rgba(170, 51, 145, 1);
+      }
+
+      .string_literal {
+        color: rgba(196, 26, 22, 1);
+      }
+
+      .ddoc_psuper_symbol {
+        color: rgba(92, 38, 153, 1);
+      }
+
+      .param {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .psymbol {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .ddoc_member_header .ddoc_header_anchor .code {
+        font-size: 1em;
+      }
+    </style>
+  </head>
+  <body id="ddoc_main" class="ddoc dlang">
+    <div class="content_wrapper">
+      <article class="module">
+        <h1 class="module_name">slate.quic.crypto.tls_session</h1>
+        <section id="module_content">
+<section class="section ddoc_module_members_section">
+  <div class="ddoc_module_members">
+    <ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsContext" id="TlsContext"><code class="code">TlsContext</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsContext"></span>struct <code class="code">TlsContext</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    RAII wrapper for OpenSSL SSL_CTX.
+  </p>
+</div>
+
+</section>
+<ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsContext.createServer" id="TlsContext.createServer"><code class="code">createServer</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsContext.createServer"></span>static @trusted TlsContext <code class="code">createServer</code>(const(char)[] <code class="code">certPemPath</code>, const(char)[] <code class="code">keyPemPath</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Creates a server TLS context with certificate and private key files.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsContext.createClient" id="TlsContext.createClient"><code class="code">createClient</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsContext.createClient"></span>static @trusted TlsContext <code class="code">createClient</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Creates a client TLS context.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li>
+</ul>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsSessionState" id="TlsSessionState"><code class="code">TlsSessionState</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsSessionState"></span>struct <code class="code">TlsSessionState</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Stable heap state for TlsSession callbacks.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Ensures pointers registered with OpenSSL SSL_set_quic_tls_cbs remain valid
+ across struct moves (fixing Critical-1).
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsSession" id="TlsSession"><code class="code">TlsSession</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsSession"></span>struct <code class="code">TlsSession</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Sans-I/O TLS 1.3 QUIC Handshake Engine (RFC 9001 Section 4).
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Implements full TLS 1.3 QUIC handshake over OpenSSL 3.5's SSL_set_quic_tls_cbs.
+  </p>
+</div>
+<div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="comment">// Initialize server and client contexts
+</span>TlsContext serverCtx = TlsContext.createServer(<span class="string_literal">"test/fixtures/quic_cert.pem"</span>, <span class="string_literal">"test/fixtures/quic_key.pem"</span>);
+TlsContext clientCtx = TlsContext.createClient();
+
+<span class="keyword">assert</span>(serverCtx.isValid, <span class="string_literal">"Server context init failed"</span>);
+<span class="keyword">assert</span>(clientCtx.isValid, <span class="string_literal">"Client context init failed"</span>);
+
+<span class="keyword">const</span> <span class="keyword">ubyte</span>[4] serverParams = [1, 2, 3, 4];
+<span class="keyword">const</span> <span class="keyword">ubyte</span>[4] clientParams = [5, 6, 7, 8];
+
+<span class="psymbol">TlsSession</span> serverSession;
+serverSession.init(serverCtx, Side.server, serverParams);
+
+<span class="psymbol">TlsSession</span> clientSession;
+clientSession.init(clientCtx, Side.client, clientParams);
+
+<span class="comment">// Flight 1: Client initiates handshake -&gt; produces ClientHello
+</span><span class="keyword">const</span> cErr1 = clientSession.stepHandshake();
+<span class="keyword">assert</span>(cErr1 == QuicCryptoError.none, <span class="string_literal">"Client initial step failed"</span>);
+<span class="keyword">assert</span>(!clientSession.isHandshakeComplete);
+
+<span class="keyword">ubyte</span>[2048] flightBuf;
+<span class="keyword">const</span> clientHello = clientSession.writeHandshake(EncryptionLevel.initial, flightBuf);
+<span class="keyword">assert</span>(clientHello.length &gt; 0, <span class="string_literal">"ClientHello must be generated"</span>);
+
+<span class="comment">// Flight 2: Server receives ClientHello -&gt; produces ServerHello and Handshake messages
+</span><span class="keyword">const</span> sErr1 = serverSession.readHandshake(EncryptionLevel.initial, clientHello);
+<span class="keyword">assert</span>(sErr1 == QuicCryptoError.none, <span class="string_literal">"Server provide initial failed"</span>);
+
+<span class="keyword">assert</span>(serverSession.peerTransportParams == clientParams, <span class="string_literal">"Server must receive client transport params"</span>);
+
+<span class="keyword">ubyte</span>[2048] sInitBuf;
+<span class="keyword">const</span> serverInitial = serverSession.writeHandshake(EncryptionLevel.initial, sInitBuf);
+<span class="keyword">ubyte</span>[4096] sHsBuf;
+<span class="keyword">const</span> serverHandshake = serverSession.writeHandshake(EncryptionLevel.handshake, sHsBuf);
+<span class="keyword">assert</span>(serverInitial.length &gt; 0, <span class="string_literal">"ServerHello must be generated"</span>);
+<span class="keyword">assert</span>(serverHandshake.length &gt; 0, <span class="string_literal">"Server handshake messages must be generated"</span>);
+
+<span class="comment">// Flight 3a: Client processes Server Initial
+</span><span class="keyword">const</span> cErr2a = clientSession.readHandshake(EncryptionLevel.initial, serverInitial);
+<span class="keyword">assert</span>(cErr2a == QuicCryptoError.none, <span class="string_literal">"Client provide initial failed"</span>);
+
+<span class="comment">// Flight 3b: Client processes Server Handshake
+</span><span class="keyword">const</span> cErr2b = clientSession.readHandshake(EncryptionLevel.handshake, serverHandshake);
+<span class="keyword">assert</span>(cErr2b == QuicCryptoError.none, <span class="string_literal">"Client provide handshake failed"</span>);
+
+<span class="keyword">assert</span>(clientSession.peerTransportParams == serverParams, <span class="string_literal">"Client must receive server transport params"</span>);
+<span class="keyword">assert</span>(clientSession.isHandshakeComplete, <span class="string_literal">"Client handshake must be complete"</span>);
+
+<span class="keyword">ubyte</span>[2048] cHsBuf;
+<span class="keyword">const</span> clientHandshake = clientSession.writeHandshake(EncryptionLevel.handshake, cHsBuf);
+<span class="keyword">assert</span>(clientHandshake.length &gt; 0, <span class="string_literal">"Client Finished must be generated"</span>);
+
+<span class="comment">// Flight 4: Server processes Client Handshake (Finished)
+</span><span class="keyword">const</span> sErr2 = serverSession.readHandshake(EncryptionLevel.handshake, clientHandshake);
+<span class="keyword">assert</span>(sErr2 == QuicCryptoError.none, <span class="string_literal">"Server provide handshake failed"</span>);
+
+<span class="keyword">assert</span>(serverSession.isHandshakeComplete, <span class="string_literal">"Server handshake must be complete"</span>);
+
+<span class="comment">// Verify canonical D3 pollNextKeys for Handshake and 1-RTT keys
+</span><span class="psymbol">TlsSession</span>.LevelKeys clientKeys1;
+<span class="psymbol">TlsSession</span>.LevelKeys serverKeys1;
+<span class="keyword">assert</span>(clientSession.pollNextKeys(clientKeys1), <span class="string_literal">"Client handshake keys available"</span>);
+<span class="keyword">assert</span>(serverSession.pollNextKeys(serverKeys1), <span class="string_literal">"Server handshake keys available"</span>);
+<span class="keyword">assert</span>(clientKeys1.level == EncryptionLevel.handshake);
+<span class="keyword">assert</span>(serverKeys1.level == EncryptionLevel.handshake);
+
+<span class="psymbol">TlsSession</span>.LevelKeys clientKeys2;
+<span class="psymbol">TlsSession</span>.LevelKeys serverKeys2;
+<span class="keyword">assert</span>(clientSession.pollNextKeys(clientKeys2), <span class="string_literal">"Client 1-RTT keys available"</span>);
+<span class="keyword">assert</span>(serverSession.pollNextKeys(serverKeys2), <span class="string_literal">"Server 1-RTT keys available"</span>);
+<span class="keyword">assert</span>(clientKeys2.level == EncryptionLevel.oneRtt);
+<span class="keyword">assert</span>(serverKeys2.level == EncryptionLevel.oneRtt);
+
+<span class="comment">// Encrypt 1-RTT packet on server (server write) and decrypt on client (client read)
+</span><span class="keyword">ubyte</span>[26] packetBuffer = [
+    0x40, 0x01,                                     <span class="comment">// 1-RTT Short Header (pnLen = 1)
+</span>    0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80, <span class="comment">// 8 bytes plaintext
+</span>    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0   <span class="comment">// Tag space
+</span>];
+
+size_t protLen = 0;
+<span class="keyword">const</span> protErr = protectPacket(serverKeys2.writeKeys, 1, 1, 1, packetBuffer, 8, protLen);
+<span class="keyword">assert</span>(protErr == QuicCryptoError.none, <span class="string_literal">"1-RTT protectPacket failed"</span>);
+<span class="keyword">assert</span>(protLen == 2 + 8 + 16, <span class="string_literal">"1-RTT packet length mismatch"</span>);
+
+<span class="comment">// Decrypt on client with clientReadKeys
+</span>size_t decPnLen; <span class="keyword">ulong</span> decPn; size_t decPayOff; size_t decPlainLen;
+<span class="keyword">const</span> decErr = unprotectPacket(clientKeys2.readKeys, 1, 0, packetBuffer[0 .. protLen], decPnLen, decPn, decPayOff, decPlainLen);
+<span class="keyword">assert</span>(decErr == QuicCryptoError.none, <span class="string_literal">"1-RTT unprotectPacket failed"</span>);
+<span class="keyword">assert</span>(decPn == 1, <span class="string_literal">"Decrypted packet number mismatch"</span>);
+<span class="keyword">assert</span>(decPlainLen == 8, <span class="string_literal">"Decrypted payload length mismatch"</span>);
+<span class="keyword">assert</span>(packetBuffer[decPayOff .. decPayOff + 8] == [0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80], <span class="string_literal">"Plaintext mismatch"</span>);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div><div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code">TlsContext serverCtx = TlsContext.createServer(<span class="string_literal">"test/fixtures/quic_cert.pem"</span>, <span class="string_literal">"test/fixtures/quic_key.pem"</span>);
+TlsContext clientCtx = TlsContext.createClient();
+
+<span class="keyword">const</span> <span class="keyword">ubyte</span>[4] dummyParams = [1, 2, 3, 4];
+
+<span class="psymbol">TlsSession</span> serverSession;
+serverSession.init(serverCtx, Side.server, dummyParams);
+
+<span class="comment">// Client offers only "hq-29"
+</span><span class="psymbol">TlsSession</span> clientSession;
+clientSession.init(clientCtx, Side.client, dummyParams, <span class="string_literal">"hq-29"</span>);
+
+<span class="comment">// Client step 1 generates ClientHello
+</span>clientSession.stepHandshake();
+<span class="keyword">const</span> clientHello = clientSession.getOutput(EncryptionLevel.initial);
+<span class="keyword">assert</span>(clientHello.length &gt; 0);
+
+<span class="comment">// Server receives ClientHello with mismatched ALPN
+</span><span class="keyword">const</span> sErr = serverSession.provideCryptoData(EncryptionLevel.initial, clientHello);
+<span class="keyword">assert</span>(sErr == QuicCryptoError.alpnMismatch, <span class="string_literal">"Server must report alpnMismatch error"</span>);
+<span class="keyword">assert</span>(serverSession.hasAlert, <span class="string_literal">"Server must have recorded TLS alert"</span>);
+<span class="keyword">assert</span>(serverSession.alertCode == 120, <span class="string_literal">"Alert must be 120 (no_application_protocol)"</span>);
+<span class="keyword">assert</span>(serverSession.quicErrorCode == 0x0178, <span class="string_literal">"QUIC error code must be 0x0178 (0x0100 | 120)"</span>);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div>
+</section>
+<ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsSession.LevelKeys" id="TlsSession.LevelKeys"><code class="code">LevelKeys</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsSession.LevelKeys"></span>struct <code class="code">LevelKeys</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Set of yielded packet protection keys for a single encryption level.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsSession.this" id="TlsSession.this"><code class="code">this</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsSession.this"></span>nothrow @nogc @trusted this(ref TlsContext <code class="code">ctx</code>, Side <code class="code">side</code>, const(ubyte)[] <code class="code">transportParams</code>, const(char)[] <code class="code">clientAlpn</code> = "h3");
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Initializes TlsSession with TlsContext, endpoint <code class="code">side</code>, and transport parameters.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsSession.provideCryptoData" id="TlsSession.provideCryptoData"><code class="code">provideCryptoData</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsSession.provideCryptoData"></span>nothrow @nogc @trusted QuicCryptoError <code class="code">provideCryptoData</code>(EncryptionLevel <code class="code">level</code>, const(ubyte)[] <code class="code">data</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Feeds incoming CRYPTO <code class="code">data</code> from a QUIC packet into TLS.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Validates that the <code class="code">data</code>'s EncryptionLevel matches the expected read <code class="code">level</code> (RFC 9001 Section 4.1.3).
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsSession.readHandshake" id="TlsSession.readHandshake"><code class="code">readHandshake</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsSession.readHandshake"></span>nothrow @nogc @trusted QuicCryptoError <code class="code">readHandshake</code>(EncryptionLevel <code class="code">level</code>, const(ubyte)[] <code class="code">data</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Canonical D3 API: Feeds incoming CRYPTO <code class="code">data</code> for the given <code class="code">level</code>.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsSession.stepHandshake" id="TlsSession.stepHandshake"><code class="code">stepHandshake</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsSession.stepHandshake"></span>nothrow @nogc @trusted QuicCryptoError <code class="code">stepHandshake</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Executes one step of the TLS 1.3 handshake.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsSession.quicErrorCode" id="TlsSession.quicErrorCode"><code class="code">quicErrorCode</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsSession.quicErrorCode"></span>pure nothrow @nogc @property @trusted uint <code class="code">quicErrorCode</code>() const;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Maps TLS alert code to QUIC transport error code (RFC 9001 Section 4.8).
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    0x0100 | alert_code.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsSession.getOutput" id="TlsSession.getOutput"><code class="code">getOutput</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsSession.getOutput"></span>pure nothrow @nogc @trusted const(ubyte)[] <code class="code">getOutput</code>(EncryptionLevel <code class="code">level</code>) const return;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Returns pending outgoing CRYPTO bytes for the given <code class="code">level</code>.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsSession.consumeOutput" id="TlsSession.consumeOutput"><code class="code">consumeOutput</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsSession.consumeOutput"></span>pure nothrow @nogc @trusted void <code class="code">consumeOutput</code>(EncryptionLevel <code class="code">level</code>, size_t <code class="code">count</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Consumes pending outgoing CRYPTO bytes.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsSession.writeHandshake" id="TlsSession.writeHandshake"><code class="code">writeHandshake</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsSession.writeHandshake"></span>nothrow @nogc @trusted const(ubyte)[] <code class="code">writeHandshake</code>(EncryptionLevel <code class="code">level</code>, ubyte[] <code class="code">outBuf</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Canonical D3 API: Pulls outgoing pending CRYPTO bytes into <code class="code">outBuf</code>, consumes them,
+ and returns the written slice.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsSession.pollNextKeys" id="TlsSession.pollNextKeys"><code class="code">pollNextKeys</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsSession.pollNextKeys"></span>nothrow @nogc @trusted bool <code class="code">pollNextKeys</code>(out LevelKeys <code class="code">outKeys</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Canonical D3 API: Polls next available LevelKeys (Handshake or 1-RTT).
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TlsSession.pollKeys" id="TlsSession.pollKeys"><code class="code">pollKeys</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TlsSession.pollKeys"></span>nothrow @nogc @trusted bool <code class="code">pollKeys</code>(EncryptionLevel <code class="code">level</code>, ref DirectionalKeys <code class="code">readKeys</code>, ref DirectionalKeys <code class="code">writeKeys</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Polls newly yielded packet protection keys for the given encryption <code class="code">level</code>.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li>
+</ul>
+
+</div>
+
+</li>
+</ul>
+  </div>
+</section>
+</section>
+      </article>
+    </div>
+  </body>
+</html>

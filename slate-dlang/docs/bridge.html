@@ -1,0 +1,1130 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>slate.agent.bridge</title>
+    <style type="text/css" media="screen">
+      html, body, div, span, object, iframe, h1, h2, h3, h4, h5, h6, p,
+      blockquote, pre, a, abbr, address, cite, code, del, dfn, em, figure,
+      img, ins, kbd, q, s, samp, small, strong, sub, sup, var, b, u, i, dl,
+      dt, dd, ol, ul, li, fieldset, form, label, legend, table, caption,
+      tbody, tfoot, thead, tr, th, td {
+        background: transparent none repeat scroll 0 0;
+        border: 0 none;
+        font-size: 100%;
+        margin: 0;
+        outline: 0 none;
+        padding: 0;
+        vertical-align: baseline;
+      }
+
+      h1 { font-size: 200%; }
+      h2 { font-size: 160%; }
+      h3 { font-size: 120%; }
+      h4 { font-size: 100%; }
+      h5 { font-size: 80%; }
+      h6 { font-size: 80%; font-weight: normal; }
+
+      ul, ol {
+        margin: 1.4em 0;
+      }
+      ul ul, ol ol, ul ol, ol ul {
+        margin-top: 0;
+        margin-bottom: 0;
+      }
+      ul, ol {
+        margin-left: 2.8em;
+      }
+
+      ol {
+        list-style: decimal;
+      }
+      ol ol {
+        list-style: lower-alpha;
+      }
+      ol ol ol {
+        list-style: lower-roman;
+      }
+      ol ol ol ol {
+        list-style: decimal;
+      }
+
+      blockquote {
+        margin: 0.1em;
+        margin-left: 1em;
+        border-left: 2px solid #cccccc;
+        padding-left: 0.7em;
+      }
+
+      .color_red { color: #dc322f; }
+      .color_blue { color: #268bd2; }
+      .color_green { color: #859901; }
+      .color_yellow { color: #b58901; }
+      .color_black { color: black; }
+      .color_white { color: white; }
+
+      .font_big {
+        font-size: 1.2em;
+      }
+
+      .ddoc_section_h {
+        font-weight: bold;
+        font-size: 13px;
+        line-height: 19.5px;
+        margin-top: 11px;
+        display: block;
+      }
+
+      body.dlang .dlang {
+        display: inline-block;
+      }
+
+      body.dlang .declaration .dlang {
+          display: block;
+      }
+
+      body.dlang .ddoc_header_anchor a.dlang {
+        display: block;
+        color: rgba(0, 136, 204, 1);
+        text-decoration: none;
+      }
+
+      body.dlang .ddoc_header_anchor .code {
+        color: rgba(0, 136, 204, 1);
+      }
+
+      #ddoc_main .module {
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          overflow-x: hidden;
+          padding: 15px;
+      }
+
+      #ddoc_main .section .section {
+        margin-top: 0;
+      }
+
+      #ddoc_main .ddoc_module_members_section {
+          padding: 1px 0 0;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members section.intro {
+          background: #fff none repeat scroll 0 0;
+          list-style-type: none;
+          width: 100%;
+      }
+
+      #ddoc_main .ddoc_header_anchor {
+          font-size: 1.4em;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_header_anchor > .code {
+          display: inline-block;
+
+      }
+
+      #ddoc_main .ddoc_decl {
+        background-color: transparent;
+        height: 100%;
+        left: 0;
+        top: 0;
+        padding: 0;
+        padding-left: 15px;
+      }
+
+      #ddoc_main .ddoc_decl .section, #ddoc_main .section.ddoc_sections {
+        background: white none repeat scroll 0 0;
+        margin: 0;
+        padding: 5px;
+        position: relative;
+        border-radius: 5px;
+      }
+
+      #ddoc_main .ddoc_decl .section h4:first-of-type, #ddoc_main .section.ddoc_sections h4:first-of-type {
+        font-size: 13px;
+        line-height: 1.5;
+        margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration {
+          margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration .code {
+          color: rgba(0, 0, 0, 1);
+          margin-bottom: 15px;
+          padding-bottom: 6px;
+      }
+
+      #ddoc_main .declaration div .para {
+          margin-bottom: 0;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr td:first-of-type {
+        padding: 7px;
+        text-align: right;
+        vertical-align: top;
+        word-break: normal;
+        white-space: nowrap;
+      }
+
+      #ddoc_main .ddoc_params .graybox {
+        border: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox td {
+        border-color: rgba(214, 214, 214, 1);
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:first-child > td {
+        border-top: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:last-child > td {
+        border-bottom: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:first-child {
+        border-left: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:last-child {
+        border-right: 0 none;
+        width: 100%;
+      }
+
+      #ddoc_main em.term, #ddoc_main em.term .code {
+        color: rgba(65, 65, 65, 1);
+        font-size: 12px;
+        font-style: italic;
+        line-height: 1.5;
+      }
+
+      #ddoc_main .see-also {
+        cursor: pointer;
+        font-family: Menlo,monospace;
+      }
+
+      #ddoc_main .ddoc_decl .section > div:last-of-type {
+        margin-bottom: 15px;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members {
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .code_sample {
+        background: inherit;
+      }
+
+      #ddoc_main .declaration .code-line {
+          display: block;
+          font: 1em Menlo,monospace;
+      }
+
+      #ddoc_main a[name] {
+        margin: -112px 0 0;
+        padding-top: 112px;
+      }
+
+      #ddoc_main .ddoc_decl td {
+        max-width: inherit;
+      }
+
+      #ddoc_main .declaration a {
+        color: inherit;
+      }
+
+      #ddoc_main .declaration a:hover {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: underline;
+      }
+
+      body.ddoc {
+        background-color: transparent;
+        color: rgba(0, 0, 0, 1);
+        font-family: Helvetica,Arial,sans-serif;
+        font-size: 62.5%;
+        margin: 0;
+        border: 0;
+        left: 0;
+        top: 0;
+        padding: 0;
+      }
+
+      .ddoc a[name] {
+        display: block;
+        height: 0;
+        margin: -85px 0 0;
+        padding-top: 85px;
+        width: 0;
+      }
+
+      .ddoc .module {
+          border-color: transparent;
+          background-color: rgba(255, 255, 255, 1);
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-image: none;
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          box-shadow: 0 0 1px rgba(0, 0, 0, 0.07);
+          display: block;
+          margin-left: 0;
+          min-height: calc(100% - 173px);
+          overflow: auto;
+          padding-bottom: 100px;
+      }
+
+      .ddoc .content_wrapper {
+          background-color: rgba(242, 242, 242, 1);
+          margin: 0 auto;
+          max-width: 980px;
+      }
+
+      .ddoc .section {
+        padding: 15px 25px 30px;
+      }
+
+      .ddoc .section .section {
+        margin: 30px 0 0;
+        padding: 0;
+      }
+
+      .ddoc .para {
+        color: rgba(65, 65, 65, 1);
+        font-size: 1.4em;
+        line-height: 145%;
+        margin-bottom: 15px;
+      }
+
+      .ddoc .ddoc_examples .para {
+        margin-bottom: 0;
+      }
+
+      .ddoc .module_name {
+          color: rgba(0, 0, 0, 1);
+          display: block;
+          font-family: Helvetica;
+          font-size: 2.8em;
+          font-weight: 100;
+          margin-bottom: 0;
+          padding: 15px 0;
+      }
+
+      .ddoc .module a {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: none;
+      }
+
+      .ddoc .code {
+        color: rgba(128, 128, 128, 1);
+        font-family: Menlo,monospace;
+        font-size: 0.85em;
+        word-wrap: break-word;
+      }
+
+      .ddoc .code i {
+        font-style: normal;
+      }
+
+      .ddoc .code .code {
+        font-size: 1em;
+      }
+
+      .ddoc .code_sample {
+        background-clip: padding-box;
+        margin: 1px 0;
+        text-align: left;
+      }
+
+      .ddoc .code_sample {
+        display: block;
+        font-size: 1.4em;
+        margin-left: 21px;
+      }
+
+      .ddoc ol .code_sample {
+        font-size: 1em;
+      }
+
+      .ddoc .code_lines {
+        counter-reset: li;
+        line-height: 1.6em;
+        list-style: outside none none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .ddoc .code_listing .code_sample div {
+        margin-left: 13px;
+        width: 93%;
+      }
+
+      .ddoc .code_listing .code_sample div .code_lines li {
+        list-style-type: none;
+        margin: 0;
+        padding-right: 10px;
+      }
+
+      .ddoc .code_sample div .code_lines li::before {
+        margin-left: -33px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+10)::before {
+        margin-left: -39px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+100)::before {
+        margin-left: -46px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample .code_lines .code {
+        color: #000;
+      }
+
+      .ddoc div.dlang {
+        margin: 10px 0 21px;
+        padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+          margin: 10px 0 21px;
+          padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+        border-left: 5px solid rgba(0, 155, 51, 0.2);
+      }
+
+      .ddoc .code_lines li::before {
+        color: rgba(128, 128, 128, 1);
+        content: counter(li, decimal);
+        counter-increment: li;
+        font-family: Menlo,monospace;
+        font-size: 0.9em;
+        margin-right: 16px;
+      }
+
+      .ddoc .code_lines li {
+        padding-left: 0;
+        white-space: pre-wrap;
+      }
+
+      .ddoc .code_lines pre {
+        display: contents;
+      }
+
+      .ddoc .code_lines li:only-of-type::before {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:only-of-type {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:nth-child(n+10) {
+        text-indent: -17px;
+      }
+
+      .ddoc .code_lines li:nth-child(n+10)::before {
+        margin-right: 12px;
+      }
+
+      .ddoc .graybox {
+        border: 1px solid rgba(233, 233, 233, 1);
+        border-collapse: collapse;
+        border-spacing: 0;
+        empty-cells: hide;
+        margin: 20px 0 36px;
+        text-align: left;
+      }
+
+      .ddoc .graybox p {
+        margin: 0;
+        min-width: 50px;
+      }
+
+      .ddoc th {
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: bottom;
+      }
+
+      .ddoc td {
+        border: 1px solid rgba(233, 233, 233, 1);
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: middle;
+      }
+
+      .punctuation {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .comment {
+        color: rgba(0, 131, 18, 1);
+      }
+
+      .operator {
+        color: #000;
+      }
+
+      .keyword {
+        color: rgba(170, 13, 145, 1);
+      }
+
+      .keyword_type {
+        color: rgba(170, 51, 145, 1);
+      }
+
+      .string_literal {
+        color: rgba(196, 26, 22, 1);
+      }
+
+      .ddoc_psuper_symbol {
+        color: rgba(92, 38, 153, 1);
+      }
+
+      .param {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .psymbol {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .ddoc_member_header .ddoc_header_anchor .code {
+        font-size: 1em;
+      }
+    </style>
+  </head>
+  <body id="ddoc_main" class="ddoc dlang">
+    <div class="content_wrapper">
+      <article class="module">
+        <h1 class="module_name">slate.agent.bridge</h1>
+        <section id="module_content"><section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    UI-thread dispatch <code class="code">bridge</code> for agent automation.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Port of <code class="code">slate_agent::<code class="code">bridge</code></code> (<code class="code">SlintUiBridge</code>, <code class="code">ComponentBridge</code>,
+<code class="code">DEFAULT_UI_TIMEOUT</code>): run work on the Slint UI thread, wait with a
+timeout, and map thread failures to <code class="code">AgentError</code>. Adaptation:
+<ul><li>Rust serializes commands with an async mutex + oneshot channels over
+  tokio. D uses <code class="code">core.sync</code> (<code class="code">Mutex</code> + <code class="code">Condition</code>) with blocking wait —
+  the canonical mapping, since agent calls are synchronous here.</li>
+<li>Native builds post through <code class="code">slint.invokeFromEventLoop</code>; pure builds
+  execute inline (same test strategy as <code class="code">slate.tasks</code>).</li>
+<li>Rust's generic <code class="code">ComponentBridge&lt;T: ComponentHandle&gt;</code> (weak upgrade)
+  becomes a nullable <code class="code">slint-d</code> instance: <code class="code">null</code> means destroyed, and
+  <code class="code">invalidate()</code> models the weak-expiry path explicitly.</li>
+</ul>
+  </p>
+</div>
+
+</section>
+<section class="section ddoc_module_members_section">
+  <div class="ddoc_module_members">
+    <ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#defaultUiTimeout" id="defaultUiTimeout"><code class="code">defaultUiTimeout</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="defaultUiTimeout"></span>enum Duration <code class="code">defaultUiTimeout</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Default UI round-trip budget (mirrors <code class="code">DEFAULT_UI_TIMEOUT</code> = 5 s).
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SlintUiBridge" id="SlintUiBridge"><code class="code">SlintUiBridge</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SlintUiBridge"></span>class <code class="code">SlintUiBridge</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Runs closures on the Slint UI thread with timeout and panic capture.
+  </p>
+</div>
+
+</section>
+<ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SlintUiBridge.runOnUi" id="SlintUiBridge.runOnUi"><code class="code">runOnUi</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SlintUiBridge.runOnUi"></span>T <code class="code">runOnUi</code>(T)(T delegate() <code class="code">work</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Run <code class="code"><code class="code">work</code></code> on the UI thread and return its result. Throws
+<code class="code">AgentError.timeout</code> when the budget lapses and <code class="code">AgentError.uiPanic</code>
+when the <code class="code">work</code> itself throws.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SlintUiBridge.runTransactional" id="SlintUiBridge.runTransactional"><code class="code">runTransactional</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SlintUiBridge.runTransactional"></span>T <code class="code">runTransactional</code>(T)(T delegate() <code class="code">action</code>, void delegate() <code class="code">rollback</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Run <code class="code"><code class="code">action</code></code> transactionally on the UI thread. If <code class="code"><code class="code">action</code></code> fails (throws Throwable),
+the <code class="code">scope(failure)</code> guard executes <code class="code"><code class="code">rollback</code></code> on the UI thread to restore the pre-<code class="code">action</code> UI state.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SlintUiBridge.runTransactional" id="SlintUiBridge.runTransactional"><code class="code">runTransactional</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SlintUiBridge.runTransactional.2"></span>T <code class="code">runTransactional</code>(T, S)(S <code class="code">stateSnapshot</code>, T delegate() <code class="code">action</code>, void delegate(S) <code class="code">rollback</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Run <code class="code"><code class="code">action</code></code> transactionally with an explicit state snapshot.
+If <code class="code"><code class="code">action</code></code> fails, <code class="code"><code class="code">rollback</code></code> is invoked with <code class="code"><code class="code">stateSnapshot</code></code> on the UI thread.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li>
+</ul>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#ComponentBridge" id="ComponentBridge"><code class="code">ComponentBridge</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="ComponentBridge"></span>class <code class="code">ComponentBridge</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Window-bound bridge: a nullable <code class="code">slint-d</code> instance plus dispatch.
+<code class="code">invalidate()</code> models Rust's expired <code class="code">Weak</code> upgrade.
+  </p>
+</div>
+<div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="keyword">import</span> core.time : msecs;
+
+<span class="comment">// Pure builds execute inline with identical error mapping.
+</span><span class="keyword">auto</span> bridge = <span class="keyword">new</span> SlintUiBridge(100.msecs);
+<span class="keyword">assert</span>(bridge.timeout == 100.msecs);
+
+<span class="keyword">version</span> (SlintNative)
+{
+    <span class="comment">// Under native config without an active event loop, runOnUi throws eventLoopUnavailable
+</span>    <span class="keyword">try</span>
+    {
+        bridge.runOnUi!<span class="keyword">int</span>(() =&gt; 42);
+        <span class="keyword">assert</span>(<span class="keyword">false</span>);
+    }
+    <span class="keyword">catch</span> (AgentError e)
+    {
+        <span class="keyword">assert</span>(e.kind == AgentError.Kind.eventLoopUnavailable);
+    }
+}
+<span class="keyword">else</span>
+{
+    <span class="keyword">assert</span>(bridge.runOnUi!<span class="keyword">int</span>(() =&gt; 41 + 1) == 42);
+
+    <span class="keyword">try</span>
+    {
+        bridge.runOnUi!<span class="keyword">int</span>(() =&gt; <span class="keyword">throw</span> <span class="keyword">new</span> Exception(<span class="string_literal">"ui-boom"</span>));
+        <span class="keyword">assert</span>(<span class="keyword">false</span>);
+    }
+    <span class="keyword">catch</span> (AgentError e)
+    {
+        <span class="keyword">assert</span>(e.kind == AgentError.Kind.uiPanic);
+    }
+
+    <span class="comment">// AgentError passes through untouched.
+</span>    <span class="keyword">try</span>
+    {
+        bridge.runOnUi!<span class="keyword">int</span>(() =&gt; <span class="keyword">throw</span> AgentError.windowClosed());
+        <span class="keyword">assert</span>(<span class="keyword">false</span>);
+    }
+    <span class="keyword">catch</span> (AgentError e)
+    {
+        <span class="keyword">assert</span>(e.kind == AgentError.Kind.windowClosed);
+    }
+}
+
+<span class="comment">// Null window models the expired weak handle.
+</span><span class="keyword">auto</span> cb = <span class="keyword">new</span> <span class="psymbol">ComponentBridge</span>(bridge, <span class="keyword">null</span>);
+<span class="keyword">try</span>
+{
+    cb.runWithWindow!<span class="keyword">int</span>((w) =&gt; 1);
+    <span class="keyword">assert</span>(<span class="keyword">false</span>);
+}
+<span class="keyword">catch</span> (AgentError e)
+{
+    <span class="keyword">assert</span>(e.kind == AgentError.Kind.windowClosed);
+}
+cb.invalidate(); <span class="comment">// idempotent
+</span>
+<span class="comment">// Transactional execution with scope(failure) rollback on action failure
+</span><span class="keyword">struct</span> MockUiState
+{
+    string currentView = <span class="string_literal">"dashboard"</span>;
+    <span class="keyword">int</span> activeTab = 0;
+    <span class="keyword">bool</span> modalOpen = <span class="keyword">false</span>;
+}
+
+MockUiState liveState;
+liveState.currentView = <span class="string_literal">"dashboard"</span>;
+liveState.activeTab = 0;
+liveState.modalOpen = <span class="keyword">false</span>;
+
+<span class="keyword">version</span> (SlintNative)
+{
+    <span class="comment">// Under native config without an event loop, runTransactional propagates eventLoopUnavailable
+</span>    <span class="keyword">try</span>
+    {
+        bridge.runTransactional!<span class="keyword">void</span>(() {}, () {});
+        <span class="keyword">assert</span>(<span class="keyword">false</span>);
+    }
+    <span class="keyword">catch</span> (AgentError e)
+    {
+        <span class="keyword">assert</span>(e.kind == AgentError.Kind.eventLoopUnavailable);
+    }
+}
+<span class="keyword">else</span>
+{
+    <span class="comment">// Successful transaction commits changes without rollback
+</span>    bridge.runTransactional!<span class="keyword">void</span>(
+        () {
+            liveState.currentView = <span class="string_literal">"settings"</span>;
+            liveState.activeTab = 2;
+        },
+        () {
+            liveState.currentView = <span class="string_literal">"dashboard"</span>;
+            liveState.activeTab = 0;
+        }
+    );
+    <span class="keyword">assert</span>(liveState.currentView == <span class="string_literal">"settings"</span>);
+    <span class="keyword">assert</span>(liveState.activeTab == 2);
+
+    <span class="comment">// Failed transaction restores pre-failure UI state via scope(failure)
+</span>    <span class="keyword">auto</span> preFailureSnapshot = liveState;
+    <span class="keyword">try</span>
+    {
+        bridge.runTransactional!(<span class="keyword">int</span>, MockUiState)(
+            preFailureSnapshot,
+            () {
+                <span class="comment">// Mutate state during action
+</span>                liveState.currentView = <span class="string_literal">"corrupted_view"</span>;
+                liveState.activeTab = 99;
+                liveState.modalOpen = <span class="keyword">true</span>;
+                <span class="comment">// Action throws mid-way
+</span>                <span class="keyword">throw</span> <span class="keyword">new</span> Exception(<span class="string_literal">"UI mutation crashed"</span>);
+                <span class="keyword">return</span> 42;
+            },
+            (MockUiState snapshot) {
+                <span class="comment">// Pre-failure UI state is restored by scope(failure)
+</span>                liveState = snapshot;
+            }
+        );
+        <span class="keyword">assert</span>(<span class="keyword">false</span>, <span class="string_literal">"Should have thrown AgentError"</span>);
+    }
+    <span class="keyword">catch</span> (AgentError e)
+    {
+        <span class="keyword">assert</span>(e.kind == AgentError.Kind.uiPanic);
+    }
+    <span class="keyword">assert</span>(!liveState.modalOpen);
+
+    <span class="comment">// Failed transaction where rollback also throws still surfaces the original action failure
+</span>    <span class="keyword">try</span>
+    {
+        bridge.runTransactional!<span class="keyword">void</span>(
+            () { <span class="keyword">throw</span> <span class="keyword">new</span> Exception(<span class="string_literal">"original action failure"</span>); },
+            () { <span class="keyword">throw</span> <span class="keyword">new</span> Exception(<span class="string_literal">"rollback error"</span>); }
+        );
+        <span class="keyword">assert</span>(<span class="keyword">false</span>, <span class="string_literal">"Should have thrown AgentError"</span>);
+    }
+    <span class="keyword">catch</span> (AgentError e)
+    {
+        <span class="keyword">import</span> std.algorithm.searching : canFind;
+        <span class="keyword">assert</span>(e.kind == AgentError.Kind.uiPanic);
+        <span class="keyword">assert</span>(e.msg.canFind(<span class="string_literal">"original action failure"</span>));
+    }
+}
+
+<span class="comment">// Direct unit testing of UiSlot cross-thread synchronization and RAII scope guards
+</span><span class="keyword">import</span> core.thread : Thread;
+
+<span class="comment">// 1. UiSlot!int complete and wait
+</span><span class="keyword">auto</span> intSlot = <span class="keyword">new</span> UiSlot!<span class="keyword">int</span>();
+intSlot.complete(42);
+<span class="keyword">assert</span>(intSlot.wait(100.msecs) == 42);
+
+<span class="comment">// 2. UiSlot!int fail and wait propagates uiPanic
+</span><span class="keyword">auto</span> failSlot = <span class="keyword">new</span> UiSlot!<span class="keyword">int</span>();
+failSlot.fail(<span class="string_literal">"background worker crashed"</span>);
+<span class="keyword">try</span>
+{
+    failSlot.wait(100.msecs);
+    <span class="keyword">assert</span>(<span class="keyword">false</span>, <span class="string_literal">"Should have thrown uiPanic"</span>);
+}
+<span class="keyword">catch</span> (AgentError e)
+{
+    <span class="keyword">assert</span>(e.kind == AgentError.Kind.uiPanic);
+}
+
+<span class="comment">// 3. UiSlot!int timeout when uncompleted
+</span><span class="keyword">auto</span> timeoutSlot = <span class="keyword">new</span> UiSlot!<span class="keyword">int</span>();
+<span class="keyword">try</span>
+{
+    timeoutSlot.wait(10.msecs);
+    <span class="keyword">assert</span>(<span class="keyword">false</span>, <span class="string_literal">"Should have timed out"</span>);
+}
+<span class="keyword">catch</span> (AgentError e)
+{
+    <span class="keyword">assert</span>(e.kind == AgentError.Kind.timeout);
+}
+
+<span class="comment">// 4. UiSlot!void complete and wait
+</span><span class="keyword">auto</span> voidSlot = <span class="keyword">new</span> UiSlot!<span class="keyword">void</span>();
+voidSlot.complete();
+voidSlot.wait(100.msecs); <span class="comment">// returns cleanly
+</span>
+<span class="comment">// 5. UiSlot!void fail and wait propagates uiPanic
+</span><span class="keyword">auto</span> voidFailSlot = <span class="keyword">new</span> UiSlot!<span class="keyword">void</span>();
+voidFailSlot.fail(<span class="string_literal">"void worker panic"</span>);
+<span class="keyword">try</span>
+{
+    voidFailSlot.wait(100.msecs);
+    <span class="keyword">assert</span>(<span class="keyword">false</span>, <span class="string_literal">"Should have thrown uiPanic"</span>);
+}
+<span class="keyword">catch</span> (AgentError e)
+{
+    <span class="keyword">assert</span>(e.kind == AgentError.Kind.uiPanic);
+}
+
+<span class="comment">// 6. Cross-thread condition variable signaling via scope(exit) _cond.notifyAll()
+</span><span class="keyword">auto</span> threadSlot = <span class="keyword">new</span> UiSlot!<span class="keyword">int</span>();
+<span class="keyword">auto</span> workerThread = <span class="keyword">new</span> Thread({
+    Thread.sleep(15.msecs);
+    threadSlot.complete(999);
+});
+workerThread.start();
+<span class="keyword">assert</span>(threadSlot.wait(500.msecs) == 999);
+workerThread.join();
+
+<span class="keyword">auto</span> threadFailSlot = <span class="keyword">new</span> UiSlot!<span class="keyword">void</span>();
+<span class="keyword">auto</span> failWorkerThread = <span class="keyword">new</span> Thread({
+    Thread.sleep(15.msecs);
+    threadFailSlot.fail(<span class="string_literal">"asynchronous worker error"</span>);
+});
+failWorkerThread.start();
+<span class="keyword">try</span>
+{
+    threadFailSlot.wait(500.msecs);
+    <span class="keyword">assert</span>(<span class="keyword">false</span>, <span class="string_literal">"Should have caught async error"</span>);
+}
+<span class="keyword">catch</span> (AgentError e)
+{
+    <span class="keyword">assert</span>(e.kind == AgentError.Kind.uiPanic);
+}
+failWorkerThread.join();
+
+<span class="comment">// 7. Contract verification: null delegate rejection
+</span><span class="keyword">import</span> core.exception : AssertError;
+<span class="keyword">import</span> std.exception : assertThrown;
+
+assertThrown!AssertError(bridge.runOnUi!<span class="keyword">int</span>(<span class="keyword">null</span>));
+assertThrown!AssertError(bridge.runTransactional!<span class="keyword">void</span>(<span class="keyword">null</span>, () {}));
+assertThrown!AssertError(cb.runWithWindow!<span class="keyword">int</span>(<span class="keyword">null</span>));
+assertThrown!AssertError(cb.runTransactional!<span class="keyword">void</span>(<span class="keyword">null</span>, () {}));
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div>
+</section>
+<ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#ComponentBridge.invalidate" id="ComponentBridge.invalidate"><code class="code">invalidate</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="ComponentBridge.invalidate"></span>void <code class="code">invalidate</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Mark the window destroyed; further use throws <code class="code">windowClosed</code>.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#ComponentBridge.runWithWindow" id="ComponentBridge.runWithWindow"><code class="code">runWithWindow</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="ComponentBridge.runWithWindow"></span>T <code class="code">runWithWindow</code>(T)(T delegate(ComponentInstance window) <code class="code">work</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Run <code class="code"><code class="code">work</code></code> with the live window on the UI thread.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#ComponentBridge.runTransactional" id="ComponentBridge.runTransactional"><code class="code">runTransactional</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="ComponentBridge.runTransactional"></span>T <code class="code">runTransactional</code>(T)(T delegate(ComponentInstance window) <code class="code">action</code>, void delegate() <code class="code">rollback</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Run <code class="code"><code class="code">action</code></code> transactionally with the live window on the UI thread.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#ComponentBridge.runTransactional" id="ComponentBridge.runTransactional"><code class="code">runTransactional</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="ComponentBridge.runTransactional.2"></span>T <code class="code">runTransactional</code>(T, S)(S <code class="code">stateSnapshot</code>, T delegate(ComponentInstance window) <code class="code">action</code>, void delegate(S) <code class="code">rollback</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Run <code class="code"><code class="code">action</code></code> transactionally with an explicit state snapshot and the live window.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li>
+</ul>
+
+</div>
+
+</li>
+</ul>
+  </div>
+</section>
+</section>
+      </article>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,830 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>slate.quic.wire.transport_params</title>
+    <style type="text/css" media="screen">
+      html, body, div, span, object, iframe, h1, h2, h3, h4, h5, h6, p,
+      blockquote, pre, a, abbr, address, cite, code, del, dfn, em, figure,
+      img, ins, kbd, q, s, samp, small, strong, sub, sup, var, b, u, i, dl,
+      dt, dd, ol, ul, li, fieldset, form, label, legend, table, caption,
+      tbody, tfoot, thead, tr, th, td {
+        background: transparent none repeat scroll 0 0;
+        border: 0 none;
+        font-size: 100%;
+        margin: 0;
+        outline: 0 none;
+        padding: 0;
+        vertical-align: baseline;
+      }
+
+      h1 { font-size: 200%; }
+      h2 { font-size: 160%; }
+      h3 { font-size: 120%; }
+      h4 { font-size: 100%; }
+      h5 { font-size: 80%; }
+      h6 { font-size: 80%; font-weight: normal; }
+
+      ul, ol {
+        margin: 1.4em 0;
+      }
+      ul ul, ol ol, ul ol, ol ul {
+        margin-top: 0;
+        margin-bottom: 0;
+      }
+      ul, ol {
+        margin-left: 2.8em;
+      }
+
+      ol {
+        list-style: decimal;
+      }
+      ol ol {
+        list-style: lower-alpha;
+      }
+      ol ol ol {
+        list-style: lower-roman;
+      }
+      ol ol ol ol {
+        list-style: decimal;
+      }
+
+      blockquote {
+        margin: 0.1em;
+        margin-left: 1em;
+        border-left: 2px solid #cccccc;
+        padding-left: 0.7em;
+      }
+
+      .color_red { color: #dc322f; }
+      .color_blue { color: #268bd2; }
+      .color_green { color: #859901; }
+      .color_yellow { color: #b58901; }
+      .color_black { color: black; }
+      .color_white { color: white; }
+
+      .font_big {
+        font-size: 1.2em;
+      }
+
+      .ddoc_section_h {
+        font-weight: bold;
+        font-size: 13px;
+        line-height: 19.5px;
+        margin-top: 11px;
+        display: block;
+      }
+
+      body.dlang .dlang {
+        display: inline-block;
+      }
+
+      body.dlang .declaration .dlang {
+          display: block;
+      }
+
+      body.dlang .ddoc_header_anchor a.dlang {
+        display: block;
+        color: rgba(0, 136, 204, 1);
+        text-decoration: none;
+      }
+
+      body.dlang .ddoc_header_anchor .code {
+        color: rgba(0, 136, 204, 1);
+      }
+
+      #ddoc_main .module {
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          overflow-x: hidden;
+          padding: 15px;
+      }
+
+      #ddoc_main .section .section {
+        margin-top: 0;
+      }
+
+      #ddoc_main .ddoc_module_members_section {
+          padding: 1px 0 0;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members section.intro {
+          background: #fff none repeat scroll 0 0;
+          list-style-type: none;
+          width: 100%;
+      }
+
+      #ddoc_main .ddoc_header_anchor {
+          font-size: 1.4em;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_header_anchor > .code {
+          display: inline-block;
+
+      }
+
+      #ddoc_main .ddoc_decl {
+        background-color: transparent;
+        height: 100%;
+        left: 0;
+        top: 0;
+        padding: 0;
+        padding-left: 15px;
+      }
+
+      #ddoc_main .ddoc_decl .section, #ddoc_main .section.ddoc_sections {
+        background: white none repeat scroll 0 0;
+        margin: 0;
+        padding: 5px;
+        position: relative;
+        border-radius: 5px;
+      }
+
+      #ddoc_main .ddoc_decl .section h4:first-of-type, #ddoc_main .section.ddoc_sections h4:first-of-type {
+        font-size: 13px;
+        line-height: 1.5;
+        margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration {
+          margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration .code {
+          color: rgba(0, 0, 0, 1);
+          margin-bottom: 15px;
+          padding-bottom: 6px;
+      }
+
+      #ddoc_main .declaration div .para {
+          margin-bottom: 0;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr td:first-of-type {
+        padding: 7px;
+        text-align: right;
+        vertical-align: top;
+        word-break: normal;
+        white-space: nowrap;
+      }
+
+      #ddoc_main .ddoc_params .graybox {
+        border: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox td {
+        border-color: rgba(214, 214, 214, 1);
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:first-child > td {
+        border-top: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:last-child > td {
+        border-bottom: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:first-child {
+        border-left: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:last-child {
+        border-right: 0 none;
+        width: 100%;
+      }
+
+      #ddoc_main em.term, #ddoc_main em.term .code {
+        color: rgba(65, 65, 65, 1);
+        font-size: 12px;
+        font-style: italic;
+        line-height: 1.5;
+      }
+
+      #ddoc_main .see-also {
+        cursor: pointer;
+        font-family: Menlo,monospace;
+      }
+
+      #ddoc_main .ddoc_decl .section > div:last-of-type {
+        margin-bottom: 15px;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members {
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .code_sample {
+        background: inherit;
+      }
+
+      #ddoc_main .declaration .code-line {
+          display: block;
+          font: 1em Menlo,monospace;
+      }
+
+      #ddoc_main a[name] {
+        margin: -112px 0 0;
+        padding-top: 112px;
+      }
+
+      #ddoc_main .ddoc_decl td {
+        max-width: inherit;
+      }
+
+      #ddoc_main .declaration a {
+        color: inherit;
+      }
+
+      #ddoc_main .declaration a:hover {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: underline;
+      }
+
+      body.ddoc {
+        background-color: transparent;
+        color: rgba(0, 0, 0, 1);
+        font-family: Helvetica,Arial,sans-serif;
+        font-size: 62.5%;
+        margin: 0;
+        border: 0;
+        left: 0;
+        top: 0;
+        padding: 0;
+      }
+
+      .ddoc a[name] {
+        display: block;
+        height: 0;
+        margin: -85px 0 0;
+        padding-top: 85px;
+        width: 0;
+      }
+
+      .ddoc .module {
+          border-color: transparent;
+          background-color: rgba(255, 255, 255, 1);
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-image: none;
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          box-shadow: 0 0 1px rgba(0, 0, 0, 0.07);
+          display: block;
+          margin-left: 0;
+          min-height: calc(100% - 173px);
+          overflow: auto;
+          padding-bottom: 100px;
+      }
+
+      .ddoc .content_wrapper {
+          background-color: rgba(242, 242, 242, 1);
+          margin: 0 auto;
+          max-width: 980px;
+      }
+
+      .ddoc .section {
+        padding: 15px 25px 30px;
+      }
+
+      .ddoc .section .section {
+        margin: 30px 0 0;
+        padding: 0;
+      }
+
+      .ddoc .para {
+        color: rgba(65, 65, 65, 1);
+        font-size: 1.4em;
+        line-height: 145%;
+        margin-bottom: 15px;
+      }
+
+      .ddoc .ddoc_examples .para {
+        margin-bottom: 0;
+      }
+
+      .ddoc .module_name {
+          color: rgba(0, 0, 0, 1);
+          display: block;
+          font-family: Helvetica;
+          font-size: 2.8em;
+          font-weight: 100;
+          margin-bottom: 0;
+          padding: 15px 0;
+      }
+
+      .ddoc .module a {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: none;
+      }
+
+      .ddoc .code {
+        color: rgba(128, 128, 128, 1);
+        font-family: Menlo,monospace;
+        font-size: 0.85em;
+        word-wrap: break-word;
+      }
+
+      .ddoc .code i {
+        font-style: normal;
+      }
+
+      .ddoc .code .code {
+        font-size: 1em;
+      }
+
+      .ddoc .code_sample {
+        background-clip: padding-box;
+        margin: 1px 0;
+        text-align: left;
+      }
+
+      .ddoc .code_sample {
+        display: block;
+        font-size: 1.4em;
+        margin-left: 21px;
+      }
+
+      .ddoc ol .code_sample {
+        font-size: 1em;
+      }
+
+      .ddoc .code_lines {
+        counter-reset: li;
+        line-height: 1.6em;
+        list-style: outside none none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .ddoc .code_listing .code_sample div {
+        margin-left: 13px;
+        width: 93%;
+      }
+
+      .ddoc .code_listing .code_sample div .code_lines li {
+        list-style-type: none;
+        margin: 0;
+        padding-right: 10px;
+      }
+
+      .ddoc .code_sample div .code_lines li::before {
+        margin-left: -33px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+10)::before {
+        margin-left: -39px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+100)::before {
+        margin-left: -46px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample .code_lines .code {
+        color: #000;
+      }
+
+      .ddoc div.dlang {
+        margin: 10px 0 21px;
+        padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+          margin: 10px 0 21px;
+          padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+        border-left: 5px solid rgba(0, 155, 51, 0.2);
+      }
+
+      .ddoc .code_lines li::before {
+        color: rgba(128, 128, 128, 1);
+        content: counter(li, decimal);
+        counter-increment: li;
+        font-family: Menlo,monospace;
+        font-size: 0.9em;
+        margin-right: 16px;
+      }
+
+      .ddoc .code_lines li {
+        padding-left: 0;
+        white-space: pre-wrap;
+      }
+
+      .ddoc .code_lines pre {
+        display: contents;
+      }
+
+      .ddoc .code_lines li:only-of-type::before {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:only-of-type {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:nth-child(n+10) {
+        text-indent: -17px;
+      }
+
+      .ddoc .code_lines li:nth-child(n+10)::before {
+        margin-right: 12px;
+      }
+
+      .ddoc .graybox {
+        border: 1px solid rgba(233, 233, 233, 1);
+        border-collapse: collapse;
+        border-spacing: 0;
+        empty-cells: hide;
+        margin: 20px 0 36px;
+        text-align: left;
+      }
+
+      .ddoc .graybox p {
+        margin: 0;
+        min-width: 50px;
+      }
+
+      .ddoc th {
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: bottom;
+      }
+
+      .ddoc td {
+        border: 1px solid rgba(233, 233, 233, 1);
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: middle;
+      }
+
+      .punctuation {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .comment {
+        color: rgba(0, 131, 18, 1);
+      }
+
+      .operator {
+        color: #000;
+      }
+
+      .keyword {
+        color: rgba(170, 13, 145, 1);
+      }
+
+      .keyword_type {
+        color: rgba(170, 51, 145, 1);
+      }
+
+      .string_literal {
+        color: rgba(196, 26, 22, 1);
+      }
+
+      .ddoc_psuper_symbol {
+        color: rgba(92, 38, 153, 1);
+      }
+
+      .param {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .psymbol {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .ddoc_member_header .ddoc_header_anchor .code {
+        font-size: 1em;
+      }
+    </style>
+  </head>
+  <body id="ddoc_main" class="ddoc dlang">
+    <div class="content_wrapper">
+      <article class="module">
+        <h1 class="module_name">slate.quic.wire.transport_params</h1>
+        <section id="module_content">
+<section class="section ddoc_module_members_section">
+  <div class="ddoc_module_members">
+    <ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#slate.quic.wire.varint" id="slate.quic.wire.varint"><code class="code">slate.quic.wire.varint</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="slate.quic.wire.varint"></span>public import <code class="code">slate.quic.wire.varint</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    QUIC Transport Parameters (RFC 9000 Section 18).
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Implements TLV serialization, parsing, duplicate-ID detection,
+ client-forbidden parameter rejection, bounds validation, and unknown/GREASE skipping.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#encodeTransportParams" id="encodeTransportParams"><code class="code">encodeTransportParams</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="encodeTransportParams"></span>pure nothrow @nogc @safe WireError <code class="code">encodeTransportParams</code>(ref const TransportParameters <code class="code">params</code>, Side <code class="code">mySide</code>, ubyte[] <code class="code">outBuf</code>, out size_t <code class="code">bytesWritten</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Encodes TransportParameters into RFC 9000 Section 18 TLV wire format.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#decodeTransportParams" id="decodeTransportParams"><code class="code">decodeTransportParams</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="decodeTransportParams"></span>pure nothrow @nogc @safe WireError <code class="code">decodeTransportParams</code>(const(ubyte)[] <code class="code">buf</code>, Side <code class="code">peerSide</code>, out TransportParameters <code class="code">params</code>, out TransportErrorCode <code class="code">err</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Decodes TransportParameters from RFC 9000 Section 18 TLV wire format.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    <code class="code">peerSide</code> indicates whether the peer sending these parameters was Client or Server.
+  </p>
+</div>
+<div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code">TransportParameters inParams;
+inParams.maxIdleTimeout = 30_000;
+inParams.maxUdpPayloadSize = 1452;
+inParams.initialMaxData = 10_000_000;
+inParams.initialMaxStreamDataBidiLocal = 1_000_000;
+inParams.initialMaxStreamDataBidiRemote = 1_000_000;
+inParams.initialMaxStreamDataUni = 500_000;
+inParams.initialMaxStreamsBidi = 100;
+inParams.initialMaxStreamsUni = 50;
+inParams.ackDelayExponent = 5;
+inParams.maxAckDelay = 50;
+inParams.disableActiveMigration = <span class="keyword">true</span>;
+inParams.activeConnectionIdLimit = 4;
+
+<span class="keyword">const</span> <span class="keyword">ubyte</span>[8] scidBytes = [1, 2, 3, 4, 5, 6, 7, 8];
+inParams.hasInitialSourceConnectionId = <span class="keyword">true</span>;
+inParams.initialSourceConnectionId = ConnectionId(scidBytes[]);
+
+<span class="keyword">ubyte</span>[512] wireBuf;
+size_t written = 0;
+<span class="keyword">assert</span>(encodeTransportParams(inParams, Side.client, wireBuf[], written) == WireError.none);
+
+<span class="comment">// Append unknown/GREASE parameter (ID 0x1b2a, length 4, value 0xdeadbeef)
+</span>WireWriter writer = WireWriter(wireBuf[written .. $]);
+<span class="keyword">assert</span>(writer.writeVarInt(0x1b2a) == WireError.none);
+<span class="keyword">assert</span>(writer.writeVarInt(4) == WireError.none);
+<span class="keyword">static</span> <span class="keyword">const</span> <span class="keyword">ubyte</span>[4] greaseVal = [0xde, 0xad, 0xbe, 0xef];
+<span class="keyword">assert</span>(writer.writeBytes(greaseVal[]) == WireError.none);
+<span class="keyword">const</span> size_t totalWireLen = written + writer.bytesWritten;
+
+<span class="comment">// Decode as server receiving client params
+</span>TransportParameters outParams;
+TransportErrorCode te;
+WireError <span class="param">err</span> = <span class="psymbol">decodeTransportParams</span>(wireBuf[0 .. totalWireLen], Side.client, outParams, te);
+<span class="keyword">assert</span>(<span class="param">err</span> == WireError.none);
+<span class="keyword">assert</span>(te == TransportErrorCode.noError);
+
+<span class="keyword">assert</span>(outParams.maxIdleTimeout == 30_000);
+<span class="keyword">assert</span>(outParams.maxUdpPayloadSize == 1452);
+<span class="keyword">assert</span>(outParams.initialMaxData == 10_000_000);
+<span class="keyword">assert</span>(outParams.initialMaxStreamDataBidiLocal == 1_000_000);
+<span class="keyword">assert</span>(outParams.initialMaxStreamDataBidiRemote == 1_000_000);
+<span class="keyword">assert</span>(outParams.initialMaxStreamDataUni == 500_000);
+<span class="keyword">assert</span>(outParams.initialMaxStreamsBidi == 100);
+<span class="keyword">assert</span>(outParams.initialMaxStreamsUni == 50);
+<span class="keyword">assert</span>(outParams.ackDelayExponent == 5);
+<span class="keyword">assert</span>(outParams.maxAckDelay == 50);
+<span class="keyword">assert</span>(outParams.disableActiveMigration == <span class="keyword">true</span>);
+<span class="keyword">assert</span>(outParams.activeConnectionIdLimit == 4);
+<span class="keyword">assert</span>(outParams.hasInitialSourceConnectionId == <span class="keyword">true</span>);
+<span class="keyword">assert</span>(outParams.initialSourceConnectionId == ConnectionId(scidBytes[]));
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div><div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="keyword">ubyte</span>[256] <span class="param">buf</span>;
+TransportParameters tp;
+TransportErrorCode te;
+
+<span class="comment">// 1. Duplicate Parameter ID
+</span>WireWriter writer = WireWriter(<span class="param">buf</span>[]);
+writer.writeVarInt(0x01); <span class="comment">// max_idle_timeout
+</span>writer.writeVarInt(1);
+writer.writeU8(10);
+writer.writeVarInt(0x01); <span class="comment">// duplicate max_idle_timeout!
+</span>writer.writeVarInt(1);
+writer.writeU8(20);
+<span class="keyword">assert</span>(<span class="psymbol">decodeTransportParams</span>(writer.writtenSlice, Side.server, tp, te) == WireError.transportParameterError);
+<span class="keyword">assert</span>(te == TransportErrorCode.transportParameterError);
+
+<span class="comment">// 2. max_udp_payload_size &lt; 1200
+</span>writer = WireWriter(<span class="param">buf</span>[]);
+writer.writeVarInt(0x03);
+writer.writeVarInt(2);
+writer.writeVarInt(1199); <span class="comment">// &lt; 1200!
+</span><span class="keyword">assert</span>(<span class="psymbol">decodeTransportParams</span>(writer.writtenSlice, Side.server, tp, te) == WireError.transportParameterError);
+<span class="keyword">assert</span>(te == TransportErrorCode.transportParameterError);
+
+<span class="comment">// 3. ack_delay_exponent &gt; 20
+</span>writer = WireWriter(<span class="param">buf</span>[]);
+writer.writeVarInt(0x0a);
+writer.writeVarInt(1);
+writer.writeVarInt(21); <span class="comment">// &gt; 20!
+</span><span class="keyword">assert</span>(<span class="psymbol">decodeTransportParams</span>(writer.writtenSlice, Side.server, tp, te) == WireError.transportParameterError);
+<span class="keyword">assert</span>(te == TransportErrorCode.transportParameterError);
+
+<span class="comment">// 4. max_ack_delay &gt;= 16384 (2^14)
+</span>writer = WireWriter(<span class="param">buf</span>[]);
+writer.writeVarInt(0x0b);
+writer.writeVarInt(4);
+writer.writeVarInt(16384); <span class="comment">// &gt;= 16384!
+</span><span class="keyword">assert</span>(<span class="psymbol">decodeTransportParams</span>(writer.writtenSlice, Side.server, tp, te) == WireError.transportParameterError);
+<span class="keyword">assert</span>(te == TransportErrorCode.transportParameterError);
+
+<span class="comment">// 5. active_connection_id_limit &lt; 2
+</span>writer = WireWriter(<span class="param">buf</span>[]);
+writer.writeVarInt(0x0e);
+writer.writeVarInt(1);
+writer.writeVarInt(1); <span class="comment">// &lt; 2!
+</span><span class="keyword">assert</span>(<span class="psymbol">decodeTransportParams</span>(writer.writtenSlice, Side.server, tp, te) == WireError.transportParameterError);
+<span class="keyword">assert</span>(te == TransportErrorCode.transportParameterError);
+
+<span class="comment">// 6. Client sent server-only stateless_reset_token (0x02)
+</span>writer = WireWriter(<span class="param">buf</span>[]);
+writer.writeVarInt(0x02);
+writer.writeVarInt(16);
+<span class="keyword">static</span> <span class="keyword">const</span> <span class="keyword">ubyte</span>[16] dummyToken = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+writer.writeBytes(dummyToken[]);
+<span class="comment">// peerSide is client -&gt; rejected!
+</span><span class="keyword">assert</span>(<span class="psymbol">decodeTransportParams</span>(writer.writtenSlice, Side.client, tp, te) == WireError.transportParameterError);
+<span class="keyword">assert</span>(te == TransportErrorCode.transportParameterError);
+
+<span class="comment">// But peerSide is server -&gt; accepted!
+</span><span class="keyword">assert</span>(<span class="psymbol">decodeTransportParams</span>(writer.writtenSlice, Side.server, tp, te) == WireError.none);
+<span class="keyword">assert</span>(tp.hasStatelessResetToken);
+<span class="keyword">assert</span>(tp.statelessResetToken == dummyToken);
+
+<span class="comment">// 7. G4 Truncation safety across TLV prefixes
+</span><span class="keyword">foreach</span> (truncLen; 1 .. writer.bytesWritten)
+{
+    TransportParameters truncTp;
+    TransportErrorCode truncTe;
+    <span class="keyword">assert</span>(<span class="psymbol">decodeTransportParams</span>(writer.writtenSlice[0 .. truncLen], Side.server, truncTp, truncTe) == WireError.unexpectedEof);
+}
+
+<span class="comment">// 8. Duplicate parameter ID 0 (originalDestinationConnectionId)
+</span>writer = WireWriter(<span class="param">buf</span>[]);
+writer.writeVarInt(0x00);
+writer.writeVarInt(4);
+writer.writeBytes(dummyToken[0 .. 4]);
+writer.writeVarInt(0x00); <span class="comment">// duplicate ID 0!
+</span>writer.writeVarInt(4);
+writer.writeBytes(dummyToken[0 .. 4]);
+<span class="keyword">assert</span>(<span class="psymbol">decodeTransportParams</span>(writer.writtenSlice, Side.server, tp, te) == WireError.transportParameterError);
+<span class="keyword">assert</span>(te == TransportErrorCode.transportParameterError);
+
+<span class="comment">// 9. initial_max_streams_bidi &gt; 2^60
+</span>writer = WireWriter(<span class="param">buf</span>[]);
+writer.writeVarInt(0x08);
+writer.writeVarInt(8);
+writer.writeVarIntWithLen((1UL &lt;&lt; 60) + 1, 8);
+<span class="keyword">assert</span>(<span class="psymbol">decodeTransportParams</span>(writer.writtenSlice, Side.server, tp, te) == WireError.transportParameterError);
+<span class="keyword">assert</span>(te == TransportErrorCode.transportParameterError);
+
+<span class="comment">// 10. initial_max_streams_uni &gt; 2^60
+</span>writer = WireWriter(<span class="param">buf</span>[]);
+writer.writeVarInt(0x09);
+writer.writeVarInt(8);
+writer.writeVarIntWithLen((1UL &lt;&lt; 60) + 1, 8);
+<span class="keyword">assert</span>(<span class="psymbol">decodeTransportParams</span>(writer.writtenSlice, Side.server, tp, te) == WireError.transportParameterError);
+<span class="keyword">assert</span>(te == TransportErrorCode.transportParameterError);
+
+<span class="comment">// 11. More than 64 GREASE parameters (overflow defense)
+</span><span class="keyword">ubyte</span>[1024] greaseBuf;
+WireWriter gw = WireWriter(greaseBuf[]);
+<span class="keyword">foreach</span> (i; 0 .. 65)
+{
+    gw.writeVarInt(100 + i); <span class="comment">// paramId &gt;= 64, distinct
+</span>    gw.writeVarInt(1);
+    gw.writeU8(<span class="keyword">cast</span>(<span class="keyword">ubyte</span>) i);
+}
+<span class="keyword">assert</span>(<span class="psymbol">decodeTransportParams</span>(gw.writtenSlice, Side.server, tp, te) == WireError.transportParameterError);
+<span class="keyword">assert</span>(te == TransportErrorCode.transportParameterError);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div>
+</section>
+
+</div>
+
+</li>
+</ul>
+  </div>
+</section>
+</section>
+      </article>
+    </div>
+  </body>
+</html>

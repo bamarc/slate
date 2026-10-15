@@ -1,0 +1,1058 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>slate.http.debug_</title>
+    <style type="text/css" media="screen">
+      html, body, div, span, object, iframe, h1, h2, h3, h4, h5, h6, p,
+      blockquote, pre, a, abbr, address, cite, code, del, dfn, em, figure,
+      img, ins, kbd, q, s, samp, small, strong, sub, sup, var, b, u, i, dl,
+      dt, dd, ol, ul, li, fieldset, form, label, legend, table, caption,
+      tbody, tfoot, thead, tr, th, td {
+        background: transparent none repeat scroll 0 0;
+        border: 0 none;
+        font-size: 100%;
+        margin: 0;
+        outline: 0 none;
+        padding: 0;
+        vertical-align: baseline;
+      }
+
+      h1 { font-size: 200%; }
+      h2 { font-size: 160%; }
+      h3 { font-size: 120%; }
+      h4 { font-size: 100%; }
+      h5 { font-size: 80%; }
+      h6 { font-size: 80%; font-weight: normal; }
+
+      ul, ol {
+        margin: 1.4em 0;
+      }
+      ul ul, ol ol, ul ol, ol ul {
+        margin-top: 0;
+        margin-bottom: 0;
+      }
+      ul, ol {
+        margin-left: 2.8em;
+      }
+
+      ol {
+        list-style: decimal;
+      }
+      ol ol {
+        list-style: lower-alpha;
+      }
+      ol ol ol {
+        list-style: lower-roman;
+      }
+      ol ol ol ol {
+        list-style: decimal;
+      }
+
+      blockquote {
+        margin: 0.1em;
+        margin-left: 1em;
+        border-left: 2px solid #cccccc;
+        padding-left: 0.7em;
+      }
+
+      .color_red { color: #dc322f; }
+      .color_blue { color: #268bd2; }
+      .color_green { color: #859901; }
+      .color_yellow { color: #b58901; }
+      .color_black { color: black; }
+      .color_white { color: white; }
+
+      .font_big {
+        font-size: 1.2em;
+      }
+
+      .ddoc_section_h {
+        font-weight: bold;
+        font-size: 13px;
+        line-height: 19.5px;
+        margin-top: 11px;
+        display: block;
+      }
+
+      body.dlang .dlang {
+        display: inline-block;
+      }
+
+      body.dlang .declaration .dlang {
+          display: block;
+      }
+
+      body.dlang .ddoc_header_anchor a.dlang {
+        display: block;
+        color: rgba(0, 136, 204, 1);
+        text-decoration: none;
+      }
+
+      body.dlang .ddoc_header_anchor .code {
+        color: rgba(0, 136, 204, 1);
+      }
+
+      #ddoc_main .module {
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          overflow-x: hidden;
+          padding: 15px;
+      }
+
+      #ddoc_main .section .section {
+        margin-top: 0;
+      }
+
+      #ddoc_main .ddoc_module_members_section {
+          padding: 1px 0 0;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members section.intro {
+          background: #fff none repeat scroll 0 0;
+          list-style-type: none;
+          width: 100%;
+      }
+
+      #ddoc_main .ddoc_header_anchor {
+          font-size: 1.4em;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_header_anchor > .code {
+          display: inline-block;
+
+      }
+
+      #ddoc_main .ddoc_decl {
+        background-color: transparent;
+        height: 100%;
+        left: 0;
+        top: 0;
+        padding: 0;
+        padding-left: 15px;
+      }
+
+      #ddoc_main .ddoc_decl .section, #ddoc_main .section.ddoc_sections {
+        background: white none repeat scroll 0 0;
+        margin: 0;
+        padding: 5px;
+        position: relative;
+        border-radius: 5px;
+      }
+
+      #ddoc_main .ddoc_decl .section h4:first-of-type, #ddoc_main .section.ddoc_sections h4:first-of-type {
+        font-size: 13px;
+        line-height: 1.5;
+        margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration {
+          margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration .code {
+          color: rgba(0, 0, 0, 1);
+          margin-bottom: 15px;
+          padding-bottom: 6px;
+      }
+
+      #ddoc_main .declaration div .para {
+          margin-bottom: 0;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr td:first-of-type {
+        padding: 7px;
+        text-align: right;
+        vertical-align: top;
+        word-break: normal;
+        white-space: nowrap;
+      }
+
+      #ddoc_main .ddoc_params .graybox {
+        border: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox td {
+        border-color: rgba(214, 214, 214, 1);
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:first-child > td {
+        border-top: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:last-child > td {
+        border-bottom: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:first-child {
+        border-left: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:last-child {
+        border-right: 0 none;
+        width: 100%;
+      }
+
+      #ddoc_main em.term, #ddoc_main em.term .code {
+        color: rgba(65, 65, 65, 1);
+        font-size: 12px;
+        font-style: italic;
+        line-height: 1.5;
+      }
+
+      #ddoc_main .see-also {
+        cursor: pointer;
+        font-family: Menlo,monospace;
+      }
+
+      #ddoc_main .ddoc_decl .section > div:last-of-type {
+        margin-bottom: 15px;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members {
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .code_sample {
+        background: inherit;
+      }
+
+      #ddoc_main .declaration .code-line {
+          display: block;
+          font: 1em Menlo,monospace;
+      }
+
+      #ddoc_main a[name] {
+        margin: -112px 0 0;
+        padding-top: 112px;
+      }
+
+      #ddoc_main .ddoc_decl td {
+        max-width: inherit;
+      }
+
+      #ddoc_main .declaration a {
+        color: inherit;
+      }
+
+      #ddoc_main .declaration a:hover {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: underline;
+      }
+
+      body.ddoc {
+        background-color: transparent;
+        color: rgba(0, 0, 0, 1);
+        font-family: Helvetica,Arial,sans-serif;
+        font-size: 62.5%;
+        margin: 0;
+        border: 0;
+        left: 0;
+        top: 0;
+        padding: 0;
+      }
+
+      .ddoc a[name] {
+        display: block;
+        height: 0;
+        margin: -85px 0 0;
+        padding-top: 85px;
+        width: 0;
+      }
+
+      .ddoc .module {
+          border-color: transparent;
+          background-color: rgba(255, 255, 255, 1);
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-image: none;
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          box-shadow: 0 0 1px rgba(0, 0, 0, 0.07);
+          display: block;
+          margin-left: 0;
+          min-height: calc(100% - 173px);
+          overflow: auto;
+          padding-bottom: 100px;
+      }
+
+      .ddoc .content_wrapper {
+          background-color: rgba(242, 242, 242, 1);
+          margin: 0 auto;
+          max-width: 980px;
+      }
+
+      .ddoc .section {
+        padding: 15px 25px 30px;
+      }
+
+      .ddoc .section .section {
+        margin: 30px 0 0;
+        padding: 0;
+      }
+
+      .ddoc .para {
+        color: rgba(65, 65, 65, 1);
+        font-size: 1.4em;
+        line-height: 145%;
+        margin-bottom: 15px;
+      }
+
+      .ddoc .ddoc_examples .para {
+        margin-bottom: 0;
+      }
+
+      .ddoc .module_name {
+          color: rgba(0, 0, 0, 1);
+          display: block;
+          font-family: Helvetica;
+          font-size: 2.8em;
+          font-weight: 100;
+          margin-bottom: 0;
+          padding: 15px 0;
+      }
+
+      .ddoc .module a {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: none;
+      }
+
+      .ddoc .code {
+        color: rgba(128, 128, 128, 1);
+        font-family: Menlo,monospace;
+        font-size: 0.85em;
+        word-wrap: break-word;
+      }
+
+      .ddoc .code i {
+        font-style: normal;
+      }
+
+      .ddoc .code .code {
+        font-size: 1em;
+      }
+
+      .ddoc .code_sample {
+        background-clip: padding-box;
+        margin: 1px 0;
+        text-align: left;
+      }
+
+      .ddoc .code_sample {
+        display: block;
+        font-size: 1.4em;
+        margin-left: 21px;
+      }
+
+      .ddoc ol .code_sample {
+        font-size: 1em;
+      }
+
+      .ddoc .code_lines {
+        counter-reset: li;
+        line-height: 1.6em;
+        list-style: outside none none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .ddoc .code_listing .code_sample div {
+        margin-left: 13px;
+        width: 93%;
+      }
+
+      .ddoc .code_listing .code_sample div .code_lines li {
+        list-style-type: none;
+        margin: 0;
+        padding-right: 10px;
+      }
+
+      .ddoc .code_sample div .code_lines li::before {
+        margin-left: -33px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+10)::before {
+        margin-left: -39px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+100)::before {
+        margin-left: -46px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample .code_lines .code {
+        color: #000;
+      }
+
+      .ddoc div.dlang {
+        margin: 10px 0 21px;
+        padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+          margin: 10px 0 21px;
+          padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+        border-left: 5px solid rgba(0, 155, 51, 0.2);
+      }
+
+      .ddoc .code_lines li::before {
+        color: rgba(128, 128, 128, 1);
+        content: counter(li, decimal);
+        counter-increment: li;
+        font-family: Menlo,monospace;
+        font-size: 0.9em;
+        margin-right: 16px;
+      }
+
+      .ddoc .code_lines li {
+        padding-left: 0;
+        white-space: pre-wrap;
+      }
+
+      .ddoc .code_lines pre {
+        display: contents;
+      }
+
+      .ddoc .code_lines li:only-of-type::before {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:only-of-type {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:nth-child(n+10) {
+        text-indent: -17px;
+      }
+
+      .ddoc .code_lines li:nth-child(n+10)::before {
+        margin-right: 12px;
+      }
+
+      .ddoc .graybox {
+        border: 1px solid rgba(233, 233, 233, 1);
+        border-collapse: collapse;
+        border-spacing: 0;
+        empty-cells: hide;
+        margin: 20px 0 36px;
+        text-align: left;
+      }
+
+      .ddoc .graybox p {
+        margin: 0;
+        min-width: 50px;
+      }
+
+      .ddoc th {
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: bottom;
+      }
+
+      .ddoc td {
+        border: 1px solid rgba(233, 233, 233, 1);
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: middle;
+      }
+
+      .punctuation {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .comment {
+        color: rgba(0, 131, 18, 1);
+      }
+
+      .operator {
+        color: #000;
+      }
+
+      .keyword {
+        color: rgba(170, 13, 145, 1);
+      }
+
+      .keyword_type {
+        color: rgba(170, 51, 145, 1);
+      }
+
+      .string_literal {
+        color: rgba(196, 26, 22, 1);
+      }
+
+      .ddoc_psuper_symbol {
+        color: rgba(92, 38, 153, 1);
+      }
+
+      .param {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .psymbol {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .ddoc_member_header .ddoc_header_anchor .code {
+        font-size: 1em;
+      }
+    </style>
+  </head>
+  <body id="ddoc_main" class="ddoc dlang">
+    <div class="content_wrapper">
+      <article class="module">
+        <h1 class="module_name">slate.http.debug_</h1>
+        <section id="module_content"><section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    HTTP transfer debug and observability hooks (OPT-1).
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    This module provides zero-allocation <code class="code">@nogc nothrow</code> debug callbacks
+for capturing verbose protocol trace, TLS handshake info, and headers.
+  </p>
+</div>
+
+</section>
+<section class="section ddoc_module_members_section">
+  <div class="ddoc_module_members">
+    <ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#CurlInfoType" id="CurlInfoType"><code class="code">CurlInfoType</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="CurlInfoType"></span>enum <code class="code">CurlInfoType</code>: int;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Type of informational debug data passed to <code class="code">DebugSink</code> (OPT-1).
+Corresponds to libcurl's <code class="code">curl_infotype</code>.
+  </p>
+</div>
+
+</section>
+<ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#CurlInfoType.text" id="CurlInfoType.text"><code class="code">text</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="CurlInfoType.text"></span><code class="code">text</code>
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Informational human-readable <code class="code">text</code> line
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#CurlInfoType.headerIn" id="CurlInfoType.headerIn"><code class="code">headerIn</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="CurlInfoType.headerIn"></span><code class="code">headerIn</code>
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Header data received from peer
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#CurlInfoType.headerOut" id="CurlInfoType.headerOut"><code class="code">headerOut</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="CurlInfoType.headerOut"></span><code class="code">headerOut</code>
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Header data sent to peer
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#CurlInfoType.dataIn" id="CurlInfoType.dataIn"><code class="code">dataIn</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="CurlInfoType.dataIn"></span><code class="code">dataIn</code>
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Body protocol data received from peer
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#CurlInfoType.dataOut" id="CurlInfoType.dataOut"><code class="code">dataOut</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="CurlInfoType.dataOut"></span><code class="code">dataOut</code>
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Body protocol data sent to peer
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#CurlInfoType.sslDataIn" id="CurlInfoType.sslDataIn"><code class="code">sslDataIn</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="CurlInfoType.sslDataIn"></span><code class="code">sslDataIn</code>
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Raw SSL/TLS encrypted protocol data received
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#CurlInfoType.sslDataOut" id="CurlInfoType.sslDataOut"><code class="code">sslDataOut</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="CurlInfoType.sslDataOut"></span><code class="code">sslDataOut</code>
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Raw SSL/TLS encrypted protocol data sent
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li>
+</ul>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#DebugSink" id="DebugSink"><code class="code">DebugSink</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="DebugSink"></span>alias <code class="code">DebugSink</code> = void function(CurlInfoType type, const(char)[] data, void* userdata) nothrow @nogc;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    <code class="code">@nogc nothrow</code> callback receiving verbose protocol messages and tracing (OPT-1).
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    The provided <code class="code">data</code> slice borrows caller memory and is only valid for
+the duration of the callback invocation.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#DebugContext" id="DebugContext"><code class="code">DebugContext</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="DebugContext"></span>struct <code class="code">DebugContext</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Context paired with <code class="code">curlDebugCb</code> bridging C ABI to <code class="code">DebugSink</code>.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#curlDebugCb" id="curlDebugCb"><code class="code">curlDebugCb</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="curlDebugCb"></span>nothrow @nogc int <code class="code">curlDebugCb</code>(CURL* <code class="code">handle</code>, int <code class="code">type</code>, char* <code class="code">data</code>, size_t <code class="code">size</code>, void* <code class="code">userptr</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Native C debug callback invoked by libcurl when <code class="code">CURLOPT_DEBUGFUNCTION</code> is set.
+  </p>
+</div>
+<div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="keyword">import</span> slate.http.debug_;
+
+<span class="keyword">static</span> <span class="keyword">void</span> testSink(CurlInfoType <span class="param">type</span>, <span class="keyword">const</span>(<span class="keyword">char</span>)[] <span class="param">data</span>, <span class="keyword">void</span>* userdata) @nogc <span class="keyword">nothrow</span>
+{
+    <span class="keyword">auto</span> counter = <span class="keyword">cast</span>(size_t*) userdata;
+    <span class="keyword">if</span> (counter !<span class="keyword">is</span> <span class="keyword">null</span>) (*counter)++;
+}
+
+size_t count = 0;
+DebugContext ctx = DebugContext(&amp;testSink, &amp;count);
+string msg = <span class="string_literal">"Connected to host\n"</span>;
+<span class="psymbol">curlDebugCb</span>(<span class="keyword">null</span>, CurlInfoType.text, <span class="keyword">cast</span>(<span class="keyword">char</span>*) msg.ptr, msg.length, &amp;ctx);
+<span class="keyword">assert</span>(count == 1);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="comment">// Best practice: verify curlDebugCb forwards data slice and info type to @nogc DebugSink
+</span><span class="keyword">static</span> <span class="keyword">__gshared</span> size_t textCount = 0;
+<span class="keyword">static</span> <span class="keyword">__gshared</span> size_t headerCount = 0;
+
+<span class="keyword">static</span> <span class="keyword">void</span> mySink(CurlInfoType <span class="param">type</span>, <span class="keyword">const</span>(<span class="keyword">char</span>)[] <span class="param">data</span>, <span class="keyword">void</span>* userdata) @nogc <span class="keyword">nothrow</span>
+{
+    <span class="keyword">if</span> (<span class="param">type</span> == CurlInfoType.text)
+        textCount++;
+    <span class="keyword">else</span> <span class="keyword">if</span> (<span class="param">type</span> == CurlInfoType.headerOut)
+        headerCount++;
+}
+
+textCount = 0;
+headerCount = 0;
+
+DebugContext ctx = DebugContext(&amp;mySink, <span class="keyword">null</span>);
+string sampleText = <span class="string_literal">"* Connected to 127.0.0.1 port 80\n"</span>;
+string sampleHdr = <span class="string_literal">"GET / HTTP/1.1\r\n"</span>;
+
+<span class="psymbol">curlDebugCb</span>(<span class="keyword">null</span>, CurlInfoType.text, <span class="keyword">cast</span>(<span class="keyword">char</span>*) sampleText.ptr, sampleText.length, &amp;ctx);
+<span class="psymbol">curlDebugCb</span>(<span class="keyword">null</span>, CurlInfoType.headerOut, <span class="keyword">cast</span>(<span class="keyword">char</span>*) sampleHdr.ptr, sampleHdr.length, &amp;ctx);
+
+<span class="keyword">assert</span>(textCount == 1);
+<span class="keyword">assert</span>(headerCount == 1);
+
+<span class="comment">// Null checks must not crash
+</span><span class="psymbol">curlDebugCb</span>(<span class="keyword">null</span>, CurlInfoType.text, <span class="keyword">null</span>, 0, &amp;ctx);
+<span class="psymbol">curlDebugCb</span>(<span class="keyword">null</span>, CurlInfoType.text, <span class="keyword">cast</span>(<span class="keyword">char</span>*) sampleText.ptr, sampleText.length, <span class="keyword">null</span>);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div><div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="keyword">import</span> slate.http.client;
+<span class="keyword">import</span> slate.http.debug_;
+ClientConfig cfg;
+cfg.debugSink = <span class="keyword">function</span>(CurlInfoType <span class="param">type</span>, <span class="keyword">const</span>(<span class="keyword">char</span>)[] <span class="param">data</span>, <span class="keyword">void</span>* userdata) @nogc <span class="keyword">nothrow</span> {};
+<span class="keyword">auto</span> client = Client.create(cfg);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="keyword">version</span> (SlateHttpDebug)
+{
+    <span class="keyword">import</span> slate.http.client;
+    <span class="keyword">import</span> slate.http.request;
+    <span class="keyword">import</span> std.socket;
+    <span class="keyword">import</span> core.thread;
+
+    <span class="comment">// Stand up quick loopback listener
+</span>    <span class="keyword">auto</span> listener = <span class="keyword">new</span> TcpSocket();
+    listener.setOption(SocketOptionLevel.SOCKET, SocketOption.REUSEADDR, <span class="keyword">true</span>);
+    listener.bind(<span class="keyword">new</span> InternetAddress(<span class="string_literal">"127.0.0.1"</span>, 0));
+    listener.listen(1);
+    <span class="keyword">ushort</span> port = (<span class="keyword">cast</span>(InternetAddress) listener.localAddress).port;
+
+    <span class="keyword">auto</span> t = <span class="keyword">new</span> Thread({
+        <span class="keyword">try</span>
+        {
+            <span class="keyword">auto</span> client = listener.accept();
+            <span class="keyword">scope</span> (exit) client.close();
+            <span class="keyword">char</span>[512] buf;
+            client.receive(buf[]);
+            string resp = <span class="string_literal">"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"</span>;
+            client.send(resp);
+        }
+        <span class="keyword">catch</span> (Exception) {}
+    });
+    t.start();
+    <span class="keyword">scope</span> (exit)
+    {
+        listener.close();
+        t.join();
+    }
+
+    <span class="keyword">static</span> <span class="keyword">__gshared</span> size_t capturedHeaderOut = 0;
+    <span class="keyword">static</span> <span class="keyword">__gshared</span> size_t capturedHeaderIn = 0;
+    <span class="keyword">static</span> <span class="keyword">__gshared</span> size_t capturedText = 0;
+
+    <span class="keyword">static</span> <span class="keyword">void</span> testObserver(CurlInfoType <span class="param">type</span>, <span class="keyword">const</span>(<span class="keyword">char</span>)[] <span class="param">data</span>, <span class="keyword">void</span>* userdata) @nogc <span class="keyword">nothrow</span>
+    {
+        <span class="keyword">if</span> (<span class="param">type</span> == CurlInfoType.headerOut)
+            capturedHeaderOut++;
+        <span class="keyword">else</span> <span class="keyword">if</span> (<span class="param">type</span> == CurlInfoType.headerIn)
+            capturedHeaderIn++;
+        <span class="keyword">else</span> <span class="keyword">if</span> (<span class="param">type</span> == CurlInfoType.text)
+            capturedText++;
+    }
+
+    capturedHeaderOut = 0;
+    capturedHeaderIn = 0;
+    capturedText = 0;
+
+    ClientConfig cfg;
+    cfg.debugSink = &amp;testObserver;
+    <span class="keyword">auto</span> client = Client.create(cfg);
+    <span class="keyword">import</span> std.format : format;
+    <span class="keyword">auto</span> res = client.get(format(<span class="string_literal">"http://127.0.0.1:%d/"</span>, port));
+    <span class="keyword">assert</span>(res.status == 200);
+    <span class="keyword">assert</span>(capturedHeaderOut &gt; 0, <span class="string_literal">"DebugSink must capture headerOut"</span>);
+    <span class="keyword">assert</span>(capturedHeaderIn &gt; 0, <span class="string_literal">"DebugSink must capture headerIn"</span>);
+}
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div>
+</section>
+
+</div>
+
+</li>
+</ul>
+  </div>
+</section>
+</section>
+      </article>
+    </div>
+  </body>
+</html>

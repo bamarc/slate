@@ -1,0 +1,1273 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>slate.quic.stream.stream_map</title>
+    <style type="text/css" media="screen">
+      html, body, div, span, object, iframe, h1, h2, h3, h4, h5, h6, p,
+      blockquote, pre, a, abbr, address, cite, code, del, dfn, em, figure,
+      img, ins, kbd, q, s, samp, small, strong, sub, sup, var, b, u, i, dl,
+      dt, dd, ol, ul, li, fieldset, form, label, legend, table, caption,
+      tbody, tfoot, thead, tr, th, td {
+        background: transparent none repeat scroll 0 0;
+        border: 0 none;
+        font-size: 100%;
+        margin: 0;
+        outline: 0 none;
+        padding: 0;
+        vertical-align: baseline;
+      }
+
+      h1 { font-size: 200%; }
+      h2 { font-size: 160%; }
+      h3 { font-size: 120%; }
+      h4 { font-size: 100%; }
+      h5 { font-size: 80%; }
+      h6 { font-size: 80%; font-weight: normal; }
+
+      ul, ol {
+        margin: 1.4em 0;
+      }
+      ul ul, ol ol, ul ol, ol ul {
+        margin-top: 0;
+        margin-bottom: 0;
+      }
+      ul, ol {
+        margin-left: 2.8em;
+      }
+
+      ol {
+        list-style: decimal;
+      }
+      ol ol {
+        list-style: lower-alpha;
+      }
+      ol ol ol {
+        list-style: lower-roman;
+      }
+      ol ol ol ol {
+        list-style: decimal;
+      }
+
+      blockquote {
+        margin: 0.1em;
+        margin-left: 1em;
+        border-left: 2px solid #cccccc;
+        padding-left: 0.7em;
+      }
+
+      .color_red { color: #dc322f; }
+      .color_blue { color: #268bd2; }
+      .color_green { color: #859901; }
+      .color_yellow { color: #b58901; }
+      .color_black { color: black; }
+      .color_white { color: white; }
+
+      .font_big {
+        font-size: 1.2em;
+      }
+
+      .ddoc_section_h {
+        font-weight: bold;
+        font-size: 13px;
+        line-height: 19.5px;
+        margin-top: 11px;
+        display: block;
+      }
+
+      body.dlang .dlang {
+        display: inline-block;
+      }
+
+      body.dlang .declaration .dlang {
+          display: block;
+      }
+
+      body.dlang .ddoc_header_anchor a.dlang {
+        display: block;
+        color: rgba(0, 136, 204, 1);
+        text-decoration: none;
+      }
+
+      body.dlang .ddoc_header_anchor .code {
+        color: rgba(0, 136, 204, 1);
+      }
+
+      #ddoc_main .module {
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          overflow-x: hidden;
+          padding: 15px;
+      }
+
+      #ddoc_main .section .section {
+        margin-top: 0;
+      }
+
+      #ddoc_main .ddoc_module_members_section {
+          padding: 1px 0 0;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members section.intro {
+          background: #fff none repeat scroll 0 0;
+          list-style-type: none;
+          width: 100%;
+      }
+
+      #ddoc_main .ddoc_header_anchor {
+          font-size: 1.4em;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_header_anchor > .code {
+          display: inline-block;
+
+      }
+
+      #ddoc_main .ddoc_decl {
+        background-color: transparent;
+        height: 100%;
+        left: 0;
+        top: 0;
+        padding: 0;
+        padding-left: 15px;
+      }
+
+      #ddoc_main .ddoc_decl .section, #ddoc_main .section.ddoc_sections {
+        background: white none repeat scroll 0 0;
+        margin: 0;
+        padding: 5px;
+        position: relative;
+        border-radius: 5px;
+      }
+
+      #ddoc_main .ddoc_decl .section h4:first-of-type, #ddoc_main .section.ddoc_sections h4:first-of-type {
+        font-size: 13px;
+        line-height: 1.5;
+        margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration {
+          margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration .code {
+          color: rgba(0, 0, 0, 1);
+          margin-bottom: 15px;
+          padding-bottom: 6px;
+      }
+
+      #ddoc_main .declaration div .para {
+          margin-bottom: 0;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr td:first-of-type {
+        padding: 7px;
+        text-align: right;
+        vertical-align: top;
+        word-break: normal;
+        white-space: nowrap;
+      }
+
+      #ddoc_main .ddoc_params .graybox {
+        border: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox td {
+        border-color: rgba(214, 214, 214, 1);
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:first-child > td {
+        border-top: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:last-child > td {
+        border-bottom: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:first-child {
+        border-left: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:last-child {
+        border-right: 0 none;
+        width: 100%;
+      }
+
+      #ddoc_main em.term, #ddoc_main em.term .code {
+        color: rgba(65, 65, 65, 1);
+        font-size: 12px;
+        font-style: italic;
+        line-height: 1.5;
+      }
+
+      #ddoc_main .see-also {
+        cursor: pointer;
+        font-family: Menlo,monospace;
+      }
+
+      #ddoc_main .ddoc_decl .section > div:last-of-type {
+        margin-bottom: 15px;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members {
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .code_sample {
+        background: inherit;
+      }
+
+      #ddoc_main .declaration .code-line {
+          display: block;
+          font: 1em Menlo,monospace;
+      }
+
+      #ddoc_main a[name] {
+        margin: -112px 0 0;
+        padding-top: 112px;
+      }
+
+      #ddoc_main .ddoc_decl td {
+        max-width: inherit;
+      }
+
+      #ddoc_main .declaration a {
+        color: inherit;
+      }
+
+      #ddoc_main .declaration a:hover {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: underline;
+      }
+
+      body.ddoc {
+        background-color: transparent;
+        color: rgba(0, 0, 0, 1);
+        font-family: Helvetica,Arial,sans-serif;
+        font-size: 62.5%;
+        margin: 0;
+        border: 0;
+        left: 0;
+        top: 0;
+        padding: 0;
+      }
+
+      .ddoc a[name] {
+        display: block;
+        height: 0;
+        margin: -85px 0 0;
+        padding-top: 85px;
+        width: 0;
+      }
+
+      .ddoc .module {
+          border-color: transparent;
+          background-color: rgba(255, 255, 255, 1);
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-image: none;
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          box-shadow: 0 0 1px rgba(0, 0, 0, 0.07);
+          display: block;
+          margin-left: 0;
+          min-height: calc(100% - 173px);
+          overflow: auto;
+          padding-bottom: 100px;
+      }
+
+      .ddoc .content_wrapper {
+          background-color: rgba(242, 242, 242, 1);
+          margin: 0 auto;
+          max-width: 980px;
+      }
+
+      .ddoc .section {
+        padding: 15px 25px 30px;
+      }
+
+      .ddoc .section .section {
+        margin: 30px 0 0;
+        padding: 0;
+      }
+
+      .ddoc .para {
+        color: rgba(65, 65, 65, 1);
+        font-size: 1.4em;
+        line-height: 145%;
+        margin-bottom: 15px;
+      }
+
+      .ddoc .ddoc_examples .para {
+        margin-bottom: 0;
+      }
+
+      .ddoc .module_name {
+          color: rgba(0, 0, 0, 1);
+          display: block;
+          font-family: Helvetica;
+          font-size: 2.8em;
+          font-weight: 100;
+          margin-bottom: 0;
+          padding: 15px 0;
+      }
+
+      .ddoc .module a {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: none;
+      }
+
+      .ddoc .code {
+        color: rgba(128, 128, 128, 1);
+        font-family: Menlo,monospace;
+        font-size: 0.85em;
+        word-wrap: break-word;
+      }
+
+      .ddoc .code i {
+        font-style: normal;
+      }
+
+      .ddoc .code .code {
+        font-size: 1em;
+      }
+
+      .ddoc .code_sample {
+        background-clip: padding-box;
+        margin: 1px 0;
+        text-align: left;
+      }
+
+      .ddoc .code_sample {
+        display: block;
+        font-size: 1.4em;
+        margin-left: 21px;
+      }
+
+      .ddoc ol .code_sample {
+        font-size: 1em;
+      }
+
+      .ddoc .code_lines {
+        counter-reset: li;
+        line-height: 1.6em;
+        list-style: outside none none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .ddoc .code_listing .code_sample div {
+        margin-left: 13px;
+        width: 93%;
+      }
+
+      .ddoc .code_listing .code_sample div .code_lines li {
+        list-style-type: none;
+        margin: 0;
+        padding-right: 10px;
+      }
+
+      .ddoc .code_sample div .code_lines li::before {
+        margin-left: -33px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+10)::before {
+        margin-left: -39px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+100)::before {
+        margin-left: -46px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample .code_lines .code {
+        color: #000;
+      }
+
+      .ddoc div.dlang {
+        margin: 10px 0 21px;
+        padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+          margin: 10px 0 21px;
+          padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+        border-left: 5px solid rgba(0, 155, 51, 0.2);
+      }
+
+      .ddoc .code_lines li::before {
+        color: rgba(128, 128, 128, 1);
+        content: counter(li, decimal);
+        counter-increment: li;
+        font-family: Menlo,monospace;
+        font-size: 0.9em;
+        margin-right: 16px;
+      }
+
+      .ddoc .code_lines li {
+        padding-left: 0;
+        white-space: pre-wrap;
+      }
+
+      .ddoc .code_lines pre {
+        display: contents;
+      }
+
+      .ddoc .code_lines li:only-of-type::before {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:only-of-type {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:nth-child(n+10) {
+        text-indent: -17px;
+      }
+
+      .ddoc .code_lines li:nth-child(n+10)::before {
+        margin-right: 12px;
+      }
+
+      .ddoc .graybox {
+        border: 1px solid rgba(233, 233, 233, 1);
+        border-collapse: collapse;
+        border-spacing: 0;
+        empty-cells: hide;
+        margin: 20px 0 36px;
+        text-align: left;
+      }
+
+      .ddoc .graybox p {
+        margin: 0;
+        min-width: 50px;
+      }
+
+      .ddoc th {
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: bottom;
+      }
+
+      .ddoc td {
+        border: 1px solid rgba(233, 233, 233, 1);
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: middle;
+      }
+
+      .punctuation {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .comment {
+        color: rgba(0, 131, 18, 1);
+      }
+
+      .operator {
+        color: #000;
+      }
+
+      .keyword {
+        color: rgba(170, 13, 145, 1);
+      }
+
+      .keyword_type {
+        color: rgba(170, 51, 145, 1);
+      }
+
+      .string_literal {
+        color: rgba(196, 26, 22, 1);
+      }
+
+      .ddoc_psuper_symbol {
+        color: rgba(92, 38, 153, 1);
+      }
+
+      .param {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .psymbol {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .ddoc_member_header .ddoc_header_anchor .code {
+        font-size: 1em;
+      }
+    </style>
+  </head>
+  <body id="ddoc_main" class="ddoc dlang">
+    <div class="content_wrapper">
+      <article class="module">
+        <h1 class="module_name">slate.quic.stream.stream_map</h1>
+        <section id="module_content">
+<section class="section ddoc_module_members_section">
+  <div class="ddoc_module_members">
+    <ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#slate.quic.stream.id" id="slate.quic.stream.id"><code class="code">slate.quic.stream.id</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="slate.quic.stream.id"></span>public import <code class="code">slate.quic.stream.id</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    QUIC Multiplexed Stream Map and Concurrency Management (RFC 9000 Section 2, Section 3, Section 4).
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Implements stream lifecycle management, stream limit enforcement (STREAM_LIMIT_ERROR 0x04),
+ stream state validation (STREAM_STATE_ERROR 0x05), implicit lower-indexed stream opening,
+ connection-level and stream-level flow control coordination (FLOW_CONTROL_ERROR 0x03),
+ and round-robin transmit polling.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#QuicStream" id="QuicStream"><code class="code">QuicStream</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="QuicStream"></span>struct <code class="code">QuicStream</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Full state and buffers for a single multiplexed QUIC stream.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#StreamMap" id="StreamMap"><code class="code">StreamMap</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="StreamMap"></span>struct <code class="code">StreamMap</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Multiplexed stream table and concurrency manager.
+  </p>
+</div>
+<div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="comment">// Server StreamMap
+</span><span class="psymbol">StreamMap</span> sm = <span class="psymbol">StreamMap</span>(
+    Side.server,
+    100, <span class="comment">// initialMaxData
+</span>    60,  <span class="comment">// initialMaxStreamDataBidiLocal
+</span>    60,  <span class="comment">// initialMaxStreamDataBidiRemote
+</span>    60,  <span class="comment">// initialMaxStreamDataUni
+</span>    2,   <span class="comment">// localMaxStreamsBidi (allows client bidi streams index 0 and 1: ids 0 and 4)
+</span>    1    <span class="comment">// localMaxStreamsUni (allows client uni stream index 0: id 2)
+</span>);
+
+<span class="comment">// 1. Client sends a STREAM frame on bidirectional stream 4 (index 1)
+</span><span class="keyword">ubyte</span>[10] payload;
+StreamFrame sf4;
+sf4.streamId = 4;
+sf4.offset = 0;
+sf4.data = payload[];
+sf4.fin = <span class="keyword">false</span>;
+
+TransportErrorCode err = sm.onStreamFrame(sf4);
+<span class="keyword">assert</span>(err == TransportErrorCode.noError);
+
+<span class="comment">// Stream 0 (index 0) and Stream 4 (index 1) are both opened!
+</span><span class="keyword">assert</span>(sm.streamCount == 2);
+<span class="keyword">assert</span>(sm.getStream(StreamId(0)) !<span class="keyword">is</span> <span class="keyword">null</span>);
+<span class="keyword">assert</span>(sm.getStream(StreamId(4)) !<span class="keyword">is</span> <span class="keyword">null</span>);
+
+<span class="comment">// 2. Client attempts to open bidirectional stream 8 (index 2 &gt;= localMaxStreamsBidi 2)
+</span>StreamFrame sf8;
+sf8.streamId = 8;
+sf8.offset = 0;
+sf8.data = payload[];
+<span class="keyword">assert</span>(sm.onStreamFrame(sf8) == TransportErrorCode.streamLimitError);
+
+<span class="comment">// 3. Client sends a STREAM frame on server-initiated unidirectional stream 3
+</span>StreamFrame sf3;
+sf3.streamId = 3;
+sf3.offset = 0;
+sf3.data = payload[];
+<span class="keyword">assert</span>(sm.onStreamFrame(sf3) == TransportErrorCode.streamStateError);
+
+<span class="comment">// 4. Flow control: Client sends 65 bytes on stream 4 (&gt; 60 limit)
+</span><span class="keyword">ubyte</span>[65] bigPayload;
+StreamFrame sfOver;
+sfOver.streamId = 4;
+sfOver.offset = 0;
+sfOver.data = bigPayload[];
+<span class="keyword">assert</span>(sm.onStreamFrame(sfOver) == TransportErrorCode.flowControlError);
+
+<span class="comment">// 5. Connection flow control: 50 bytes on stream 0 + 55 bytes on stream 4 (&gt; 100 conn limit)
+</span><span class="keyword">ubyte</span>[50] p50;
+StreamFrame sf0;
+sf0.streamId = 0;
+sf0.offset = 0;
+sf0.data = p50[];
+<span class="keyword">assert</span>(sm.onStreamFrame(sf0) == TransportErrorCode.noError);
+
+<span class="keyword">ubyte</span>[55] p55;
+StreamFrame sf4_55;
+sf4_55.streamId = 4;
+sf4_55.offset = 0;
+sf4_55.data = p55[];
+<span class="keyword">assert</span>(sm.onStreamFrame(sf4_55) == TransportErrorCode.flowControlError);
+
+<span class="comment">// 6. Window update trigger: reading &gt; 50% of window
+</span>QuicStream* s0 = sm.getStream(StreamId(0));
+<span class="keyword">assert</span>(s0 !<span class="keyword">is</span> <span class="keyword">null</span>);
+<span class="keyword">ubyte</span>[50] outBuf;
+<span class="keyword">bool</span> fin = <span class="keyword">false</span>;
+<span class="keyword">assert</span>(s0.recvBuf.read(outBuf[], fin) == 50);
+s0.flowCtrl.onBytesRead(50);
+sm.connFlow.onBytesRead(50);
+
+<span class="keyword">ulong</span> nextConnMax = 0;
+<span class="keyword">assert</span>(sm.connFlow.shouldSendMaxDataUpdate(nextConnMax));
+<span class="keyword">assert</span>(nextConnMax == 150); <span class="comment">// 50 + 100
+</span></code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div><div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="psymbol">StreamMap</span> sm1 = <span class="psymbol">StreamMap</span>(Side.client, 1000, 500, 500, 500, 10, 10, 10, 10);
+StreamId sid;
+<span class="keyword">assert</span>(sm1.openLocalStream(StreamDirection.bidirectional, sid) == TransportErrorCode.noError);
+<span class="keyword">assert</span>(sm1.streamCount == 1);
+
+<span class="psymbol">StreamMap</span> sm2;
+sm2.moveFrom(sm1);
+<span class="keyword">assert</span>(sm1.streamCount == 0);
+<span class="keyword">assert</span>(sm2.streamCount == 1);
+<span class="keyword">assert</span>(sm2.getStream(sid) !<span class="keyword">is</span> <span class="keyword">null</span>);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div><div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="comment">// Server StreamMap
+</span><span class="psymbol">StreamMap</span> sm = <span class="psymbol">StreamMap</span>(Side.server, 100, 60, 60, 60, 4, 4);
+
+<span class="comment">// Stream 0 receives 30 bytes
+</span><span class="keyword">ubyte</span>[30] p30;
+StreamFrame sf0;
+sf0.streamId = 0;
+sf0.offset = 0;
+sf0.data = p30[];
+<span class="keyword">assert</span>(sm.onStreamFrame(sf0) == TransportErrorCode.noError);
+<span class="keyword">assert</span>(sm.connFlow.highestReceived == 30);
+
+<span class="comment">// Stream 0 is reset with finalSize = 50. Increases connFlow by 20 bytes to 50.
+</span>ResetStreamFrame rst;
+rst.streamId = 0;
+rst.applicationErrorCode = 42;
+rst.finalSize = 50;
+<span class="keyword">assert</span>(sm.onResetStreamFrame(rst) == TransportErrorCode.noError);
+<span class="keyword">assert</span>(sm.connFlow.highestReceived == 50);
+
+<span class="comment">// Duplicate RESET_STREAM with finalSize = 50 must succeed idempotently without double-counting connFlow
+</span><span class="keyword">assert</span>(sm.onResetStreamFrame(rst) == TransportErrorCode.noError);
+<span class="keyword">assert</span>(sm.connFlow.highestReceived == 50);
+
+<span class="comment">// Reordered STREAM frame for stream 0 (bytes 10..40) must NOT double-count connFlow
+</span><span class="keyword">ubyte</span>[30] pReorder;
+StreamFrame sfReorder;
+sfReorder.streamId = 0;
+sfReorder.offset = 10;
+sfReorder.data = pReorder[];
+<span class="keyword">assert</span>(sm.onStreamFrame(sfReorder) == TransportErrorCode.noError);
+<span class="keyword">assert</span>(sm.connFlow.highestReceived == 50);
+
+<span class="comment">// RESET_STREAM with different finalSize must return finalSizeError
+</span>ResetStreamFrame rstConflict;
+rstConflict.streamId = 0;
+rstConflict.applicationErrorCode = 42;
+rstConflict.finalSize = 60;
+<span class="keyword">assert</span>(sm.onResetStreamFrame(rstConflict) == TransportErrorCode.finalSizeError);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div><div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="comment">// Server StreamMap
+</span><span class="psymbol">StreamMap</span> sm = <span class="psymbol">StreamMap</span>(Side.server, 1000, 200, 200, 200, 4, 4);
+
+<span class="comment">// 1. MAX_STREAM_DATA for unopened peer-initiated bidi stream 4 (index 1 &lt; localMaxStreamsBidi 4)
+</span>MaxStreamDataFrame msdf;
+msdf.streamId = 4;
+msdf.maximumStreamData = 500;
+<span class="keyword">assert</span>(sm.onMaxStreamDataFrame(msdf) == TransportErrorCode.noError);
+
+<span class="comment">// Implicit streams 0 and 4 were opened
+</span><span class="keyword">assert</span>(sm.streamCount == 2);
+QuicStream* s4 = sm.getStream(StreamId(4));
+<span class="keyword">assert</span>(s4 !<span class="keyword">is</span> <span class="keyword">null</span>);
+<span class="keyword">assert</span>(s4.flowCtrl.remoteMaxData == 500);
+
+<span class="comment">// 2. MAX_STREAM_DATA for stream with streamId &gt; VARINT_MAX
+</span>MaxStreamDataFrame msdfBadId;
+msdfBadId.streamId = VARINT_MAX + 1;
+msdfBadId.maximumStreamData = 100;
+<span class="keyword">assert</span>(sm.onMaxStreamDataFrame(msdfBadId) == TransportErrorCode.frameEncodingError);
+
+<span class="comment">// 3. MAX_STREAM_DATA on server-initiated uni stream (peer cannot send)
+</span>MaxStreamDataFrame msdfServerUni;
+msdfServerUni.streamId = 3; <span class="comment">// server uni
+</span>msdfServerUni.maximumStreamData = 100;
+<span class="keyword">assert</span>(sm.onMaxStreamDataFrame(msdfServerUni) == TransportErrorCode.streamStateError);
+
+<span class="comment">// 4. MAX_STREAM_DATA on uncreated local stream (server bidi index 2, not yet opened by server)
+</span>MaxStreamDataFrame msdfUncreated;
+msdfUncreated.streamId = 9; <span class="comment">// server bidi index 2 (server bidi: 2*4 + 1 = 9)
+</span>msdfUncreated.maximumStreamData = 100;
+<span class="keyword">assert</span>(sm.onMaxStreamDataFrame(msdfUncreated) == TransportErrorCode.streamStateError);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div><div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="psymbol">StreamMap</span> sm = <span class="psymbol">StreamMap</span>(Side.client, 50, 50, 50, 50, 4, 4, 4, 4);
+sm.connFlow.updateRemoteMaxData(20); <span class="comment">// 20 bytes connection credit
+</span>
+StreamId sid;
+<span class="keyword">assert</span>(sm.openLocalStream(StreamDirection.bidirectional, sid) == TransportErrorCode.noError);
+QuicStream* s = sm.getStream(sid);
+<span class="keyword">assert</span>(s !<span class="keyword">is</span> <span class="keyword">null</span>);
+
+<span class="keyword">ubyte</span>[20] data20;
+<span class="keyword">assert</span>(s.sendBuf.write(data20[], <span class="keyword">false</span>));
+
+<span class="comment">// Poll 20 bytes: consumes all 20 bytes of credit
+</span>StreamId polledId;
+TransmitChunk chunk;
+<span class="keyword">assert</span>(sm.pollWritable(polledId, 100, chunk));
+<span class="keyword">assert</span>(chunk.data.length == 20);
+<span class="keyword">assert</span>(sm.connFlow.sendCredit() == 0);
+<span class="keyword">assert</span>(s.sendState == SendStreamState.send);
+
+<span class="comment">// Mark range [0..10] lost
+</span>s.sendBuf.onRangeLost(0, 10, <span class="keyword">false</span>);
+<span class="keyword">assert</span>(s.sendBuf.lostRangeCount == 1);
+
+<span class="comment">// Poll writable: retransmission must succeed even though credit is 0!
+</span>TransmitChunk retransmitChunk;
+<span class="keyword">assert</span>(sm.pollWritable(polledId, 100, retransmitChunk));
+<span class="keyword">assert</span>(retransmitChunk.offset == 0);
+<span class="keyword">assert</span>(retransmitChunk.data.length == 10);
+<span class="comment">// Flow credit must NOT be charged for retransmitted bytes!
+</span><span class="keyword">assert</span>(sm.connFlow.sendCredit() == 0);
+
+<span class="comment">// Write FIN with no additional data
+</span><span class="keyword">assert</span>(s.sendBuf.write(<span class="keyword">null</span>, <span class="keyword">true</span>));
+TransmitChunk finChunk;
+<span class="keyword">assert</span>(sm.pollWritable(polledId, 100, finChunk));
+<span class="keyword">assert</span>(finChunk.fin);
+<span class="keyword">assert</span>(finChunk.data.length == 0);
+<span class="keyword">assert</span>(s.sendState == SendStreamState.dataSent);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div><div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="comment">// Server StreamMap with capacity
+</span><span class="psymbol">StreamMap</span> sm = <span class="psymbol">StreamMap</span>(Side.server, 100, 50, 50, 50, 4, 4);
+
+<span class="comment">// Stream frame on unopened stream 4 with payload 60 &gt; initial max stream data 50
+</span><span class="keyword">ubyte</span>[60] bigPayload;
+StreamFrame sfOver;
+sfOver.streamId = 4;
+sfOver.offset = 0;
+sfOver.data = bigPayload[];
+
+<span class="comment">// Frame must be rejected atomically: no streams should be opened!
+</span><span class="keyword">assert</span>(sm.onStreamFrame(sfOver) == TransportErrorCode.flowControlError);
+<span class="keyword">assert</span>(sm.streamCount == 0);
+<span class="keyword">assert</span>(sm.getStream(StreamId(0)) <span class="keyword">is</span> <span class="keyword">null</span>);
+<span class="keyword">assert</span>(sm.getStream(StreamId(4)) <span class="keyword">is</span> <span class="keyword">null</span>);
+
+<span class="comment">// Stream frame with invalid VARINT_MAX offset on unopened stream
+</span>StreamFrame sfBadOffset;
+sfBadOffset.streamId = 4;
+sfBadOffset.offset = VARINT_MAX;
+sfBadOffset.data = bigPayload[];
+<span class="keyword">assert</span>(sm.onStreamFrame(sfBadOffset) == TransportErrorCode.finalSizeError);
+<span class="keyword">assert</span>(sm.streamCount == 0);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div>
+</section>
+<ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#StreamMap.applyPeerTransportParams" id="StreamMap.applyPeerTransportParams"><code class="code">applyPeerTransportParams</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="StreamMap.applyPeerTransportParams"></span>nothrow @nogc @trusted void <code class="code">applyPeerTransportParams</code>(ref const TransportParameters <code class="code">peerParams</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Applies negotiated peer transport parameters to connection and stream flow controllers.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#StreamMap.pollControlFrame" id="StreamMap.pollControlFrame"><code class="code">pollControlFrame</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="StreamMap.pollControlFrame"></span>nothrow @nogc @trusted bool <code class="code">pollControlFrame</code>(out Frame <code class="code">f</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Polls pending control frames (RESET_STREAM or STOP_SENDING) for any stream.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#StreamMap.openLocalStream" id="StreamMap.openLocalStream"><code class="code">openLocalStream</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="StreamMap.openLocalStream"></span>nothrow @nogc @trusted TransportErrorCode <code class="code">openLocalStream</code>(StreamDirection <code class="code">dir</code>, out StreamId <code class="code">outId</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Opens a new locally-initiated stream if allowed by remote limits.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#StreamMap.onStreamFrame" id="StreamMap.onStreamFrame"><code class="code">onStreamFrame</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="StreamMap.onStreamFrame"></span>nothrow @nogc @trusted TransportErrorCode <code class="code">onStreamFrame</code>(ref const StreamFrame <code class="code">frame</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Processes an incoming STREAM <code class="code">frame</code> from the peer.
+ Enforces RFC 9000 directionality, stream limits, implicit stream opening,
+ and stream/connection flow control atomically.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#StreamMap.onResetStreamFrame" id="StreamMap.onResetStreamFrame"><code class="code">onResetStreamFrame</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="StreamMap.onResetStreamFrame"></span>nothrow @nogc @trusted TransportErrorCode <code class="code">onResetStreamFrame</code>(ref const ResetStreamFrame <code class="code">frame</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Processes an incoming RESET_STREAM <code class="code">frame</code> from the peer.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#StreamMap.onStopSendingFrame" id="StreamMap.onStopSendingFrame"><code class="code">onStopSendingFrame</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="StreamMap.onStopSendingFrame"></span>nothrow @nogc @safe TransportErrorCode <code class="code">onStopSendingFrame</code>(ref const StopSendingFrame <code class="code">frame</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Processes an incoming STOP_SENDING <code class="code">frame</code> from the peer.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#StreamMap.onMaxDataFrame" id="StreamMap.onMaxDataFrame"><code class="code">onMaxDataFrame</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="StreamMap.onMaxDataFrame"></span>pure nothrow @nogc @safe TransportErrorCode <code class="code">onMaxDataFrame</code>(ref const MaxDataFrame <code class="code">frame</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Processes an incoming MAX_DATA <code class="code">frame</code>.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#StreamMap.onMaxStreamDataFrame" id="StreamMap.onMaxStreamDataFrame"><code class="code">onMaxStreamDataFrame</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="StreamMap.onMaxStreamDataFrame"></span>nothrow @nogc @safe TransportErrorCode <code class="code">onMaxStreamDataFrame</code>(ref const MaxStreamDataFrame <code class="code">frame</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Processes an incoming MAX_STREAM_DATA <code class="code">frame</code>.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#StreamMap.onMaxStreamsFrame" id="StreamMap.onMaxStreamsFrame"><code class="code">onMaxStreamsFrame</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="StreamMap.onMaxStreamsFrame"></span>pure nothrow @nogc @safe TransportErrorCode <code class="code">onMaxStreamsFrame</code>(ref const MaxStreamsFrame <code class="code">frame</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Processes an incoming MAX_STREAMS <code class="code">frame</code>.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#StreamMap.pollWritable" id="StreamMap.pollWritable"><code class="code">pollWritable</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="StreamMap.pollWritable"></span>nothrow @nogc @trusted bool <code class="code">pollWritable</code>(out StreamId <code class="code">readyStream</code>, size_t <code class="code">maxBytes</code>, out TransmitChunk <code class="code">chunk</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Polls the next stream ready for transmission in round-robin order.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li>
+</ul>
+
+</div>
+
+</li>
+</ul>
+  </div>
+</section>
+</section>
+      </article>
+    </div>
+  </body>
+</html>

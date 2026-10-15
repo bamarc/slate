@@ -18,6 +18,9 @@ public import slate.controller;
 public import slate.demo;
 public import slate.agent;
 public import slate.mcp;
+public import slate.http;
+public import slate.quic;
+public import slate.components;
 
 /// Convenience initialization (idempotent logging setup).
 alias init = slate.app.slateInit;

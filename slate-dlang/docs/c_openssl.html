@@ -1,0 +1,3280 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>slate.quic.crypto.c_openssl</title>
+    <style type="text/css" media="screen">
+      html, body, div, span, object, iframe, h1, h2, h3, h4, h5, h6, p,
+      blockquote, pre, a, abbr, address, cite, code, del, dfn, em, figure,
+      img, ins, kbd, q, s, samp, small, strong, sub, sup, var, b, u, i, dl,
+      dt, dd, ol, ul, li, fieldset, form, label, legend, table, caption,
+      tbody, tfoot, thead, tr, th, td {
+        background: transparent none repeat scroll 0 0;
+        border: 0 none;
+        font-size: 100%;
+        margin: 0;
+        outline: 0 none;
+        padding: 0;
+        vertical-align: baseline;
+      }
+
+      h1 { font-size: 200%; }
+      h2 { font-size: 160%; }
+      h3 { font-size: 120%; }
+      h4 { font-size: 100%; }
+      h5 { font-size: 80%; }
+      h6 { font-size: 80%; font-weight: normal; }
+
+      ul, ol {
+        margin: 1.4em 0;
+      }
+      ul ul, ol ol, ul ol, ol ul {
+        margin-top: 0;
+        margin-bottom: 0;
+      }
+      ul, ol {
+        margin-left: 2.8em;
+      }
+
+      ol {
+        list-style: decimal;
+      }
+      ol ol {
+        list-style: lower-alpha;
+      }
+      ol ol ol {
+        list-style: lower-roman;
+      }
+      ol ol ol ol {
+        list-style: decimal;
+      }
+
+      blockquote {
+        margin: 0.1em;
+        margin-left: 1em;
+        border-left: 2px solid #cccccc;
+        padding-left: 0.7em;
+      }
+
+      .color_red { color: #dc322f; }
+      .color_blue { color: #268bd2; }
+      .color_green { color: #859901; }
+      .color_yellow { color: #b58901; }
+      .color_black { color: black; }
+      .color_white { color: white; }
+
+      .font_big {
+        font-size: 1.2em;
+      }
+
+      .ddoc_section_h {
+        font-weight: bold;
+        font-size: 13px;
+        line-height: 19.5px;
+        margin-top: 11px;
+        display: block;
+      }
+
+      body.dlang .dlang {
+        display: inline-block;
+      }
+
+      body.dlang .declaration .dlang {
+          display: block;
+      }
+
+      body.dlang .ddoc_header_anchor a.dlang {
+        display: block;
+        color: rgba(0, 136, 204, 1);
+        text-decoration: none;
+      }
+
+      body.dlang .ddoc_header_anchor .code {
+        color: rgba(0, 136, 204, 1);
+      }
+
+      #ddoc_main .module {
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          overflow-x: hidden;
+          padding: 15px;
+      }
+
+      #ddoc_main .section .section {
+        margin-top: 0;
+      }
+
+      #ddoc_main .ddoc_module_members_section {
+          padding: 1px 0 0;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members section.intro {
+          background: #fff none repeat scroll 0 0;
+          list-style-type: none;
+          width: 100%;
+      }
+
+      #ddoc_main .ddoc_header_anchor {
+          font-size: 1.4em;
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .ddoc_header_anchor > .code {
+          display: inline-block;
+
+      }
+
+      #ddoc_main .ddoc_decl {
+        background-color: transparent;
+        height: 100%;
+        left: 0;
+        top: 0;
+        padding: 0;
+        padding-left: 15px;
+      }
+
+      #ddoc_main .ddoc_decl .section, #ddoc_main .section.ddoc_sections {
+        background: white none repeat scroll 0 0;
+        margin: 0;
+        padding: 5px;
+        position: relative;
+        border-radius: 5px;
+      }
+
+      #ddoc_main .ddoc_decl .section h4:first-of-type, #ddoc_main .section.ddoc_sections h4:first-of-type {
+        font-size: 13px;
+        line-height: 1.5;
+        margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration {
+          margin-top: 21px;
+      }
+
+      #ddoc_main .section .declaration .code {
+          color: rgba(0, 0, 0, 1);
+          margin-bottom: 15px;
+          padding-bottom: 6px;
+      }
+
+      #ddoc_main .declaration div .para {
+          margin-bottom: 0;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr td:first-of-type {
+        padding: 7px;
+        text-align: right;
+        vertical-align: top;
+        word-break: normal;
+        white-space: nowrap;
+      }
+
+      #ddoc_main .ddoc_params .graybox {
+        border: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox td {
+        border-color: rgba(214, 214, 214, 1);
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:first-child > td {
+        border-top: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr:last-child > td {
+        border-bottom: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:first-child {
+        border-left: 0 none;
+      }
+
+      #ddoc_main .ddoc_params .graybox tr > td:last-child {
+        border-right: 0 none;
+        width: 100%;
+      }
+
+      #ddoc_main em.term, #ddoc_main em.term .code {
+        color: rgba(65, 65, 65, 1);
+        font-size: 12px;
+        font-style: italic;
+        line-height: 1.5;
+      }
+
+      #ddoc_main .see-also {
+        cursor: pointer;
+        font-family: Menlo,monospace;
+      }
+
+      #ddoc_main .ddoc_decl .section > div:last-of-type {
+        margin-bottom: 15px;
+      }
+
+      #ddoc_main .ddoc_member, #ddoc_main .ddoc_module_members {
+          transition: transform 0.3s ease 0s;
+      }
+
+      #ddoc_main .code_sample {
+        background: inherit;
+      }
+
+      #ddoc_main .declaration .code-line {
+          display: block;
+          font: 1em Menlo,monospace;
+      }
+
+      #ddoc_main a[name] {
+        margin: -112px 0 0;
+        padding-top: 112px;
+      }
+
+      #ddoc_main .ddoc_decl td {
+        max-width: inherit;
+      }
+
+      #ddoc_main .declaration a {
+        color: inherit;
+      }
+
+      #ddoc_main .declaration a:hover {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: underline;
+      }
+
+      body.ddoc {
+        background-color: transparent;
+        color: rgba(0, 0, 0, 1);
+        font-family: Helvetica,Arial,sans-serif;
+        font-size: 62.5%;
+        margin: 0;
+        border: 0;
+        left: 0;
+        top: 0;
+        padding: 0;
+      }
+
+      .ddoc a[name] {
+        display: block;
+        height: 0;
+        margin: -85px 0 0;
+        padding-top: 85px;
+        width: 0;
+      }
+
+      .ddoc .module {
+          border-color: transparent;
+          background-color: rgba(255, 255, 255, 1);
+          border-color: currentColor rgba(233, 233, 233, 1) rgba(233, 233, 233, 1);
+          border-image: none;
+          border-style: none solid solid;
+          border-width: 0 1px 1px;
+          box-shadow: 0 0 1px rgba(0, 0, 0, 0.07);
+          display: block;
+          margin-left: 0;
+          min-height: calc(100% - 173px);
+          overflow: auto;
+          padding-bottom: 100px;
+      }
+
+      .ddoc .content_wrapper {
+          background-color: rgba(242, 242, 242, 1);
+          margin: 0 auto;
+          max-width: 980px;
+      }
+
+      .ddoc .section {
+        padding: 15px 25px 30px;
+      }
+
+      .ddoc .section .section {
+        margin: 30px 0 0;
+        padding: 0;
+      }
+
+      .ddoc .para {
+        color: rgba(65, 65, 65, 1);
+        font-size: 1.4em;
+        line-height: 145%;
+        margin-bottom: 15px;
+      }
+
+      .ddoc .ddoc_examples .para {
+        margin-bottom: 0;
+      }
+
+      .ddoc .module_name {
+          color: rgba(0, 0, 0, 1);
+          display: block;
+          font-family: Helvetica;
+          font-size: 2.8em;
+          font-weight: 100;
+          margin-bottom: 0;
+          padding: 15px 0;
+      }
+
+      .ddoc .module a {
+          color: rgba(0, 136, 204, 1);
+          text-decoration: none;
+      }
+
+      .ddoc .code {
+        color: rgba(128, 128, 128, 1);
+        font-family: Menlo,monospace;
+        font-size: 0.85em;
+        word-wrap: break-word;
+      }
+
+      .ddoc .code i {
+        font-style: normal;
+      }
+
+      .ddoc .code .code {
+        font-size: 1em;
+      }
+
+      .ddoc .code_sample {
+        background-clip: padding-box;
+        margin: 1px 0;
+        text-align: left;
+      }
+
+      .ddoc .code_sample {
+        display: block;
+        font-size: 1.4em;
+        margin-left: 21px;
+      }
+
+      .ddoc ol .code_sample {
+        font-size: 1em;
+      }
+
+      .ddoc .code_lines {
+        counter-reset: li;
+        line-height: 1.6em;
+        list-style: outside none none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .ddoc .code_listing .code_sample div {
+        margin-left: 13px;
+        width: 93%;
+      }
+
+      .ddoc .code_listing .code_sample div .code_lines li {
+        list-style-type: none;
+        margin: 0;
+        padding-right: 10px;
+      }
+
+      .ddoc .code_sample div .code_lines li::before {
+        margin-left: -33px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+10)::before {
+        margin-left: -39px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample div .code_lines li:nth-child(n+100)::before {
+        margin-left: -46px;
+        margin-right: 25px;
+      }
+
+      .ddoc .code_sample .code_lines .code {
+        color: #000;
+      }
+
+      .ddoc div.dlang {
+        margin: 10px 0 21px;
+        padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+          margin: 10px 0 21px;
+          padding: 4px 0 2px 10px;
+      }
+
+      .ddoc div.dlang {
+        border-left: 5px solid rgba(0, 155, 51, 0.2);
+      }
+
+      .ddoc .code_lines li::before {
+        color: rgba(128, 128, 128, 1);
+        content: counter(li, decimal);
+        counter-increment: li;
+        font-family: Menlo,monospace;
+        font-size: 0.9em;
+        margin-right: 16px;
+      }
+
+      .ddoc .code_lines li {
+        padding-left: 0;
+        white-space: pre-wrap;
+      }
+
+      .ddoc .code_lines pre {
+        display: contents;
+      }
+
+      .ddoc .code_lines li:only-of-type::before {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:only-of-type {
+        color: rgba(255, 255, 255, 1);
+        content: " ";
+      }
+
+      .ddoc .code_lines li:nth-child(n+10) {
+        text-indent: -17px;
+      }
+
+      .ddoc .code_lines li:nth-child(n+10)::before {
+        margin-right: 12px;
+      }
+
+      .ddoc .graybox {
+        border: 1px solid rgba(233, 233, 233, 1);
+        border-collapse: collapse;
+        border-spacing: 0;
+        empty-cells: hide;
+        margin: 20px 0 36px;
+        text-align: left;
+      }
+
+      .ddoc .graybox p {
+        margin: 0;
+        min-width: 50px;
+      }
+
+      .ddoc th {
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: bottom;
+      }
+
+      .ddoc td {
+        border: 1px solid rgba(233, 233, 233, 1);
+        margin: 0;
+        max-width: 260px;
+        padding: 5px 10px 5px 10px;
+        vertical-align: middle;
+      }
+
+      .punctuation {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .comment {
+        color: rgba(0, 131, 18, 1);
+      }
+
+      .operator {
+        color: #000;
+      }
+
+      .keyword {
+        color: rgba(170, 13, 145, 1);
+      }
+
+      .keyword_type {
+        color: rgba(170, 51, 145, 1);
+      }
+
+      .string_literal {
+        color: rgba(196, 26, 22, 1);
+      }
+
+      .ddoc_psuper_symbol {
+        color: rgba(92, 38, 153, 1);
+      }
+
+      .param {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .psymbol {
+        color: rgba(0, 0, 0, 1);
+      }
+
+      .ddoc_member_header .ddoc_header_anchor .code {
+        font-size: 1em;
+      }
+    </style>
+  </head>
+  <body id="ddoc_main" class="ddoc dlang">
+    <div class="content_wrapper">
+      <article class="module">
+        <h1 class="module_name">slate.quic.crypto.c_openssl</h1>
+        <section id="module_content">
+<section class="section ddoc_module_members_section">
+  <div class="ddoc_module_members">
+    <ul class="ddoc_members">
+  <li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#OpenSSL_version_num" id="OpenSSL_version_num"><code class="code">OpenSSL_version_num</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="OpenSSL_version_num"></span>package(slate.quic) nothrow @nogc @system ulong <code class="code">OpenSSL_version_num</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#OpenSSL_version" id="OpenSSL_version"><code class="code">OpenSSL_version</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="OpenSSL_version"></span>package(slate.quic) nothrow @nogc @system const(char)* <code class="code">OpenSSL_version</code>(int <code class="code">type</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_MD" id="EVP_MD"><code class="code">EVP_MD</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_MD"></span>struct <code class="code">EVP_MD</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_sha256" id="EVP_sha256"><code class="code">EVP_sha256</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_sha256"></span>package(slate.quic) nothrow @nogc @system const(EVP_MD)* <code class="code">EVP_sha256</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_sha384" id="EVP_sha384"><code class="code">EVP_sha384</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_sha384"></span>package(slate.quic) nothrow @nogc @system const(EVP_MD)* <code class="code">EVP_sha384</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_CIPHER" id="EVP_CIPHER"><code class="code">EVP_CIPHER</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_CIPHER"></span>struct <code class="code">EVP_CIPHER</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_CIPHER_CTX" id="EVP_CIPHER_CTX"><code class="code">EVP_CIPHER_CTX</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_CIPHER_CTX"></span>struct <code class="code">EVP_CIPHER_CTX</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_CIPHER_CTX_new" id="EVP_CIPHER_CTX_new"><code class="code">EVP_CIPHER_CTX_new</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_CIPHER_CTX_new"></span>package(slate.quic) nothrow @nogc @system EVP_CIPHER_CTX* <code class="code">EVP_CIPHER_CTX_new</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_CIPHER_CTX_free" id="EVP_CIPHER_CTX_free"><code class="code">EVP_CIPHER_CTX_free</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_CIPHER_CTX_free"></span>package(slate.quic) nothrow @nogc @system void <code class="code">EVP_CIPHER_CTX_free</code>(EVP_CIPHER_CTX* <code class="code">ctx</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_CIPHER_CTX_reset" id="EVP_CIPHER_CTX_reset"><code class="code">EVP_CIPHER_CTX_reset</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_CIPHER_CTX_reset"></span>package(slate.quic) nothrow @nogc @system int <code class="code">EVP_CIPHER_CTX_reset</code>(EVP_CIPHER_CTX* <code class="code">ctx</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_CIPHER_CTX_ctrl" id="EVP_CIPHER_CTX_ctrl"><code class="code">EVP_CIPHER_CTX_ctrl</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_CIPHER_CTX_ctrl"></span>package(slate.quic) nothrow @nogc @system int <code class="code">EVP_CIPHER_CTX_ctrl</code>(EVP_CIPHER_CTX* <code class="code">ctx</code>, int <code class="code">type</code>, int <code class="code">arg</code>, void* <code class="code">ptr</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_CIPHER_CTX_set_padding" id="EVP_CIPHER_CTX_set_padding"><code class="code">EVP_CIPHER_CTX_set_padding</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_CIPHER_CTX_set_padding"></span>package(slate.quic) nothrow @nogc @system int <code class="code">EVP_CIPHER_CTX_set_padding</code>(EVP_CIPHER_CTX* <code class="code">ctx</code>, int <code class="code">pad</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_aes_128_gcm" id="EVP_aes_128_gcm"><code class="code">EVP_aes_128_gcm</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_aes_128_gcm"></span>package(slate.quic) nothrow @nogc @system const(EVP_CIPHER)* <code class="code">EVP_aes_128_gcm</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_aes_256_gcm" id="EVP_aes_256_gcm"><code class="code">EVP_aes_256_gcm</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_aes_256_gcm"></span>package(slate.quic) nothrow @nogc @system const(EVP_CIPHER)* <code class="code">EVP_aes_256_gcm</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_chacha20_poly1305" id="EVP_chacha20_poly1305"><code class="code">EVP_chacha20_poly1305</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_chacha20_poly1305"></span>package(slate.quic) nothrow @nogc @system const(EVP_CIPHER)* <code class="code">EVP_chacha20_poly1305</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_aes_128_ecb" id="EVP_aes_128_ecb"><code class="code">EVP_aes_128_ecb</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_aes_128_ecb"></span>package(slate.quic) nothrow @nogc @system const(EVP_CIPHER)* <code class="code">EVP_aes_128_ecb</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_aes_256_ecb" id="EVP_aes_256_ecb"><code class="code">EVP_aes_256_ecb</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_aes_256_ecb"></span>package(slate.quic) nothrow @nogc @system const(EVP_CIPHER)* <code class="code">EVP_aes_256_ecb</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_chacha20" id="EVP_chacha20"><code class="code">EVP_chacha20</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_chacha20"></span>package(slate.quic) nothrow @nogc @system const(EVP_CIPHER)* <code class="code">EVP_chacha20</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_EncryptInit_ex" id="EVP_EncryptInit_ex"><code class="code">EVP_EncryptInit_ex</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_EncryptInit_ex"></span>package(slate.quic) nothrow @nogc @system int <code class="code">EVP_EncryptInit_ex</code>(EVP_CIPHER_CTX* <code class="code">ctx</code>, const(EVP_CIPHER)* <code class="code">cipher</code>, void* <code class="code">impl_</code>, const(ubyte)* <code class="code">key</code>, const(ubyte)* <code class="code">iv</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_EncryptUpdate" id="EVP_EncryptUpdate"><code class="code">EVP_EncryptUpdate</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_EncryptUpdate"></span>package(slate.quic) nothrow @nogc @system int <code class="code">EVP_EncryptUpdate</code>(EVP_CIPHER_CTX* <code class="code">ctx</code>, ubyte* <code class="code">out_</code>, int* <code class="code">outl</code>, const(ubyte)* <code class="code">in_</code>, int <code class="code">inl</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_EncryptFinal_ex" id="EVP_EncryptFinal_ex"><code class="code">EVP_EncryptFinal_ex</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_EncryptFinal_ex"></span>package(slate.quic) nothrow @nogc @system int <code class="code">EVP_EncryptFinal_ex</code>(EVP_CIPHER_CTX* <code class="code">ctx</code>, ubyte* <code class="code">out_</code>, int* <code class="code">outl</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_DecryptInit_ex" id="EVP_DecryptInit_ex"><code class="code">EVP_DecryptInit_ex</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_DecryptInit_ex"></span>package(slate.quic) nothrow @nogc @system int <code class="code">EVP_DecryptInit_ex</code>(EVP_CIPHER_CTX* <code class="code">ctx</code>, const(EVP_CIPHER)* <code class="code">cipher</code>, void* <code class="code">impl_</code>, const(ubyte)* <code class="code">key</code>, const(ubyte)* <code class="code">iv</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_DecryptUpdate" id="EVP_DecryptUpdate"><code class="code">EVP_DecryptUpdate</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_DecryptUpdate"></span>package(slate.quic) nothrow @nogc @system int <code class="code">EVP_DecryptUpdate</code>(EVP_CIPHER_CTX* <code class="code">ctx</code>, ubyte* <code class="code">out_</code>, int* <code class="code">outl</code>, const(ubyte)* <code class="code">in_</code>, int <code class="code">inl</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_DecryptFinal_ex" id="EVP_DecryptFinal_ex"><code class="code">EVP_DecryptFinal_ex</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_DecryptFinal_ex"></span>package(slate.quic) nothrow @nogc @system int <code class="code">EVP_DecryptFinal_ex</code>(EVP_CIPHER_CTX* <code class="code">ctx</code>, ubyte* <code class="code">out_</code>, int* <code class="code">outl</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_CipherInit_ex" id="EVP_CipherInit_ex"><code class="code">EVP_CipherInit_ex</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_CipherInit_ex"></span>package(slate.quic) nothrow @nogc @system int <code class="code">EVP_CipherInit_ex</code>(EVP_CIPHER_CTX* <code class="code">ctx</code>, const(EVP_CIPHER)* <code class="code">cipher</code>, void* <code class="code">impl_</code>, const(ubyte)* <code class="code">key</code>, const(ubyte)* <code class="code">iv</code>, int <code class="code">enc</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_CTRL_AEAD_SET_IVLEN" id="EVP_CTRL_AEAD_SET_IVLEN"><code class="code">EVP_CTRL_AEAD_SET_IVLEN</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_CTRL_AEAD_SET_IVLEN"></span>package(slate.quic) enum int <code class="code">EVP_CTRL_AEAD_SET_IVLEN</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_CTRL_AEAD_GET_TAG" id="EVP_CTRL_AEAD_GET_TAG"><code class="code">EVP_CTRL_AEAD_GET_TAG</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_CTRL_AEAD_GET_TAG"></span>package(slate.quic) enum int <code class="code">EVP_CTRL_AEAD_GET_TAG</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#EVP_CTRL_AEAD_SET_TAG" id="EVP_CTRL_AEAD_SET_TAG"><code class="code">EVP_CTRL_AEAD_SET_TAG</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="EVP_CTRL_AEAD_SET_TAG"></span>package(slate.quic) enum int <code class="code">EVP_CTRL_AEAD_SET_TAG</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#HMAC" id="HMAC"><code class="code">HMAC</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="HMAC"></span>package(slate.quic) nothrow @nogc @system ubyte* <code class="code">HMAC</code>(const(EVP_MD)* <code class="code">evp_md</code>, const(void)* <code class="code">key</code>, int <code class="code">key_len</code>, const(ubyte)* <code class="code">d</code>, size_t <code class="code">n</code>, ubyte* <code class="code">md</code>, uint* <code class="code">md_len</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#RAND_bytes" id="RAND_bytes"><code class="code">RAND_bytes</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="RAND_bytes"></span>package(slate.quic) nothrow @nogc @system int <code class="code">RAND_bytes</code>(ubyte* <code class="code">buf</code>, int <code class="code">num</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CTX" id="SSL_CTX"><code class="code">SSL_CTX</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CTX"></span>struct <code class="code">SSL_CTX</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL" id="SSL"><code class="code">SSL</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL"></span>struct <code class="code">SSL</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_METHOD" id="SSL_METHOD"><code class="code">SSL_METHOD</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_METHOD"></span>struct <code class="code">SSL_METHOD</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CIPHER" id="SSL_CIPHER"><code class="code">SSL_CIPHER</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CIPHER"></span>struct <code class="code">SSL_CIPHER</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TLS_method" id="TLS_method"><code class="code">TLS_method</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TLS_method"></span>package(slate.quic) nothrow @nogc @system const(SSL_METHOD)* <code class="code">TLS_method</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TLS_server_method" id="TLS_server_method"><code class="code">TLS_server_method</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TLS_server_method"></span>package(slate.quic) nothrow @nogc @system const(SSL_METHOD)* <code class="code">TLS_server_method</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TLS_client_method" id="TLS_client_method"><code class="code">TLS_client_method</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TLS_client_method"></span>package(slate.quic) nothrow @nogc @system const(SSL_METHOD)* <code class="code">TLS_client_method</code>();
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CTX_new" id="SSL_CTX_new"><code class="code">SSL_CTX_new</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CTX_new"></span>package(slate.quic) nothrow @nogc @system SSL_CTX* <code class="code">SSL_CTX_new</code>(const(SSL_METHOD)* <code class="code">method</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CTX_free" id="SSL_CTX_free"><code class="code">SSL_CTX_free</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CTX_free"></span>package(slate.quic) nothrow @nogc @system void <code class="code">SSL_CTX_free</code>(SSL_CTX* <code class="code">ctx</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CTX_ctrl" id="SSL_CTX_ctrl"><code class="code">SSL_CTX_ctrl</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CTX_ctrl"></span>package(slate.quic) nothrow @nogc @system long <code class="code">SSL_CTX_ctrl</code>(SSL_CTX* <code class="code">ctx</code>, int <code class="code">cmd</code>, long <code class="code">larg</code>, void* <code class="code">parg</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_ctrl" id="SSL_ctrl"><code class="code">SSL_ctrl</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_ctrl"></span>package(slate.quic) nothrow @nogc @system long <code class="code">SSL_ctrl</code>(SSL* <code class="code">s</code>, int <code class="code">cmd</code>, long <code class="code">larg</code>, void* <code class="code">parg</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CTRL_SET_MIN_PROTO_VERSION" id="SSL_CTRL_SET_MIN_PROTO_VERSION"><code class="code">SSL_CTRL_SET_MIN_PROTO_VERSION</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CTRL_SET_MIN_PROTO_VERSION"></span>package(slate.quic) enum int <code class="code">SSL_CTRL_SET_MIN_PROTO_VERSION</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CTRL_SET_MAX_PROTO_VERSION" id="SSL_CTRL_SET_MAX_PROTO_VERSION"><code class="code">SSL_CTRL_SET_MAX_PROTO_VERSION</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CTRL_SET_MAX_PROTO_VERSION"></span>package(slate.quic) enum int <code class="code">SSL_CTRL_SET_MAX_PROTO_VERSION</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#TLS1_3_VERSION" id="TLS1_3_VERSION"><code class="code">TLS1_3_VERSION</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="TLS1_3_VERSION"></span>package(slate.quic) enum int <code class="code">TLS1_3_VERSION</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_FILETYPE_PEM" id="SSL_FILETYPE_PEM"><code class="code">SSL_FILETYPE_PEM</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_FILETYPE_PEM"></span>package(slate.quic) enum int <code class="code">SSL_FILETYPE_PEM</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CTX_use_certificate_file" id="SSL_CTX_use_certificate_file"><code class="code">SSL_CTX_use_certificate_file</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CTX_use_certificate_file"></span>package(slate.quic) nothrow @nogc @system int <code class="code">SSL_CTX_use_certificate_file</code>(SSL_CTX* <code class="code">ctx</code>, const(char)* <code class="code">file</code>, int <code class="code">type</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CTX_use_certificate_chain_file" id="SSL_CTX_use_certificate_chain_file"><code class="code">SSL_CTX_use_certificate_chain_file</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CTX_use_certificate_chain_file"></span>package(slate.quic) nothrow @nogc @system int <code class="code">SSL_CTX_use_certificate_chain_file</code>(SSL_CTX* <code class="code">ctx</code>, const(char)* <code class="code">file</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CTX_use_PrivateKey_file" id="SSL_CTX_use_PrivateKey_file"><code class="code">SSL_CTX_use_PrivateKey_file</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CTX_use_PrivateKey_file"></span>package(slate.quic) nothrow @nogc @system int <code class="code">SSL_CTX_use_PrivateKey_file</code>(SSL_CTX* <code class="code">ctx</code>, const(char)* <code class="code">file</code>, int <code class="code">type</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CTX_alpn_select_cb_fn" id="SSL_CTX_alpn_select_cb_fn"><code class="code">SSL_CTX_alpn_select_cb_fn</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CTX_alpn_select_cb_fn"></span>package(slate.quic) alias <code class="code">SSL_CTX_alpn_select_cb_fn</code> = extern (C) int function(SSL* s, const(ubyte)** out_, ubyte* outlen, const(ubyte)* in_, uint inlen, void* arg) nothrow @nogc @system;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CTX_set_alpn_select_cb" id="SSL_CTX_set_alpn_select_cb"><code class="code">SSL_CTX_set_alpn_select_cb</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CTX_set_alpn_select_cb"></span>package(slate.quic) nothrow @nogc @system void <code class="code">SSL_CTX_set_alpn_select_cb</code>(SSL_CTX* <code class="code">ctx</code>, SSL_CTX_alpn_select_cb_fn <code class="code">cb</code>, void* <code class="code">arg</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CTX_set_alpn_protos" id="SSL_CTX_set_alpn_protos"><code class="code">SSL_CTX_set_alpn_protos</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CTX_set_alpn_protos"></span>package(slate.quic) nothrow @nogc @system int <code class="code">SSL_CTX_set_alpn_protos</code>(SSL_CTX* <code class="code">ctx</code>, const(ubyte)* <code class="code">protos</code>, uint <code class="code">protos_len</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_set_alpn_protos" id="SSL_set_alpn_protos"><code class="code">SSL_set_alpn_protos</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_set_alpn_protos"></span>package(slate.quic) nothrow @nogc @system int <code class="code">SSL_set_alpn_protos</code>(SSL* <code class="code">s</code>, const(ubyte)* <code class="code">protos</code>, uint <code class="code">protos_len</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_get0_alpn_selected" id="SSL_get0_alpn_selected"><code class="code">SSL_get0_alpn_selected</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_get0_alpn_selected"></span>package(slate.quic) nothrow @nogc @system void <code class="code">SSL_get0_alpn_selected</code>(const(SSL)* <code class="code">s</code>, const(ubyte)** <code class="code">data</code>, uint* <code class="code">len</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_TLSEXT_ERR_OK" id="SSL_TLSEXT_ERR_OK"><code class="code">SSL_TLSEXT_ERR_OK</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_TLSEXT_ERR_OK"></span>package(slate.quic) enum int <code class="code">SSL_TLSEXT_ERR_OK</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_TLSEXT_ERR_ALERT_FATAL" id="SSL_TLSEXT_ERR_ALERT_FATAL"><code class="code">SSL_TLSEXT_ERR_ALERT_FATAL</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_TLSEXT_ERR_ALERT_FATAL"></span>package(slate.quic) enum int <code class="code">SSL_TLSEXT_ERR_ALERT_FATAL</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_TLSEXT_ERR_NOACK" id="SSL_TLSEXT_ERR_NOACK"><code class="code">SSL_TLSEXT_ERR_NOACK</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_TLSEXT_ERR_NOACK"></span>package(slate.quic) enum int <code class="code">SSL_TLSEXT_ERR_NOACK</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_new" id="SSL_new"><code class="code">SSL_new</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_new"></span>package(slate.quic) nothrow @nogc @system SSL* <code class="code">SSL_new</code>(SSL_CTX* <code class="code">ctx</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_free" id="SSL_free"><code class="code">SSL_free</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_free"></span>package(slate.quic) nothrow @nogc @system void <code class="code">SSL_free</code>(SSL* <code class="code">s</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_set_accept_state" id="SSL_set_accept_state"><code class="code">SSL_set_accept_state</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_set_accept_state"></span>package(slate.quic) nothrow @nogc @system void <code class="code">SSL_set_accept_state</code>(SSL* <code class="code">s</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_set_connect_state" id="SSL_set_connect_state"><code class="code">SSL_set_connect_state</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_set_connect_state"></span>package(slate.quic) nothrow @nogc @system void <code class="code">SSL_set_connect_state</code>(SSL* <code class="code">s</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_do_handshake" id="SSL_do_handshake"><code class="code">SSL_do_handshake</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_do_handshake"></span>package(slate.quic) nothrow @nogc @system int <code class="code">SSL_do_handshake</code>(SSL* <code class="code">s</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_get_error" id="SSL_get_error"><code class="code">SSL_get_error</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_get_error"></span>package(slate.quic) nothrow @nogc @system int <code class="code">SSL_get_error</code>(const(SSL)* <code class="code">s</code>, int <code class="code">ret_code</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_get_current_cipher" id="SSL_get_current_cipher"><code class="code">SSL_get_current_cipher</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_get_current_cipher"></span>package(slate.quic) nothrow @nogc @system const(SSL_CIPHER)* <code class="code">SSL_get_current_cipher</code>(const(SSL)* <code class="code">s</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CIPHER_get_protocol_id" id="SSL_CIPHER_get_protocol_id"><code class="code">SSL_CIPHER_get_protocol_id</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CIPHER_get_protocol_id"></span>package(slate.quic) nothrow @nogc @system uint <code class="code">SSL_CIPHER_get_protocol_id</code>(const(SSL_CIPHER)* <code class="code">c</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CIPHER_get_id" id="SSL_CIPHER_get_id"><code class="code">SSL_CIPHER_get_id</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CIPHER_get_id"></span>package(slate.quic) nothrow @nogc @system uint <code class="code">SSL_CIPHER_get_id</code>(const(SSL_CIPHER)* <code class="code">c</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#OSSL_DISPATCH" id="OSSL_DISPATCH"><code class="code">OSSL_DISPATCH</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="OSSL_DISPATCH"></span>struct <code class="code">OSSL_DISPATCH</code>;
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_set_quic_tls_cbs" id="SSL_set_quic_tls_cbs"><code class="code">SSL_set_quic_tls_cbs</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_set_quic_tls_cbs"></span>package(slate.quic) nothrow @nogc @system int <code class="code">SSL_set_quic_tls_cbs</code>(SSL* <code class="code">s</code>, const(OSSL_DISPATCH)* <code class="code">qtdis</code>, void* <code class="code">arg</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_set_quic_tls_transport_params" id="SSL_set_quic_tls_transport_params"><code class="code">SSL_set_quic_tls_transport_params</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_set_quic_tls_transport_params"></span>package(slate.quic) nothrow @nogc @system int <code class="code">SSL_set_quic_tls_transport_params</code>(SSL* <code class="code">s</code>, const(ubyte)* <code class="code">params</code>, size_t <code class="code">params_len</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_set_quic_tls_early_data_enabled" id="SSL_set_quic_tls_early_data_enabled"><code class="code">SSL_set_quic_tls_early_data_enabled</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_set_quic_tls_early_data_enabled"></span>package(slate.quic) nothrow @nogc @system int <code class="code">SSL_set_quic_tls_early_data_enabled</code>(SSL* <code class="code">s</code>, int <code class="code">enabled</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+
+</section>
+
+</div>
+
+</li><li class="ddoc_member">
+  <div class="ddoc_member_header">
+  <div class="ddoc_header_anchor">
+  <a href="#SSL_CTX_set_ciphersuites" id="SSL_CTX_set_ciphersuites"><code class="code">SSL_CTX_set_ciphersuites</code></a>
+</div>
+</div><div class="ddoc_decl">
+  <section class="section">
+    <div class="declaration">
+      <h4>Declaration</h4>
+      <div class="dlang">
+        <p class="para">
+          <code class="code">
+            <span class="ddoc_anchor" id="SSL_CTX_set_ciphersuites"></span>package(slate.quic) nothrow @nogc @system int <code class="code">SSL_CTX_set_ciphersuites</code>(SSL_CTX* <code class="code">ctx</code>, const(char)* <code class="code">str</code>);
+
+          </code>
+        </p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="ddoc_decl">
+  <section class="section ddoc_sections">
+  <div class="ddoc_summary">
+  <p class="para">
+    Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+
+  </p>
+</div>
+<div class="ddoc_description">
+  <h4>Discussion</h4>
+  <p class="para">
+    Package-private to slate.quic to prevent raw C pointer leakage.
+  </p>
+</div>
+<div class="ddoc_examples">
+  <h4>Examples</h4>
+  <p class="para">
+    Example:
+<br><br>
+ Low-level C FFI declarations for OpenSSL 3.5 libcrypto and libssl.
+<br><br>
+ Package-private to slate.quic to prevent raw C pointer leakage.
+
+<section class="code_listing">
+  <div class="code_sample">
+    <div class="dlang">
+      <ol class="code_lines">
+        <li><pre><code class="code"><span class="keyword">const</span> <span class="keyword">ulong</span> ver = OpenSSL_version_num();
+<span class="keyword">assert</span>(ver &gt;= 0x30500000L, <span class="string_literal">"OpenSSL version must be &gt;= 3.5.0"</span>);
+</code></pre></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+  </p>
+</div>
+</section>
+
+</div>
+
+</li>
+</ul>
+  </div>
+</section>
+</section>
+      </article>
+    </div>
+  </body>
+</html>
