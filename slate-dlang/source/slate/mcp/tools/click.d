@@ -53,7 +53,7 @@ private bool numArg(JSONValue args, string key, out double value)
 {
     import std.json : JSONType;
 
-    if (key in args)
+    if (args.type == JSONType.object && key in args)
     {
         auto v = args[key];
         if (v.type == JSONType.float_)
@@ -79,7 +79,7 @@ private string strArg(JSONValue args, string key)
 {
     import std.json : JSONType;
 
-    if (key in args && args[key].type == JSONType.string)
+    if (args.type == JSONType.object && key in args && args[key].type == JSONType.string)
         return args[key].get!string;
     return null;
 }
@@ -95,7 +95,7 @@ ToolCallResult handleClickElement(AutomationEngine engine, BoundedLog logs,
     double y;
     bool hasX = numArg(args, "x", x);
     bool hasY = numArg(args, "y", y);
-    if ("point" in args && args["point"].type == JSONType.object)
+    if (args.type == JSONType.object && "point" in args && args["point"].type == JSONType.object)
     {
         double px;
         double py;
@@ -114,7 +114,7 @@ ToolCallResult handleClickElement(AutomationEngine engine, BoundedLog logs,
     if (buttonName is null)
         buttonName = "left";
     ulong clickCount = 1;
-    if ("click_count" in args)
+    if (args.type == JSONType.object && "click_count" in args)
     {
         auto v = args["click_count"];
         if (v.type == JSONType.integer && v.get!long >= 0)

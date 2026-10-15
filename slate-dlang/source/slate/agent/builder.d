@@ -16,6 +16,7 @@
 module slate.agent.builder;
 
 import core.time : Duration;
+static import slint.instance;
 
 import slate.agent.bridge : ComponentBridge, SlintUiBridge, defaultUiTimeout;
 import slate.agent.engine : AutomationEngine, AutomationEngineBuilder, DefaultAutomationEngine,
@@ -98,6 +99,23 @@ class AgentBuilder
     {
         _renderer = v;
         return this;
+    }
+
+    /// Create an `AgentBuilder` pre-wired with `SlintUiInspector`,
+    /// `SlintElementController`, `SlintVisualRenderer`, and `state`
+    /// (defaulting to a new `McpStateRegistry`).
+    static AgentBuilder forWindow(slint.instance.ComponentInstance window, StateProvider state = null)
+    {
+        import slate.agent.declarative : McpStateRegistry;
+        import slate.agent.slint_backend : SlintElementController, SlintUiInspector,
+            SlintVisualRenderer;
+
+        auto sp = state !is null ? state : new McpStateRegistry("main");
+        return new AgentBuilder()
+            .withInspector(new SlintUiInspector(window))
+            .withController(new SlintElementController(window))
+            .withStateProvider(sp)
+            .withRenderer(new SlintVisualRenderer(window));
     }
 
     /// Register a protocol adapter with its config; attached on `start`.

@@ -217,7 +217,18 @@ final class McpServer
             handleNotification(method, params);
             return null;
         }
-        return handleRequest(id, method, params).toJson().toString();
+        try
+        {
+            return handleRequest(id, method, params).toJson().toString();
+        }
+        catch (JSONException e)
+        {
+            return JsonRpcResponse.invalidParams(id, hasId, e.msg).toLine();
+        }
+        catch (Exception e)
+        {
+            return JsonRpcResponse.internalError(id, hasId, e.msg).toLine();
+        }
     }
 
     void handleNotification(string method, JSONValue params)
@@ -240,11 +251,15 @@ final class McpServer
             atomicStore(_initialized, true);
             string requested;
             bool hasRequested;
-            if (hasParams && "protocolVersion" in params
-                && params["protocolVersion"].type == JSONType.string)
+            if (hasParams)
             {
-                requested = params["protocolVersion"].get!string;
-                hasRequested = true;
+                if (params.type != JSONType.object)
+                    return JsonRpcResponse.invalidParams(id, true, "Invalid params: expected object");
+                if ("protocolVersion" in params && params["protocolVersion"].type == JSONType.string)
+                {
+                    requested = params["protocolVersion"].get!string;
+                    hasRequested = true;
+                }
             }
             auto init = McpInitializeResult(_protocolVersion,
                 ServerCapabilities.bare(), ServerInfo(_name, _version));
@@ -299,15 +314,23 @@ final class McpServer
 
     private JsonRpcResponse handleToolsCall(JSONValue id, JSONValue params, bool hasParams)
     {
-        import std.json : JSONType;
+        import std.json : JSONType, JSONException;
 
         if (!hasParams || params.type != JSONType.object)
             return JsonRpcResponse.invalidParams(id, true, "Missing 'name' in tools/call");
         if (!("name" in params) || params["name"].type != JSONType.string)
             return JsonRpcResponse.invalidParams(id, true, "Missing 'name' in tools/call");
         string toolName = params["name"].get!string;
-        JSONValue args = ("arguments" in params) ? params["arguments"]
-            : JSONValue((JSONValue[string]).init);
+        JSONValue args = JSONValue((JSONValue[string]).init);
+        if ("arguments" in params)
+        {
+            if (params["arguments"].type == JSONType.null_)
+                args = JSONValue((JSONValue[string]).init);
+            else if (params["arguments"].type != JSONType.object)
+                return JsonRpcResponse.invalidParams(id, true, "'arguments' in tools/call must be an object");
+            else
+                args = params["arguments"];
+        }
         try
         {
             auto result = dispatchTool(_engine, _logs, toolName, args);
@@ -330,6 +353,10 @@ final class McpServer
                 return JsonRpcResponse.internalError(id, true, e.detail);
             }
         }
+        catch (JSONException e)
+        {
+            return JsonRpcResponse.invalidParams(id, true, e.msg);
+        }
     }
 
     private JsonRpcResponse handleResourcesRead(JSONValue id, JSONValue params, bool hasParams)
@@ -337,8 +364,10 @@ final class McpServer
         import std.json : JSONType;
         import std.format : format;
 
+        if (!hasParams || params.type != JSONType.object)
+            return JsonRpcResponse.invalidParams(id, true, "Missing or invalid 'params': expected object");
         string uri;
-        if (hasParams && "uri" in params && params["uri"].type == JSONType.string)
+        if ("uri" in params && params["uri"].type == JSONType.string)
             uri = params["uri"].get!string;
         else
             return JsonRpcResponse.invalidParams(id, true, "Missing 'uri' parameter");
@@ -433,6 +462,27 @@ unittest
         `"params":{"uri":"slate://missing"}}`)["error"]["code"].get!long == invalidParamsCode);
     assert(rpc(`{"jsonrpc":"2.0","id":12,"method":"resources/read",` ~
         `"params":{}}`)["error"]["code"].get!long == invalidParamsCode);
+
+    // Non-object params in initialize and resources/read return invalidParamsCode (-32602)
+    assert(rpc(`{"jsonrpc":"2.0","id":13,"method":"initialize","params":"not an object"}`)["error"]["code"].get!long
+        == invalidParamsCode);
+    assert(rpc(`{"jsonrpc":"2.0","id":14,"method":"initialize","params":[1,2,3]}`)["error"]["code"].get!long
+        == invalidParamsCode);
+    assert(rpc(`{"jsonrpc":"2.0","id":15,"method":"resources/read","params":"not an object"}`)["error"]["code"].get!long
+        == invalidParamsCode);
+    assert(rpc(`{"jsonrpc":"2.0","id":16,"method":"resources/read","params":[1,2]}`)["error"]["code"].get!long
+        == invalidParamsCode);
+
+    // Non-object or malformed arguments in tools/call return invalidParamsCode (-32602)
+    assert(rpc(`{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"send_keys","arguments":[]}}`)["error"]["code"].get!long
+        == invalidParamsCode);
+    assert(rpc(`{"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"send_keys","arguments":"str"}}`)["error"]["code"].get!long
+        == invalidParamsCode);
+    assert(rpc(`{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"send_keys","arguments":123}}`)["error"]["code"].get!long
+        == invalidParamsCode);
+    assert(rpc(`{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"send_keys","arguments":null}}`)["error"]["code"].get!long
+        == invalidParamsCode);
+
     assert(server.droppedLogCount() == 0);
 }
 

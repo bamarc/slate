@@ -11,8 +11,8 @@ ToolCallResult handleGetState(AutomationEngine engine, JSONValue args)
     import std.json : JSONType;
 
     // Explicit null counts as absent (JSON-RPC convention).
-    bool hasKeys = "keys" in args && args["keys"].type != JSONType.null_;
-    bool hasQuery = "query" in args && args["query"].type != JSONType.null_;
+    bool hasKeys = args.type == JSONType.object && "keys" in args && args["keys"].type != JSONType.null_;
+    bool hasQuery = args.type == JSONType.object && "query" in args && args["query"].type != JSONType.null_;
     if (hasKeys && hasQuery)
         return ToolCallResult.failureText(
             "get_state accepts either 'keys' or legacy 'query', not both");

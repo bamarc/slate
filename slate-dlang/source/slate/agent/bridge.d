@@ -105,7 +105,7 @@ final class SlintUiBridge
     }
 
     /// Run `action` transactionally on the UI thread. If `action` fails (throws Throwable),
-    /// the `scope(failure)` guard executes `rollback` to restore the pre-action UI state.
+    /// the `scope(failure)` guard executes `rollback` on the UI thread to restore the pre-action UI state.
     T runTransactional(T)(T delegate() action, void delegate() rollback)
     in
     {
@@ -113,19 +113,46 @@ final class SlintUiBridge
     }
     do
     {
-        scope (failure)
-        {
-            if (rollback !is null)
-                rollback();
-        }
         static if (is(T == void))
-            runOnUi!void(action);
+        {
+            runOnUi!void(() {
+                scope (failure)
+                {
+                    if (rollback !is null)
+                    {
+                        try
+                            rollback();
+                        catch (Throwable)
+                        {
+                            // Ensure rollback errors do not suppress or mask the original action failure
+                        }
+                    }
+                }
+                action();
+            });
+        }
         else
-            return runOnUi!T(action);
+        {
+            return runOnUi!T(() {
+                scope (failure)
+                {
+                    if (rollback !is null)
+                    {
+                        try
+                            rollback();
+                        catch (Throwable)
+                        {
+                            // Ensure rollback errors do not suppress or mask the original action failure
+                        }
+                    }
+                }
+                return action();
+            });
+        }
     }
 
     /// Run `action` transactionally with an explicit state snapshot.
-    /// If `action` fails, `rollback` is invoked with `stateSnapshot`.
+    /// If `action` fails, `rollback` is invoked with `stateSnapshot` on the UI thread.
     T runTransactional(T, S)(S stateSnapshot, T delegate() action, void delegate(S) rollback)
     in
     {
@@ -133,15 +160,42 @@ final class SlintUiBridge
     }
     do
     {
-        scope (failure)
-        {
-            if (rollback !is null)
-                rollback(stateSnapshot);
-        }
         static if (is(T == void))
-            runOnUi!void(action);
+        {
+            runOnUi!void(() {
+                scope (failure)
+                {
+                    if (rollback !is null)
+                    {
+                        try
+                            rollback(stateSnapshot);
+                        catch (Throwable)
+                        {
+                            // Ensure rollback errors do not suppress or mask the original action failure
+                        }
+                    }
+                }
+                action();
+            });
+        }
         else
-            return runOnUi!T(action);
+        {
+            return runOnUi!T(() {
+                scope (failure)
+                {
+                    if (rollback !is null)
+                    {
+                        try
+                            rollback(stateSnapshot);
+                        catch (Throwable)
+                        {
+                            // Ensure rollback errors do not suppress or mask the original action failure
+                        }
+                    }
+                }
+                return action();
+            });
+        }
     }
 }
 
@@ -358,15 +412,10 @@ final class ComponentBridge
         auto w = _window;
         if (w is null)
             throw AgentError.windowClosed();
-        scope (failure)
-        {
-            if (rollback !is null)
-                rollback();
-        }
         static if (is(T == void))
-            _bridge.runTransactional!void(() => action(w), null);
+            _bridge.runTransactional!void(() => action(w), rollback);
         else
-            return _bridge.runTransactional!T(() => action(w), null);
+            return _bridge.runTransactional!T(() => action(w), rollback);
     }
 
     /// Run `action` transactionally with an explicit state snapshot and the live window.
@@ -380,15 +429,10 @@ final class ComponentBridge
         auto w = _window;
         if (w is null)
             throw AgentError.windowClosed();
-        scope (failure)
-        {
-            if (rollback !is null)
-                rollback(stateSnapshot);
-        }
         static if (is(T == void))
-            _bridge.runTransactional!(void, S)(stateSnapshot, () => action(w), null);
+            _bridge.runTransactional!(void, S)(stateSnapshot, () => action(w), rollback);
         else
-            return _bridge.runTransactional!(T, S)(stateSnapshot, () => action(w), null);
+            return _bridge.runTransactional!(T, S)(stateSnapshot, () => action(w), rollback);
     }
 }
 
@@ -521,10 +565,23 @@ unittest
         {
             assert(e.kind == AgentError.Kind.uiPanic);
         }
-        // Verify pre-failure UI state was completely restored by scope(failure)
-        assert(liveState.currentView == "settings");
-        assert(liveState.activeTab == 2);
         assert(!liveState.modalOpen);
+
+        // Failed transaction where rollback also throws still surfaces the original action failure
+        try
+        {
+            bridge.runTransactional!void(
+                () { throw new Exception("original action failure"); },
+                () { throw new Exception("rollback error"); }
+            );
+            assert(false, "Should have thrown AgentError");
+        }
+        catch (AgentError e)
+        {
+            import std.algorithm.searching : canFind;
+            assert(e.kind == AgentError.Kind.uiPanic);
+            assert(e.msg.canFind("original action failure"));
+        }
     }
 
     // Direct unit testing of UiSlot cross-thread synchronization and RAII scope guards

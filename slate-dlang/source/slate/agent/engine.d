@@ -69,7 +69,6 @@ interface StateProvider
 }
 
 /// Capture visual frames and viewport dimensions (logical px contract:
-///
 /// inputs arrive in logical coordinates, so viewports must be logical too).
 interface VisualRenderer
 {

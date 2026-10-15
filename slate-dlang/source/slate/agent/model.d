@@ -485,6 +485,23 @@ class UiElementNode
     UiElementNode[] children;
     JSONValue[string] properties;
 
+    /// Accessible description from properties (empty string when absent).
+    string description() const @safe pure nothrow
+    {
+        import std.json : JSONType;
+        if (auto p = "description" in properties)
+        {
+            if (p.type == JSONType.string)
+            {
+                try
+                    return p.str;
+                catch (Exception)
+                    return "";
+            }
+        }
+        return "";
+    }
+
     /// Zero-allocation lazy pre-order traversal of this subtree.
     ElementRange byElement() const @safe pure nothrow @nogc
     {

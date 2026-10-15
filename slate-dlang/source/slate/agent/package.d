@@ -14,3 +14,6 @@ public import slate.agent.protocol;
 public import slate.agent.bridge;
 public import slate.agent.builder;
 public import slate.agent.fiber;
+public import slate.agent.traits;
+public import slate.agent.declarative;
+public import slate.agent.slint_backend;

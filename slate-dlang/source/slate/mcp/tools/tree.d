@@ -13,7 +13,7 @@ ToolCallResult handleInspectTree(AutomationEngine engine, JSONValue args)
 
     string rootId;
     bool hasRoot;
-    if ("root_id" in args && args["root_id"].type == JSONType.string)
+    if (args.type == JSONType.object && "root_id" in args && args["root_id"].type == JSONType.string)
     {
         rootId = args["root_id"].get!string;
         hasRoot = true;
@@ -21,7 +21,7 @@ ToolCallResult handleInspectTree(AutomationEngine engine, JSONValue args)
     bool hasDepth;
     ulong maxDepth;
     // Rust reads `as_u64`: non-integers (floats, strings, ...) mean "absent".
-    if ("max_depth" in args && args["max_depth"].type != JSONType.null_)
+    if (args.type == JSONType.object && "max_depth" in args && args["max_depth"].type != JSONType.null_)
     {
         auto v = args["max_depth"];
         if (v.type == JSONType.integer)

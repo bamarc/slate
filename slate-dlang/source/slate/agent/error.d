@@ -46,7 +46,8 @@ class AgentError : Exception
         unsupportedAction,
         invalidParams,
         actionNotFound,
-        actionFailed
+        actionFailed,
+        duplicateAccessibleId
     }
 
     Kind kind;
@@ -234,6 +235,13 @@ class AgentError : Exception
         return e;
     }
 
+    static AgentError duplicateAccessibleId(string message) @safe pure
+    {
+        auto e = new AgentError(Kind.duplicateAccessibleId, message);
+        e.reason = message;
+        return e;
+    }
+
     /// Stable machine-readable code (snake_case), identical to Rust.
     string code() const @safe pure nothrow
     {
@@ -281,6 +289,8 @@ class AgentError : Exception
             return "action_not_found";
         case Kind.actionFailed:
             return "action_failed";
+        case Kind.duplicateAccessibleId:
+            return "duplicate_accessible_id";
         }
     }
 
@@ -301,6 +311,7 @@ class AgentError : Exception
         case Kind.invalidOperation:
         case Kind.serialization:
         case Kind.protocol:
+        case Kind.duplicateAccessibleId:
             details = JSONValue(["reason": JSONValue(reason)]);
             break;
         case Kind.staleRef:

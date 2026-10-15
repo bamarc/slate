@@ -1,0 +1,140 @@
+// Slate Declarative MCP Trait Primitives & Global Bus
+// Provides composable accessibility/MCP trait wrappers and a global callback bus
+// so every Slint component can declare its MCP capabilities and semantic actions.
+
+export global SlateMcp {
+    callback dispatch-action(string /* target-id */, string /* action */, string /* payload */) -> string;
+    callback notify-state(string /* target-id */, string /* json-state */);
+}
+
+export component SlateMcpControl inherits Rectangle {
+    in property <string> automation-id: "";
+    in property <string> label: "";
+    in property <string> mcp-capabilities: "controllable";
+    in property <bool> enabled: true;
+    callback triggered();
+
+    background: Colors.transparent;
+    accessible-role: button;
+    accessible-id: root.automation-id != "" ? root.automation-id : root.label;
+    accessible-label: root.label;
+    accessible-description: "mcp:" + root.mcp-capabilities;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if (root.enabled) {
+            root.triggered();
+            SlateMcp.dispatch-action(root.automation-id, "default", "");
+        }
+    }
+
+    @children
+}
+
+export component SlateMcpValueTarget inherits Rectangle {
+    in property <string> automation-id: "";
+    in property <string> label: "";
+    in property <string> mcp-capabilities: "controllable,value";
+    in-out property <string> text-value: "";
+    in-out property <float> numeric-value: 0.0;
+    in property <float> minimum: 0.0;
+    in property <float> maximum: 100.0;
+    in property <float> step: 1.0;
+    in property <bool> enabled: true;
+
+    callback value-submitted(string);
+    callback stepped(float);
+
+    background: Colors.transparent;
+    accessible-role: slider;
+    accessible-id: root.automation-id != "" ? root.automation-id : root.label;
+    accessible-label: root.label;
+    accessible-description: "mcp:" + root.mcp-capabilities;
+    accessible-value: root.text-value != "" ? root.text-value : "\{root.numeric-value}";
+    accessible-value-minimum: root.minimum;
+    accessible-value-maximum: root.maximum;
+    accessible-value-step: root.step;
+    accessible-enabled: root.enabled;
+
+    accessible-action-set-value(val) => {
+        if (root.enabled) {
+            root.text-value = val;
+            if (val.is-float()) {
+                root.numeric-value = Math.max(root.minimum, Math.min(root.maximum, val.to-float()));
+            }
+            root.value-submitted(val);
+            SlateMcp.dispatch-action(root.automation-id, "set-value", val);
+        }
+    }
+    accessible-action-increment => {
+        if (root.enabled) {
+            root.numeric-value = Math.min(root.maximum, root.numeric-value + root.step);
+            root.stepped(root.numeric-value);
+            SlateMcp.dispatch-action(root.automation-id, "increment", "\{root.numeric-value}");
+        }
+    }
+    accessible-action-decrement => {
+        if (root.enabled) {
+            root.numeric-value = Math.max(root.minimum, root.numeric-value - root.step);
+            root.stepped(root.numeric-value);
+            SlateMcp.dispatch-action(root.automation-id, "decrement", "\{root.numeric-value}");
+        }
+    }
+
+    @children
+}
+
+export component SlateMcpExpandable inherits Rectangle {
+    in property <string> automation-id: "";
+    in property <string> label: "";
+    in property <string> mcp-capabilities: "controllable,expandable";
+    in-out property <bool> expanded: false;
+    in property <bool> expandable: true;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+
+    background: Colors.transparent;
+    accessible-role: list-item;
+    accessible-id: root.automation-id != "" ? root.automation-id : root.label;
+    accessible-label: root.label;
+    accessible-description: "mcp:" + root.mcp-capabilities;
+    accessible-expandable: root.expandable;
+    accessible-expanded: root.expanded;
+    accessible-enabled: root.enabled;
+
+    function toggle-state() {
+        if (root.enabled && root.expandable) {
+            root.expanded = !root.expanded;
+            root.toggled(root.expanded);
+            SlateMcp.dispatch-action(root.automation-id, "expand", root.expanded ? "true" : "false");
+        }
+    }
+
+    accessible-action-expand => { root.toggle-state(); }
+    accessible-action-default => { root.toggle-state(); }
+
+    @children
+}
+
+export component SlateMcpDropTarget inherits Rectangle {
+    in property <string> automation-id: "";
+    in property <string> label: "";
+    in property <string> mcp-capabilities: "controllable,drop-receiver";
+    in property <bool> enabled: true;
+    callback payload-dropped(string);
+
+    background: Colors.transparent;
+    accessible-role: region;
+    accessible-id: root.automation-id != "" ? root.automation-id : root.label;
+    accessible-label: root.label;
+    accessible-description: "mcp:" + root.mcp-capabilities;
+    accessible-enabled: root.enabled;
+
+    accessible-action-set-value(payload) => {
+        if (root.enabled) {
+            root.payload-dropped(payload);
+            SlateMcp.dispatch-action(root.automation-id, "drop", payload);
+        }
+    }
+
+    @children
+}

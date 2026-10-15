@@ -63,6 +63,11 @@ ToolCallResult dispatchTool(AutomationEngine engine, BoundedLog logs,
 {
     import std.json : JSONType;
 
+    if (arguments.type == JSONType.null_)
+        arguments = JSONValue((JSONValue[string]).init);
+    else if (arguments.type != JSONType.object)
+        throw ToolDispatchError.invalidParams("Tool arguments must be a JSON object");
+
     switch (name)
     {
     case "get_screenshot":
@@ -106,6 +111,12 @@ unittest
     // Unknown tools fail lookup; missing text fails validation.
     assertThrown!ToolDispatchError(dispatchTool(engine, logs, "nope", parseJSON(`{}`)));
     assertThrown!ToolDispatchError(dispatchTool(engine, logs, "send_keys", parseJSON(`{}`)));
+
+    // Malformed non-object arguments throw ToolDispatchError.invalidParams
+    assertThrown!ToolDispatchError(dispatchTool(engine, logs, "send_keys", parseJSON(`[]`)));
+    assertThrown!ToolDispatchError(dispatchTool(engine, logs, "send_keys", parseJSON(`"a string"`)));
+    assertThrown!ToolDispatchError(dispatchTool(engine, logs, "send_keys", parseJSON(`123`)));
+    assertThrown!ToolDispatchError(dispatchTool(engine, logs, "send_keys", JSONValue(null)));
 
     // Screenshot round-trips PNG bytes as base64 image content.
     auto shot = dispatchTool(engine, logs, "get_screenshot", parseJSON(`{}`));

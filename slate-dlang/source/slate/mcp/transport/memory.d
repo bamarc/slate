@@ -69,18 +69,22 @@ final class SocketLines : LineReader, LineWriter
     {
         import core.atomic : atomicLoad;
 
-        if (atomicLoad(_closed) || _socket is null)
+        if (atomicLoad(_closed))
+            throw McpTransportError.channelClosed();
+
+        auto s = _socket;
+        if (s is null)
             throw McpTransportError.channelClosed();
 
         auto payload = cast(const ubyte[])(line ~ "\n");
         size_t sent;
         while (sent < payload.length)
         {
-            if (atomicLoad(_closed) || _socket is null)
+            if (atomicLoad(_closed))
                 throw McpTransportError.channelClosed();
             try
             {
-                auto n = _socket.send(payload[sent .. $]);
+                auto n = s.send(payload[sent .. $]);
                 if (n == Socket.ERROR || n == 0)
                     throw McpTransportError.channelClosed();
                 sent += n;
@@ -102,17 +106,14 @@ final class SocketLines : LineReader, LineWriter
 
     void close()
     {
-        import core.atomic : atomicLoad, atomicStore;
+        import core.atomic : cas;
 
-        if (atomicLoad(_closed))
+        if (!cas(&_closed, false, true))
             return;
-        atomicStore(_closed, true);
+
         auto s = _socket;
         _socket = null;
-        if (s is null)
-            return;
-
-        scope (exit)
+        if (s !is null)
             safeCloseSocket(s);
     }
 }
