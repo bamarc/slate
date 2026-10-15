@@ -1,0 +1,19 @@
+import { SlateTheme } from "../components/theme.slint";
+
+/// Horizontal/Flow container for tags, chips, and compact cards.
+export component SlateWrapLayout inherits Rectangle {
+    in property <string> automation-id: "wrap-layout";
+    in property <length> spacing: SlateTheme.spacing-sm;
+    in property <length> padding-size: 0px;
+
+    background: Colors.transparent;
+    accessible-role: region;
+    accessible-id: root.automation-id;
+
+    HorizontalLayout {
+        padding: root.padding-size;
+        spacing: root.spacing;
+        alignment: start;
+        @children
+    }
+}

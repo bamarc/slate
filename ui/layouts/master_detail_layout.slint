@@ -1,0 +1,195 @@
+import { SlateTheme } from "../components/theme.slint";
+import { SlateBadge } from "../components/badge.slint";
+import { SlateSearchInput } from "../components/search_input.slint";
+import { SlateResizableHandle } from "resizable_panel_group.slint";
+import { SlateStatusPage } from "status_page.slint";
+
+export struct SlateMasterItem {
+    id: string,
+    title: string,
+    subtitle: string,
+    badge: string,
+    badge-variant: string,
+}
+
+/// Master-Detail layout with searchable master list pane, resizable divider,
+/// empty-selection `SlateStatusPage` fallback (`S1`), and detail `@children` slot.
+export component SlateMasterDetailLayout inherits Rectangle {
+    in property <string> automation-id: "master-detail";
+    in property <string> master-title: "Items";
+    in property <[SlateMasterItem]> items: [];
+    in-out property <string> selected-id: "";
+    in-out property <string> filter-text: "";
+    in-out property <length> master-width: 280px;
+    in property <length> min-master-width: 180px;
+    in property <length> max-master-width: 480px;
+    in property <bool> show-search: true;
+    in property <string> empty-title: "No Item Selected";
+    in property <string> empty-description: "Select an item from the list on the left to inspect its details.";
+
+    callback item-selected(string);
+    callback filter-changed(string);
+
+    width: 100%;
+    height: 100%;
+    background: SlateTheme.background;
+
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: root.master-title;
+
+    HorizontalLayout {
+        spacing: 0px;
+        width: 100%;
+        height: 100%;
+
+        // Master Pane
+        Rectangle {
+            width: Math.max(root.min-master-width, Math.min(root.max-master-width, root.master-width));
+            background: SlateTheme.surface-1;
+            clip: true;
+
+            VerticalLayout {
+                padding: SlateTheme.spacing-md;
+                spacing: SlateTheme.spacing-sm;
+
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: root.master-title;
+                        font-size: SlateTheme.font-md;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                    }
+                    SlateBadge {
+                        text: "\{root.items.length}";
+                        variant: "default";
+                    }
+                }
+
+                if root.show-search : SlateSearchInput {
+                    placeholder: "Filter items...";
+                    text <=> root.filter-text;
+                    edited(val) => { root.filter-changed(val); }
+                }
+
+                Flickable {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        spacing: SlateTheme.spacing-xs;
+                        alignment: start;
+
+                        for item[idx] in root.items : Rectangle {
+                            height: item.subtitle != "" ? 54px : 38px;
+                            border-radius: SlateTheme.radius-sm;
+                            background: root.selected-id == item.id ? SlateTheme.accent-primary-subtle
+                                : row-touch.has-hover ? SlateTheme.surface-hover : Colors.transparent;
+                            border-width: root.selected-id == item.id ? 1px : 0px;
+                            border-color: SlateTheme.accent-primary;
+
+                            accessible-role: list-item;
+                            accessible-id: root.automation-id + "-item-" + (item.id != "" ? item.id : "\{idx}");
+                            accessible-label: item.title;
+                            accessible-value: root.selected-id == item.id ? "selected" : "";
+                            accessible-action-default => {
+                                root.selected-id = item.id;
+                                root.item-selected(item.id);
+                            }
+
+                            row-touch := TouchArea {
+                                clicked => {
+                                    root.selected-id = item.id;
+                                    root.item-selected(item.id);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: SlateTheme.spacing-sm;
+                                padding-right: SlateTheme.spacing-sm;
+                                spacing: SlateTheme.spacing-sm;
+                                alignment: space-between;
+
+                                VerticalLayout {
+                                    alignment: center;
+                                    horizontal-stretch: 1;
+                                    Text {
+                                        text: item.title;
+                                        font-size: SlateTheme.font-sm;
+                                        font-weight: root.selected-id == item.id ? 600 : 500;
+                                        color: SlateTheme.text-primary;
+                                        overflow: elide;
+                                    }
+                                    if item.subtitle != "" : Text {
+                                        text: item.subtitle;
+                                        font-size: SlateTheme.font-xs;
+                                        color: SlateTheme.text-muted;
+                                        overflow: elide;
+                                    }
+                                }
+
+                                if item.badge != "" : VerticalLayout {
+                                    alignment: center;
+                                    SlateBadge {
+                                        text: item.badge;
+                                        variant: item.badge-variant != "" ? item.badge-variant : "default";
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Resizable Handle
+        SlateResizableHandle {
+            vertical: false;
+            dragged(delta) => {
+                root.master-width = Math.max(root.min-master-width, Math.min(root.max-master-width, root.master-width + delta));
+            }
+            double-clicked => {
+                root.master-width = 280px;
+            }
+        }
+
+        // Detail Pane
+        Rectangle {
+            horizontal-stretch: 1;
+            background: SlateTheme.background;
+            clip: true;
+
+            // S1: Empty selection state renders SlateStatusPage
+            if root.selected-id == "" : Rectangle {
+                width: 100%;
+                height: 100%;
+                accessible-role: region;
+                accessible-id: root.automation-id + "-empty-state";
+                accessible-label: root.empty-title;
+
+                SlateStatusPage {
+                    icon: "🗂️";
+                    title: root.empty-title;
+                    description: root.empty-description;
+                }
+            }
+
+            if root.selected-id != "" : Rectangle {
+                width: 100%;
+                height: 100%;
+                accessible-role: region;
+                accessible-id: root.automation-id + "-detail";
+                accessible-label: "Selected Item Detail";
+                accessible-value: root.selected-id;
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                visible: root.selected-id != "";
+
+                @children
+            }
+        }
+    }
+}

@@ -6,7 +6,7 @@
 module slate.utils.json;
 
 import std.conv : to;
-import std.json : JSONType, JSONValue;
+import std.json : JSONType, JSONValue, JSONException;
 import std.range : ElementType;
 import std.traits : FieldNameTuple, isAssociativeArray, isArray, isStaticArray,
     isFloatingPoint, isIntegral, isSomeString, isUnsigned, KeyType, ValueType,
@@ -45,6 +45,12 @@ JSONValue toJsonValue(T)(const auto ref T val)
     static if (is(T == JSONValue))
     {
         return cast(JSONValue) val;
+    }
+    else static if (is(T == Nullable!U, U))
+    {
+        if (val.isNull)
+            return JSONValue(null);
+        return toJsonValue(val.get);
     }
     else static if (__traits(hasMember, T, "toJson"))
     {
@@ -123,12 +129,6 @@ JSONValue toJsonValue(T)(const auto ref T val)
         }
         return JSONValue(aa);
     }
-    else static if (is(T == Nullable!U, U))
-    {
-        if (val.isNull)
-            return JSONValue(null);
-        return toJsonValue(val.get);
-    }
     else
     {
         static assert(0, "Unsupported type for toJsonValue: " ~ T.stringof);
@@ -141,6 +141,12 @@ T fromJsonValue(T)(const JSONValue jv)
     static if (is(T == JSONValue))
     {
         return cast(JSONValue) jv;
+    }
+    else static if (is(T == Nullable!U, U))
+    {
+        if (jv.type == JSONType.null_)
+            return Nullable!U.init;
+        return nullable(fromJsonValue!U(jv));
     }
     else
     {
@@ -183,41 +189,78 @@ T fromJsonValue(T)(const JSONValue jv)
         }
         else static if (is(T == enum))
         {
+            import std.traits : EnumMembers;
+
             static if (isSomeString!(OriginalType!T))
             {
                 if (jv.type == JSONType.string)
-                    return cast(T) jv.str;
-                return T.init;
+                {
+                    static foreach (member; EnumMembers!T)
+                    {
+                        if (jv.str == cast(OriginalType!T) member)
+                            return member;
+                    }
+                    throw new JSONException("Invalid enum string '" ~ jv.str ~ "' for enum " ~ T.stringof);
+                }
+                throw new JSONException("Expected string for enum " ~ T.stringof ~ ", got " ~ to!string(jv.type));
             }
             else static if (isIntegral!(OriginalType!T))
             {
+                long val;
                 if (jv.type == JSONType.integer)
-                    return cast(T) jv.integer;
-                if (jv.type == JSONType.uinteger)
-                    return cast(T) jv.uinteger;
-                if (jv.type == JSONType.float_)
-                    return cast(T) jv.floating;
-                if (jv.type == JSONType.string)
+                    val = jv.integer;
+                else if (jv.type == JSONType.uinteger)
                 {
-                    try return to!T(jv.str);
-                    catch (Exception) return T.init;
+                    if (jv.uinteger > long.max)
+                        throw new JSONException("Enum value out of range for " ~ T.stringof);
+                    val = cast(long) jv.uinteger;
                 }
-                return T.init;
+                else if (jv.type == JSONType.float_)
+                {
+                    import std.math : isFinite;
+                    if (!isFinite(jv.floating) || jv.floating < long.min || jv.floating > long.max)
+                        throw new JSONException("Float value out of range for enum " ~ T.stringof);
+                    val = cast(long) jv.floating;
+                }
+                else if (jv.type == JSONType.string)
+                {
+                    static foreach (member; EnumMembers!T)
+                    {
+                        if (jv.str == to!string(member) || jv.str == to!string(cast(OriginalType!T) member))
+                            return member;
+                    }
+                    try val = to!long(jv.str);
+                    catch (Exception)
+                        throw new JSONException("Invalid enum string '" ~ jv.str ~ "' for enum " ~ T.stringof);
+                }
+                else
+                    throw new JSONException("Expected integer or string for enum " ~ T.stringof ~ ", got " ~ to!string(jv.type));
+
+                static foreach (member; EnumMembers!T)
+                {
+                    if (val == cast(OriginalType!T) member)
+                        return member;
+                }
+                throw new JSONException("Invalid enum value " ~ to!string(val) ~ " for enum " ~ T.stringof);
             }
             else static if (isFloatingPoint!(OriginalType!T))
             {
+                double val;
                 if (jv.type == JSONType.float_)
-                    return cast(T) jv.floating;
-                if (jv.type == JSONType.integer)
-                    return cast(T) jv.integer;
-                if (jv.type == JSONType.uinteger)
-                    return cast(T) jv.uinteger;
-                if (jv.type == JSONType.string)
+                    val = jv.floating;
+                else if (jv.type == JSONType.integer)
+                    val = cast(double) jv.integer;
+                else if (jv.type == JSONType.uinteger)
+                    val = cast(double) jv.uinteger;
+                else
+                    throw new JSONException("Expected float for enum " ~ T.stringof ~ ", got " ~ to!string(jv.type));
+
+                static foreach (member; EnumMembers!T)
                 {
-                    try return to!T(jv.str);
-                    catch (Exception) return T.init;
+                    if (val == cast(OriginalType!T) member)
+                        return member;
                 }
-                return T.init;
+                throw new JSONException("Invalid enum value " ~ to!string(val) ~ " for enum " ~ T.stringof);
             }
             else static if (is(OriginalType!T == bool))
             {
@@ -225,11 +268,11 @@ T fromJsonValue(T)(const JSONValue jv)
                     return cast(T) true;
                 if (jv.type == JSONType.false_)
                     return cast(T) false;
-                return T.init;
+                throw new JSONException("Expected boolean for enum " ~ T.stringof ~ ", got " ~ to!string(jv.type));
             }
             else
             {
-                return T.init;
+                throw new JSONException("Unsupported enum type: " ~ T.stringof);
             }
         }
         else static if (is(T == char) || is(T == wchar) || is(T == dchar))
@@ -249,24 +292,62 @@ T fromJsonValue(T)(const JSONValue jv)
             if (jv.type == JSONType.string)
             {
                 try return to!T(jv.str);
-                catch (Exception) return T.init;
+                catch (Exception)
+                    throw new JSONException("Failed to parse string '" ~ jv.str ~ "' as " ~ T.stringof);
             }
-            return T.init;
+            throw new JSONException("Expected number for " ~ T.stringof ~ ", got " ~ to!string(jv.type));
         }
         else static if (isIntegral!T)
         {
             if (jv.type == JSONType.integer)
-                return cast(T) jv.integer;
-            if (jv.type == JSONType.uinteger)
-                return cast(T) jv.uinteger;
-            if (jv.type == JSONType.float_)
+            {
+                long val = jv.integer;
+                static if (isUnsigned!T)
+                {
+                    if (val < 0 || cast(ulong) val > T.max)
+                        throw new JSONException("Value " ~ to!string(val) ~ " out of bounds for " ~ T.stringof);
+                    return cast(T) val;
+                }
+                else
+                {
+                    if (val < T.min || val > T.max)
+                        throw new JSONException("Value " ~ to!string(val) ~ " out of bounds for " ~ T.stringof);
+                    return cast(T) val;
+                }
+            }
+            else if (jv.type == JSONType.uinteger)
+            {
+                ulong uval = jv.uinteger;
+                static if (isUnsigned!T)
+                {
+                    if (uval > T.max)
+                        throw new JSONException("Value " ~ to!string(uval) ~ " out of bounds for " ~ T.stringof);
+                    return cast(T) uval;
+                }
+                else
+                {
+                    if (uval > cast(ulong) T.max)
+                        throw new JSONException("Value " ~ to!string(uval) ~ " out of bounds for " ~ T.stringof);
+                    return cast(T) uval;
+                }
+            }
+            else if (jv.type == JSONType.float_)
+            {
+                import std.math : isFinite;
+                if (!isFinite(jv.floating) || jv.floating < cast(double) T.min || jv.floating > cast(double) T.max)
+                    throw new JSONException("Float " ~ to!string(jv.floating) ~ " out of bounds or not finite for " ~ T.stringof);
                 return cast(T) jv.floating;
-            if (jv.type == JSONType.string)
+            }
+            else if (jv.type == JSONType.string)
             {
                 try return to!T(jv.str);
-                catch (Exception) return T.init;
+                catch (Exception)
+                    throw new JSONException("Failed to parse string '" ~ jv.str ~ "' as " ~ T.stringof);
             }
-            return T.init;
+            else
+            {
+                throw new JSONException("Expected integer for " ~ T.stringof ~ ", got " ~ to!string(jv.type));
+            }
         }
         else static if (isStaticArray!T)
         {
@@ -308,10 +389,6 @@ T fromJsonValue(T)(const JSONValue jv)
             }
             return aa;
         }
-        else static if (is(T == Nullable!U, U))
-        {
-            return nullable(fromJsonValue!U(jv));
-        }
         else
         {
             static assert(0, "Unsupported type for fromJsonValue: " ~ T.stringof);
@@ -325,9 +402,10 @@ T fromJsonValue(T)(const JSONValue jv)
 /// Respects `@JsonKey("name")`, `@jsonIgnore`, and omits empty/null `Nullable!T`.
 mixin template JsonSerializable()
 {
+    import std.conv : to;
     import std.traits : FieldNameTuple, isAssociativeArray;
     import std.typecons : Nullable, nullable;
-    import std.json : JSONValue, JSONType, parseJSON;
+    import std.json : JSONValue, JSONType, parseJSON, JSONException;
     import slate.utils.json : toJsonValue, fromJsonValue, JsonKey, JsonIgnore;
 
     JSONValue toJson()() const
@@ -382,10 +460,10 @@ mixin template JsonSerializable()
 
     static typeof(this) fromJson()(const JSONValue j)
     {
-        typeof(this) result;
         if (j.type != JSONType.object)
-            return result;
+            throw new JSONException("Expected JSON object for " ~ typeof(this).stringof ~ ", got " ~ to!string(j.type));
 
+        typeof(this) result;
         static foreach (fieldName; FieldNameTuple!(typeof(this)))
         {
             {
@@ -442,14 +520,7 @@ mixin template JsonSerializable()
 
     static typeof(this) fromJson()(string jsonString)
     {
-        try
-        {
-            return fromJson(parseJSON(jsonString));
-        }
-        catch (Exception)
-        {
-            return typeof(this).init;
-        }
+        return fromJson(parseJSON(jsonString));
     }
 }
 
@@ -457,6 +528,7 @@ mixin template JsonSerializable()
 unittest
 {
     import std.json : parseJSON;
+    import std.exception : assertThrown;
 
     // 1. Basic round-trip
     static struct Simple
@@ -560,11 +632,9 @@ unittest
     assert(omFromNull.valA.isNull);
     assert(omFromNull.valB.isNull);
 
-    // 5. Edge cases: non-object JSON input to fromJson returns default struct
-    auto badInput = Simple.fromJson(JSONValue(42));
-    assert(badInput.a == 0 && badInput.b is null && !badInput.d);
-    auto badInputNull = Simple.fromJson(JSONValue(null));
-    assert(badInputNull.a == 0 && badInputNull.b is null && !badInputNull.d);
+    // 5. Edge cases: non-object JSON input to fromJson throws JSONException
+    assertThrown!JSONException(Simple.fromJson(JSONValue(42)));
+    assertThrown!JSONException(Simple.fromJson(JSONValue(null)));
 
     // 6. Unknown extra keys in JSON are safely ignored
     auto withExtra = Simple.fromJson(parseJSON(`{"a":99,"b":"ok","c":1.0,"d":false,"unknown_prop":123}`));
@@ -627,17 +697,11 @@ unittest
     assert(directStr.c == 4.5);
     assert(directStr.d == true);
 
-    // 11. Mismatched JSON types do not throw and recover safely
-    auto mismatchedJson = parseJSON(`{"a": "hello", "b": 999, "c": "not_a_float", "d": 1}`);
-    auto simpleMismatched = Simple.fromJson(mismatchedJson);
-    assert(simpleMismatched.a == 0); // "hello" can't parse as int -> 0
-    assert(simpleMismatched.b == "999"); // 999 converts to "999"
-    assert(simpleMismatched.c.isNaN); // "not_a_float" -> NaN
-    assert(simpleMismatched.d == true); // 1 converts to bool true
+    // 11. Mismatched JSON types throw JSONException
+    assertThrown!JSONException(Simple.fromJson(parseJSON(`{"a": "hello", "b": 999, "c": 1.0, "d": true}`)));
 
-    // 12. Malformed JSON string to fromJson returns default struct without crashing
-    auto brokenStr = Simple.fromJson(`{malformed json...`);
-    assert(brokenStr.a == 0 && brokenStr.b is null && brokenStr.d == false);
+    // 12. Malformed JSON string to fromJson throws JSONException
+    assertThrown!JSONException(Simple.fromJson(`{malformed json...`));
 
     // 13. NaN and Infinity float values serialize as null and round-trip to NaN
     Simple withNan;
@@ -722,5 +786,41 @@ unittest
     // 18. Integer enum deserialization from JSON float
     auto prioFromFloat = fromJsonValue!Priority(JSONValue(10.0));
     assert(prioFromFloat == Priority.high);
+
+    // 19. Nullable!Model empty serialization does not crash or call get()
+    Nullable!Simple nullSimple;
+    assert(toJsonValue(nullSimple).type == JSONType.null_);
+    auto roundTripNullSimple = fromJsonValue!(Nullable!Simple)(JSONValue(null));
+    assert(roundTripNullSimple.isNull);
+
+    // 20. Integer range checks
+    static struct RangeModel
+    {
+        ubyte u8;
+        uint u32;
+        mixin JsonSerializable;
+    }
+    assertThrown!JSONException(RangeModel.fromJson(parseJSON(`{"u8": 300, "u32": 10}`)));
+    assertThrown!JSONException(RangeModel.fromJson(parseJSON(`{"u8": 10, "u32": -1}`)));
+
+    // 21. Enum validation checks
+    assertThrown!JSONException(EnumModel.fromJson(parseJSON(`{"color": "INVALID", "prio": 1}`)));
+    assertThrown!JSONException(EnumModel.fromJson(parseJSON(`{"color": "BLUE", "prio": 999}`)));
+
+    // 22. Validate hook exception propagation in fromJson
+    static struct Validated
+    {
+        int count;
+        void validate() const
+        {
+            if (count < 0)
+                throw new Exception("Count must be non-negative");
+        }
+        mixin JsonSerializable;
+    }
+    assertThrown!Exception(Validated.fromJson(`{"count": -5}`));
+    assertThrown!Exception(Validated.fromJson(parseJSON(`{"count": -5}`)));
+    auto valOk = Validated.fromJson(`{"count": 5}`);
+    assert(valOk.count == 5);
 }
 

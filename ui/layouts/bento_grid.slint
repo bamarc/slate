@@ -1,0 +1,91 @@
+import { SlateTheme } from "../components/theme.slint";
+import { SlateBadge } from "../components/badge.slint";
+
+/// A dashboard Bento tile with title, subtitle, optional badge, and `@children` slot.
+export component SlateBentoTile inherits Rectangle {
+    in property <string> automation-id: "bento-tile";
+    in property <string> title: "";
+    in property <string> subtitle: "";
+    in property <string> badge: "";
+    in property <string> badge-variant: "default";
+    in property <bool> interactive: false;
+    callback clicked();
+
+    border-radius: SlateTheme.radius-md;
+    border-width: 1px;
+    border-color: (root.interactive && tile-touch.has-hover) ? SlateTheme.accent-primary : SlateTheme.border-subtle;
+    background: SlateTheme.surface-1;
+    clip: true;
+
+    accessible-role: root.interactive ? button : region;
+    accessible-id: root.automation-id;
+    accessible-label: root.title;
+    accessible-action-default => {
+        if (root.interactive) {
+            root.clicked();
+        }
+    }
+
+    tile-touch := TouchArea {
+        enabled: root.interactive;
+        mouse-cursor: root.interactive ? pointer : default;
+        clicked => { root.clicked(); }
+    }
+
+    VerticalLayout {
+        padding: SlateTheme.spacing-md;
+        spacing: SlateTheme.spacing-sm;
+
+        if root.title != "" || root.badge != "" : HorizontalLayout {
+            alignment: space-between;
+            spacing: SlateTheme.spacing-sm;
+
+            VerticalLayout {
+                spacing: 2px;
+                if root.title != "" : Text {
+                    text: root.title;
+                    font-size: SlateTheme.font-md;
+                    font-weight: 600;
+                    color: SlateTheme.text-primary;
+                }
+                if root.subtitle != "" : Text {
+                    text: root.subtitle;
+                    font-size: SlateTheme.font-xs;
+                    color: SlateTheme.text-muted;
+                }
+            }
+
+            if root.badge != "" : VerticalLayout {
+                alignment: start;
+                SlateBadge {
+                    text: root.badge;
+                    variant: root.badge-variant;
+                }
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+            background: Colors.transparent;
+            @children
+        }
+    }
+}
+
+/// Responsive Bento Grid container for dashboard tiles.
+export component SlateBentoGrid inherits Rectangle {
+    in property <string> automation-id: "bento-grid";
+    in property <length> gap: SlateTheme.spacing-md;
+    in property <length> padding-size: SlateTheme.spacing-md;
+
+    background: Colors.transparent;
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: "Bento Dashboard Grid";
+
+    VerticalLayout {
+        padding: root.padding-size;
+        spacing: root.gap;
+        @children
+    }
+}

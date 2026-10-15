@@ -1,0 +1,234 @@
+import { SlateTheme } from "theme.slint";
+import { SlateBadge } from "badge.slint";
+
+export struct SlateChartBarItem {
+    label: string,
+    value: float,      // normalized 0.0 .. 1.0
+    display-value: string,
+    accent: bool,
+}
+
+/// Vector Bar Chart component with labeled vertical bars and accessible value summaries.
+export component SlateBarChart inherits Rectangle {
+    in property <string> automation-id: "bar-chart";
+    in property <string> title: "Bar Chart";
+    in property <string> subtitle: "";
+    in property <[SlateChartBarItem]> bars: [];
+
+    border-radius: SlateTheme.radius-md;
+    border-width: 1px;
+    border-color: SlateTheme.border-subtle;
+    background: SlateTheme.surface-1;
+
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: root.title;
+
+    VerticalLayout {
+        padding: SlateTheme.spacing-md;
+        spacing: SlateTheme.spacing-sm;
+
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: root.title;
+                font-size: SlateTheme.font-md;
+                font-weight: 700;
+                color: SlateTheme.text-primary;
+            }
+            if root.subtitle != "" : Text {
+                text: root.subtitle;
+                font-size: SlateTheme.font-xs;
+                color: SlateTheme.text-muted;
+                vertical-alignment: center;
+            }
+        }
+
+        HorizontalLayout {
+            vertical-stretch: 1;
+            spacing: SlateTheme.spacing-sm;
+            alignment: stretch;
+
+            for bar[idx] in root.bars : VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 4px;
+                alignment: end;
+
+                accessible-role: progress-indicator;
+                accessible-id: root.automation-id + "-bar-\{idx}";
+                accessible-label: bar.label;
+                accessible-value: bar.display-value != "" ? bar.display-value : "\{Math.round(bar.value * 100)}%";
+
+                Text {
+                    text: bar.display-value != "" ? bar.display-value : "\{Math.round(bar.value * 100)}%";
+                    font-size: SlateTheme.font-xs;
+                    color: SlateTheme.text-muted;
+                    horizontal-alignment: center;
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                    background: SlateTheme.surface-2;
+                    border-radius: SlateTheme.radius-xs;
+                    clip: true;
+
+                    Rectangle {
+                        y: parent.height * (1.0 - Math.max(0.0, Math.min(1.0, bar.value)));
+                        width: 100%;
+                        height: parent.height * Math.max(0.0, Math.min(1.0, bar.value));
+                        border-radius: SlateTheme.radius-xs;
+                        background: bar.accent ? SlateTheme.accent-secondary : SlateTheme.accent-primary;
+                    }
+                }
+
+                Text {
+                    text: bar.label;
+                    font-size: SlateTheme.font-xs;
+                    font-weight: 500;
+                    color: SlateTheme.text-secondary;
+                    horizontal-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+    }
+}
+
+/// Vector Line/Area Chart component backed by SVG path commands (`slate.utils.chart`).
+export component SlateLineChart inherits Rectangle {
+    in property <string> automation-id: "line-chart";
+    in property <string> title: "Line Chart";
+    in property <string> subtitle: "";
+    in property <string> line-commands: "M 0 80 L 25 50 L 50 65 L 75 25 L 100 10";
+    in property <string> area-commands: "M 0 80 L 25 50 L 50 65 L 75 25 L 100 10 L 100 100 L 0 100 Z";
+    in property <string> summary: "";
+    in property <color> series-color: SlateTheme.accent-primary;
+
+    border-radius: SlateTheme.radius-md;
+    border-width: 1px;
+    border-color: SlateTheme.border-subtle;
+    background: SlateTheme.surface-1;
+
+    accessible-role: image;
+    accessible-id: root.automation-id;
+    accessible-label: root.title;
+    accessible-value: root.summary;
+
+    VerticalLayout {
+        padding: SlateTheme.spacing-md;
+        spacing: SlateTheme.spacing-sm;
+
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: root.title;
+                font-size: SlateTheme.font-md;
+                font-weight: 700;
+                color: SlateTheme.text-primary;
+            }
+            if root.summary != "" : SlateBadge {
+                text: root.summary;
+                variant: "info";
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+            background: SlateTheme.surface-2;
+            border-radius: SlateTheme.radius-sm;
+            clip: true;
+
+            if root.area-commands != "" : Path {
+                width: 100%;
+                height: 100%;
+                viewbox-width: 100;
+                viewbox-height: 100;
+                commands: root.area-commands;
+                fill: root.series-color.with-alpha(0.18);
+            }
+
+            Path {
+                width: 100%;
+                height: 100%;
+                viewbox-width: 100;
+                viewbox-height: 100;
+                commands: root.line-commands;
+                stroke: root.series-color;
+                stroke-width: 2.5px;
+                stroke-line-cap: round;
+                stroke-line-join: round;
+            }
+        }
+    }
+}
+
+/// Vector Donut / Radial Gauge Chart component backed by `buildDonutArcPath`.
+export component SlateDonutChart inherits Rectangle {
+    in property <string> automation-id: "donut-chart";
+    in property <string> title: "Utilization";
+    in property <float> value: 0.72; // 0.0 .. 1.0
+    in property <string> center-label: "72%";
+    in property <string> arc-commands: "M 50.00 10.00 A 40.00 40.00 0 1 1 10.69 57.49";
+    in property <color> ring-color: SlateTheme.accent-primary;
+
+    border-radius: SlateTheme.radius-md;
+    border-width: 1px;
+    border-color: SlateTheme.border-subtle;
+    background: SlateTheme.surface-1;
+
+    accessible-role: progress-indicator;
+    accessible-id: root.automation-id;
+    accessible-label: root.title;
+    accessible-value: root.center-label;
+
+    VerticalLayout {
+        padding: SlateTheme.spacing-md;
+        spacing: SlateTheme.spacing-xs;
+        alignment: center;
+
+        Text {
+            text: root.title;
+            font-size: SlateTheme.font-sm;
+            font-weight: 600;
+            color: SlateTheme.text-secondary;
+            horizontal-alignment: center;
+        }
+
+        Rectangle {
+            width: 110px;
+            height: 110px;
+
+            // Track circle
+            Path {
+                width: 100%;
+                height: 100%;
+                viewbox-width: 100;
+                viewbox-height: 100;
+                commands: "M 50 10 A 40 40 0 1 1 49.9 10";
+                stroke: SlateTheme.surface-3;
+                stroke-width: 10px;
+            }
+
+            // Active arc
+            Path {
+                width: 100%;
+                height: 100%;
+                viewbox-width: 100;
+                viewbox-height: 100;
+                commands: root.arc-commands;
+                stroke: root.ring-color;
+                stroke-width: 10px;
+                stroke-line-cap: round;
+            }
+
+            Text {
+                text: root.center-label;
+                font-size: SlateTheme.font-lg;
+                font-weight: 700;
+                color: SlateTheme.text-primary;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

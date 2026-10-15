@@ -1,0 +1,182 @@
+import { SlateTheme } from "../components/theme.slint";
+import { SlateBadge } from "../components/badge.slint";
+import { SlateButton, SlateButtonVariant, SlateButtonSize } from "../components/button.slint";
+import { SlateChevronIcon } from "../components/icons.slint";
+
+export struct SlateBreadcrumbItem {
+    id: string,
+    label: string,
+}
+
+export component SlateBreadcrumbs inherits Rectangle {
+    in property <string> automation-id: "breadcrumbs";
+    in property <[SlateBreadcrumbItem]> items: [];
+    callback crumb-clicked(int, string);
+
+    height: 24px;
+    background: Colors.transparent;
+
+    accessible-role: list;
+    accessible-id: root.automation-id;
+    accessible-label: "Breadcrumb Navigation";
+
+    HorizontalLayout {
+        spacing: 4px;
+        alignment: start;
+
+        for crumb[idx] in root.items : HorizontalLayout {
+            spacing: 4px;
+            alignment: center;
+
+            if idx > 0 : VerticalLayout {
+                alignment: center;
+                SlateChevronIcon {
+                    expanded: false;
+                    icon-color: SlateTheme.text-muted;
+                    width: 8px;
+                    height: 8px;
+                }
+            }
+
+            Rectangle {
+                height: 22px;
+                width: crumb-label.preferred-width + 10px;
+                border-radius: SlateTheme.radius-xs;
+                background: crumb-touch.has-hover ? SlateTheme.surface-hover : Colors.transparent;
+
+                accessible-role: button;
+                accessible-id: root.automation-id + "-crumb-\{idx}";
+                accessible-label: crumb.label;
+                accessible-action-default => {
+                    root.crumb-clicked(idx, crumb.id);
+                }
+
+                crumb-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.crumb-clicked(idx, crumb.id);
+                    }
+                }
+
+                crumb-label := Text {
+                    x: 5px;
+                    text: crumb.label;
+                    font-size: SlateTheme.font-xs;
+                    font-weight: idx == root.items.length - 1 ? 600 : 500;
+                    color: idx == root.items.length - 1 ? SlateTheme.text-primary : SlateTheme.text-secondary;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
+export component SlatePageHeader inherits Rectangle {
+    in property <string> automation-id: "page-header";
+    in property <[SlateBreadcrumbItem]> breadcrumbs: [];
+    in property <string> title: "Page Title";
+    in property <string> subtitle: "";
+    in property <string> badge-text: "";
+    in property <string> badge-variant: "info";
+    in property <string> primary-action-text: "";
+    in property <string> secondary-action-text: "";
+
+    callback crumb-clicked(int, string);
+    callback primary-action-clicked();
+    callback secondary-action-clicked();
+
+    height: root.breadcrumbs.length > 0 ? 92px : 68px;
+    background: SlateTheme.surface-1;
+
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: root.title;
+
+    Rectangle {
+        y: parent.height - 1px;
+        width: 100%;
+        height: 1px;
+        background: SlateTheme.border-subtle;
+    }
+
+    VerticalLayout {
+        padding-left: SlateTheme.spacing-lg;
+        padding-right: SlateTheme.spacing-lg;
+        padding-top: SlateTheme.spacing-sm;
+        padding-bottom: SlateTheme.spacing-sm;
+        spacing: 4px;
+        alignment: center;
+
+        if root.breadcrumbs.length > 0 : SlateBreadcrumbs {
+            automation-id: root.automation-id + "-breadcrumbs";
+            items: root.breadcrumbs;
+            crumb-clicked(i, id) => { root.crumb-clicked(i, id); }
+        }
+
+        HorizontalLayout {
+            alignment: space-between;
+            spacing: SlateTheme.spacing-md;
+
+            VerticalLayout {
+                spacing: 2px;
+                alignment: center;
+
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-sm;
+                    alignment: start;
+
+                    Text {
+                        text: root.title;
+                        font-size: SlateTheme.font-xl;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                    }
+
+                    if root.badge-text != "" : VerticalLayout {
+                        alignment: center;
+                        SlateBadge {
+                            text: root.badge-text;
+                            variant: root.badge-variant;
+                        }
+                    }
+                }
+
+                if root.subtitle != "" : Text {
+                    text: root.subtitle;
+                    font-size: SlateTheme.font-sm;
+                    color: SlateTheme.text-muted;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: SlateTheme.spacing-sm;
+                alignment: end;
+
+                @children
+
+                if root.secondary-action-text != "" : VerticalLayout {
+                    alignment: center;
+                    SlateButton {
+                        automation-id: root.automation-id + "-secondary-action";
+                        text: root.secondary-action-text;
+                        variant: SlateButtonVariant.outline;
+                        size: SlateButtonSize.sm;
+                        clicked => { root.secondary-action-clicked(); }
+                    }
+                }
+
+                if root.primary-action-text != "" : VerticalLayout {
+                    alignment: center;
+                    SlateButton {
+                        automation-id: root.automation-id + "-primary-action";
+                        text: root.primary-action-text;
+                        variant: SlateButtonVariant.primary;
+                        size: SlateButtonSize.sm;
+                        clicked => { root.primary-action-clicked(); }
+                    }
+                }
+            }
+        }
+    }
+}

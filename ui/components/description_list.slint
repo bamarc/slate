@@ -1,0 +1,131 @@
+import { SlateTheme } from "theme.slint";
+import { SlateBadge } from "badge.slint";
+import { SlateCopyIcon } from "icons.slint";
+
+export struct SlateKeyValueItem {
+    key: string,
+    label: string,
+    value: string,
+    badge: string,
+    badge-variant: string,
+    copyable: bool,
+}
+
+/// Structured Key-Value / Description List for inspector panels and metadata cards.
+export component SlateDescriptionList inherits Rectangle {
+    in property <string> automation-id: "description-list";
+    in property <string> title: "";
+    in property <[SlateKeyValueItem]> items: [];
+    callback copy-requested(string, string);
+
+    border-radius: SlateTheme.radius-md;
+    border-width: 1px;
+    border-color: SlateTheme.border-subtle;
+    background: SlateTheme.surface-1;
+    clip: true;
+
+    accessible-role: list;
+    accessible-id: root.automation-id;
+    accessible-label: root.title != "" ? root.title : "Description List";
+
+    VerticalLayout {
+        spacing: 0px;
+
+        if root.title != "" : Rectangle {
+            height: 38px;
+            background: SlateTheme.surface-2;
+            Text {
+                x: SlateTheme.spacing-md;
+                text: root.title;
+                font-size: SlateTheme.font-sm;
+                font-weight: 700;
+                color: SlateTheme.text-primary;
+                vertical-alignment: center;
+            }
+        }
+
+        for item[idx] in root.items : Rectangle {
+            height: 38px;
+            background: Math.mod(idx, 2) == 1 ? SlateTheme.surface-2 : SlateTheme.surface-1;
+
+            accessible-role: list-item;
+            accessible-id: root.automation-id + "-item-" + (item.key != "" ? item.key : "\{idx}");
+            accessible-label: item.label;
+            accessible-value: item.value;
+
+            if idx > 0 : Rectangle {
+                y: 0px;
+                width: 100%;
+                height: 1px;
+                background: SlateTheme.border-subtle;
+            }
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-md;
+                padding-right: SlateTheme.spacing-md;
+                spacing: SlateTheme.spacing-md;
+                alignment: space-between;
+
+                Text {
+                    width: 38%;
+                    text: item.label;
+                    font-size: SlateTheme.font-xs;
+                    font-weight: 600;
+                    color: SlateTheme.text-secondary;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    spacing: SlateTheme.spacing-xs;
+                    alignment: end;
+
+                    if item.badge != "" : VerticalLayout {
+                        alignment: center;
+                        SlateBadge {
+                            text: item.badge;
+                            variant: item.badge-variant != "" ? item.badge-variant : "default";
+                        }
+                    }
+
+                    Text {
+                        text: item.value;
+                        font-size: SlateTheme.font-sm;
+                        font-weight: 500;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    if item.copyable : Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        border-radius: SlateTheme.radius-xs;
+                        background: copy-touch.has-hover ? SlateTheme.surface-hover : Colors.transparent;
+
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-copy-" + (item.key != "" ? item.key : "\{idx}");
+                        accessible-label: "Copy " + item.label;
+                        accessible-action-default => {
+                            root.copy-requested(item.key, item.value);
+                        }
+
+                        copy-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.copy-requested(item.key, item.value);
+                            }
+                        }
+
+                        SlateCopyIcon {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            icon-color: SlateTheme.text-muted;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

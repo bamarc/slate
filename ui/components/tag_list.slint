@@ -1,0 +1,94 @@
+import { SlateTheme } from "theme.slint";
+import { SlateCloseIcon } from "icons.slint";
+
+export struct SlateTagItem {
+    id: string,
+    label: string,
+    selected: bool,
+    removable: bool,
+}
+
+/// Interactive Tag / Chip List with selection and removal actions.
+export component SlateTagList inherits Rectangle {
+    in property <string> automation-id: "tag-list";
+    in property <[SlateTagItem]> tags: [];
+    callback tag-clicked(int, string);
+    callback tag-removed(int, string);
+
+    height: 30px;
+    background: Colors.transparent;
+
+    accessible-role: list;
+    accessible-id: root.automation-id;
+    accessible-label: "Tag List";
+
+    HorizontalLayout {
+        spacing: SlateTheme.spacing-xs;
+        alignment: start;
+
+        for tag[idx] in root.tags : Rectangle {
+            height: 26px;
+            width: tag-text.preferred-width + (tag.removable ? 32px : 18px);
+            border-radius: SlateTheme.radius-full;
+            border-width: 1px;
+            border-color: tag.selected ? SlateTheme.accent-primary : SlateTheme.border-subtle;
+            background: tag.selected ? SlateTheme.accent-primary-subtle : SlateTheme.surface-2;
+
+            accessible-role: button;
+            accessible-id: root.automation-id + "-tag-" + (tag.id != "" ? tag.id : "\{idx}");
+            accessible-label: tag.label;
+            accessible-value: tag.selected ? "selected" : "";
+            accessible-action-default => {
+                root.tag-clicked(idx, tag.id);
+            }
+
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.tag-clicked(idx, tag.id);
+                }
+            }
+
+            HorizontalLayout {
+                padding-left: 9px;
+                padding-right: 7px;
+                spacing: 4px;
+                alignment: center;
+
+                tag-text := Text {
+                    text: tag.label;
+                    font-size: SlateTheme.font-xs;
+                    font-weight: 500;
+                    color: tag.selected ? SlateTheme.accent-primary : SlateTheme.text-primary;
+                    vertical-alignment: center;
+                }
+
+                if tag.removable : Rectangle {
+                    width: 14px;
+                    height: 14px;
+                    accessible-role: button;
+                    accessible-id: root.automation-id + "-remove-" + (tag.id != "" ? tag.id : "\{idx}");
+                    accessible-label: "Remove " + tag.label;
+                    accessible-action-default => {
+                        root.tag-removed(idx, tag.id);
+                    }
+
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.tag-removed(idx, tag.id);
+                        }
+                    }
+
+                    SlateCloseIcon {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 8px;
+                        height: 8px;
+                        icon-color: SlateTheme.text-muted;
+                    }
+                }
+            }
+        }
+    }
+}

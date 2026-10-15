@@ -1,0 +1,152 @@
+import { SlateTheme } from "theme.slint";
+import { SlateBadge } from "badge.slint";
+import { SlateChevronIcon, SlateFolderIcon, SlateFileIcon } from "icons.slint";
+import { SlateStatusPage } from "../layouts/status_page.slint";
+
+export struct SlateTreeNodeRow {
+    id: string,
+    label: string,
+    depth: int,
+    has-children: bool,
+    expanded: bool,
+    selected: bool,
+    icon-kind: string, // "folder", "file", "item"
+    badge: string,
+}
+
+/// Hierarchical Tree View rendering flattened visible rows (`TreeModel!T` in `slint-d`)
+/// with depth indentation, expand/collapse chevron (`accessible-action-expand`), and selection.
+export component SlateTreeView inherits Rectangle {
+    in property <string> automation-id: "tree-view";
+    in property <string> title: "";
+    in property <[SlateTreeNodeRow]> nodes: [];
+    in-out property <string> selected-id: "";
+
+    callback node-selected(int, string);
+    callback node-toggled(int, string);
+
+    border-radius: SlateTheme.radius-md;
+    border-width: 1px;
+    border-color: SlateTheme.border-subtle;
+    background: SlateTheme.surface-1;
+    clip: true;
+
+    accessible-role: tree;
+    accessible-id: root.automation-id;
+    accessible-label: root.title != "" ? root.title : "Tree View";
+
+    VerticalLayout {
+        padding: SlateTheme.spacing-xs;
+        spacing: 2px;
+
+        if root.title != "" : Rectangle {
+            height: 32px;
+            Text {
+                x: SlateTheme.spacing-sm;
+                text: root.title;
+                font-size: SlateTheme.font-xs;
+                font-weight: 700;
+                color: SlateTheme.text-secondary;
+                vertical-alignment: center;
+            }
+        }
+
+        if root.nodes.length == 0 : SlateStatusPage {
+            icon: "🌲";
+            title: "Empty Tree";
+            description: "No hierarchy nodes available.";
+        }
+
+        if root.nodes.length > 0 : Flickable {
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 2px;
+                alignment: start;
+
+                for node[idx] in root.nodes : Rectangle {
+                    height: 32px;
+                    border-radius: SlateTheme.radius-xs;
+                    background: (node.selected || root.selected-id == node.id) ? SlateTheme.accent-primary-subtle
+                        : (row-touch.has-hover ? SlateTheme.surface-hover : Colors.transparent);
+
+                    accessible-role: list-item;
+                    accessible-id: root.automation-id + "-node-" + (node.id != "" ? node.id : "\{idx}");
+                    accessible-label: node.label;
+                    accessible-expandable: node.has-children;
+                    accessible-expanded: node.expanded;
+                    accessible-action-expand => {
+                        if (node.has-children) {
+                            root.node-toggled(idx, node.id);
+                        }
+                    }
+                    accessible-action-default => {
+                        root.selected-id = node.id;
+                        root.node-selected(idx, node.id);
+                        if (node.has-children) {
+                            root.node-toggled(idx, node.id);
+                        }
+                    }
+
+                    row-touch := TouchArea {
+                        clicked => {
+                            root.selected-id = node.id;
+                            root.node-selected(idx, node.id);
+                            if (node.has-children) {
+                                root.node-toggled(idx, node.id);
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-left: SlateTheme.spacing-sm + (node.depth * 18px);
+                        padding-right: SlateTheme.spacing-sm;
+                        spacing: 6px;
+                        alignment: space-between;
+
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            horizontal-stretch: 1;
+
+                            VerticalLayout {
+                                alignment: center;
+                                width: 14px;
+                                if node.has-children : SlateChevronIcon {
+                                    expanded: node.expanded;
+                                    icon-color: SlateTheme.text-secondary;
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                if node.icon-kind == "folder" || node.has-children : SlateFolderIcon {
+                                    icon-color: SlateTheme.accent-primary;
+                                }
+                                if node.icon-kind != "folder" && !node.has-children : SlateFileIcon {
+                                    icon-color: SlateTheme.text-muted;
+                                }
+                            }
+
+                            Text {
+                                text: node.label;
+                                font-size: SlateTheme.font-sm;
+                                font-weight: (node.selected || root.selected-id == node.id) ? 600 : 400;
+                                color: SlateTheme.text-primary;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+
+                        if node.badge != "" : VerticalLayout {
+                            alignment: center;
+                            SlateBadge {
+                                text: node.badge;
+                                variant: "default";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,347 @@
+import { SlateTheme } from "theme.slint";
+import { SlateBadge } from "badge.slint";
+import { SlateCheckbox } from "checkbox.slint";
+import { SlateSearchInput } from "search_input.slint";
+import { SlatePagination } from "pagination.slint";
+import { SlateSortIcon } from "icons.slint";
+import { SlateStatusPage } from "../layouts/status_page.slint";
+
+export struct SlateGridColumn {
+    key: string,
+    title: string,
+    sortable: bool,
+}
+
+export struct SlateGridRow {
+    id: string,
+    col0: string,
+    col1: string,
+    col2: string,
+    col3: string,
+    badge: string,
+    badge-variant: string,
+    selected: bool,
+}
+
+/// Interactive Data Grid with sortable column headers (`E3`), filter bar (`E4`),
+/// multi-row selection, status badges, empty-state fallback (`S1`), and pagination.
+export component SlateDataGrid inherits Rectangle {
+    in property <string> automation-id: "datagrid";
+    in property <string> title: "Data Grid";
+    in property <[SlateGridColumn]> columns: [
+        { key: "col0", title: "Name", sortable: true },
+        { key: "col1", title: "Category", sortable: true },
+        { key: "col2", title: "Value", sortable: true },
+        { key: "col3", title: "Status", sortable: false },
+    ];
+    in property <[SlateGridRow]> rows: [];
+    in-out property <string> filter-text: "";
+    in-out property <int> sort-column: -1;
+    in-out property <string> sort-direction: "none"; // "none", "asc", "desc"
+    in-out property <int> current-page: 1;
+    in property <int> total-pages: 1;
+    in property <int> total-rows: 0;
+    in property <bool> show-filter: true;
+    in property <bool> selectable: true;
+
+    callback sort-requested(int, string);
+    callback filter-changed(string);
+    callback row-clicked(int, string);
+    callback row-toggled(int, string, bool);
+    callback page-changed(int);
+
+    border-radius: SlateTheme.radius-md;
+    border-width: 1px;
+    border-color: SlateTheme.border-subtle;
+    background: SlateTheme.surface-1;
+    clip: true;
+
+    accessible-role: table;
+    accessible-id: root.automation-id;
+    accessible-label: root.title;
+
+    VerticalLayout {
+        spacing: 0px;
+
+        // Top Filter & Summary Toolbar
+        if root.show-filter : Rectangle {
+            height: 52px;
+            background: SlateTheme.surface-1;
+
+            Rectangle {
+                y: parent.height - 1px;
+                width: 100%;
+                height: 1px;
+                background: SlateTheme.border-subtle;
+            }
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-md;
+                padding-right: SlateTheme.spacing-md;
+                spacing: SlateTheme.spacing-md;
+                alignment: space-between;
+
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-sm;
+                    alignment: start;
+
+                    Text {
+                        text: root.title;
+                        font-size: SlateTheme.font-md;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        SlateBadge {
+                            text: "\{root.rows.length} shown";
+                            variant: "default";
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    width: 240px;
+                    SlateSearchInput {
+                        automation-id: root.automation-id + "-filter";
+                        placeholder: "Filter rows...";
+                        text <=> root.filter-text;
+                        edited(q) => {
+                            root.filter-changed(q);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Column Header Row
+        Rectangle {
+            height: 38px;
+            background: SlateTheme.surface-2;
+
+            Rectangle {
+                y: parent.height - 1px;
+                width: 100%;
+                height: 1px;
+                background: SlateTheme.border-subtle;
+            }
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-md;
+                padding-right: SlateTheme.spacing-md;
+                spacing: SlateTheme.spacing-sm;
+
+                if root.selectable : Rectangle {
+                    width: 28px;
+                }
+
+                for col[cidx] in root.columns : Rectangle {
+                    horizontal-stretch: 1;
+                    background: hdr-touch.has-hover && col.sortable ? SlateTheme.surface-hover : Colors.transparent;
+
+                    accessible-role: button;
+                    accessible-id: root.automation-id + "-header-\{cidx}";
+                    accessible-label: col.title;
+                    accessible-value: root.sort-column == cidx ? root.sort-direction : "none";
+                    accessible-action-default => {
+                        if (col.sortable) {
+                            if (root.sort-column != cidx) {
+                                root.sort-column = cidx;
+                                root.sort-direction = "asc";
+                            } else if (root.sort-direction == "none") {
+                                root.sort-direction = "asc";
+                            } else if (root.sort-direction == "asc") {
+                                root.sort-direction = "desc";
+                            } else {
+                                root.sort-column = -1;
+                                root.sort-direction = "none";
+                            }
+                            root.sort-requested(cidx, root.sort-direction);
+                        }
+                    }
+
+                    hdr-touch := TouchArea {
+                        enabled: col.sortable;
+                        mouse-cursor: col.sortable ? pointer : default;
+                        clicked => {
+                            if (root.sort-column != cidx) {
+                                root.sort-column = cidx;
+                                root.sort-direction = "asc";
+                            } else if (root.sort-direction == "none") {
+                                root.sort-direction = "asc";
+                            } else if (root.sort-direction == "asc") {
+                                root.sort-direction = "desc";
+                            } else {
+                                root.sort-column = -1;
+                                root.sort-direction = "none";
+                            }
+                            root.sort-requested(cidx, root.sort-direction);
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+
+                        Text {
+                            text: col.title;
+                            font-size: SlateTheme.font-xs;
+                            font-weight: 700;
+                            color: root.sort-column == cidx ? SlateTheme.accent-primary : SlateTheme.text-secondary;
+                            vertical-alignment: center;
+                        }
+
+                        if col.sortable : VerticalLayout {
+                            alignment: center;
+                            SlateSortIcon {
+                                direction: root.sort-column == cidx ? root.sort-direction : "none";
+                                icon-color: root.sort-column == cidx ? SlateTheme.accent-primary : SlateTheme.text-muted;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Empty State (S1)
+        if root.rows.length == 0 : Rectangle {
+            vertical-stretch: 1;
+            min-height: 160px;
+            accessible-role: region;
+            accessible-id: root.automation-id + "-empty";
+
+            SlateStatusPage {
+                icon: "🔍";
+                title: "No Matching Rows";
+                description: "No data rows match the active filter criteria.";
+            }
+        }
+
+        // Data Rows
+        if root.rows.length > 0 : Flickable {
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 0px;
+                alignment: start;
+
+                for row[ridx] in root.rows : Rectangle {
+                    height: 40px;
+                    background: row.selected ? SlateTheme.accent-primary-subtle
+                        : (row-touch.has-hover ? SlateTheme.surface-hover
+                        : (Math.mod(ridx, 2) == 1 ? SlateTheme.surface-2 : SlateTheme.surface-1));
+
+                    accessible-role: list-item;
+                    accessible-id: root.automation-id + "-row-\{ridx}";
+                    accessible-label: row.col0;
+                    accessible-value: row.selected ? "selected" : row.col1;
+                    accessible-action-default => {
+                        root.row-clicked(ridx, row.id);
+                    }
+
+                    Rectangle {
+                        y: parent.height - 1px;
+                        width: 100%;
+                        height: 1px;
+                        background: SlateTheme.border-subtle;
+                    }
+
+                    row-touch := TouchArea {
+                        clicked => {
+                            root.row-clicked(ridx, row.id);
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-left: SlateTheme.spacing-md;
+                        padding-right: SlateTheme.spacing-md;
+                        spacing: SlateTheme.spacing-sm;
+
+                        if root.selectable : VerticalLayout {
+                            alignment: center;
+                            width: 28px;
+                            SlateCheckbox {
+                                automation-id: root.automation-id + "-check-\{ridx}";
+                                checked: row.selected;
+                                toggled(v) => {
+                                    root.row-toggled(ridx, row.id, v);
+                                }
+                            }
+                        }
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: row.col0;
+                            font-size: SlateTheme.font-sm;
+                            font-weight: 500;
+                            color: SlateTheme.text-primary;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: row.col1;
+                            font-size: SlateTheme.font-sm;
+                            color: SlateTheme.text-secondary;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: row.col2;
+                            font-size: SlateTheme.font-sm;
+                            color: SlateTheme.text-secondary;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+
+                        HorizontalLayout {
+                            horizontal-stretch: 1;
+                            alignment: start;
+                            if row.badge != "" : VerticalLayout {
+                                alignment: center;
+                                SlateBadge {
+                                    text: row.badge;
+                                    variant: row.badge-variant != "" ? row.badge-variant : "default";
+                                }
+                            }
+                            if row.badge == "" : Text {
+                                text: row.col3;
+                                font-size: SlateTheme.font-sm;
+                                color: SlateTheme.text-secondary;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Pagination Footer
+        if root.total-pages > 1 : Rectangle {
+            height: 44px;
+            background: SlateTheme.surface-1;
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-md;
+                padding-right: SlateTheme.spacing-md;
+                alignment: end;
+
+                VerticalLayout {
+                    alignment: center;
+                    SlatePagination {
+                        automation-id: root.automation-id + "-pagination";
+                        current-page <=> root.current-page;
+                        total-pages: root.total-pages;
+                        page-changed(p) => { root.page-changed(p); }
+                    }
+                }
+            }
+        }
+    }
+}

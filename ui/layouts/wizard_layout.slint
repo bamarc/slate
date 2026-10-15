@@ -1,0 +1,181 @@
+import { SlateTheme } from "../components/theme.slint";
+import { SlateButton, SlateButtonVariant, SlateButtonSize } from "../components/button.slint";
+import { SlateCheckIcon } from "../components/icons.slint";
+
+export struct SlateWizardStep {
+    id: string,
+    title: string,
+    subtitle: string,
+    completed: bool,
+}
+
+/// Multi-step Wizard Layout with progress step indicator bar, validation gate,
+/// and Back / Next / Finish controls.
+export component SlateWizardLayout inherits Rectangle {
+    in property <string> automation-id: "wizard";
+    in property <[SlateWizardStep]> steps: [];
+    in-out property <int> current-step: 0;
+    in property <bool> can-advance: true;
+    in property <string> finish-text: "Finish";
+
+    callback step-changed(int);
+    callback finished();
+    callback cancelled();
+
+    border-radius: SlateTheme.radius-md;
+    border-width: 1px;
+    border-color: SlateTheme.border-subtle;
+    background: SlateTheme.surface-1;
+
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: "Wizard";
+    accessible-value: "\{root.current-step}";
+
+    VerticalLayout {
+        padding: SlateTheme.spacing-lg;
+        spacing: SlateTheme.spacing-md;
+
+        // Step Indicator Bar
+        HorizontalLayout {
+            spacing: SlateTheme.spacing-sm;
+            alignment: start;
+
+            for step[idx] in root.steps : HorizontalLayout {
+                spacing: SlateTheme.spacing-xs;
+                alignment: center;
+
+                Rectangle {
+                    width: 26px;
+                    height: 26px;
+                    border-radius: 13px;
+                    background: (step.completed || idx < root.current-step) ? SlateTheme.status-success
+                        : (idx == root.current-step ? SlateTheme.accent-primary : SlateTheme.surface-3);
+
+                    accessible-role: button;
+                    accessible-id: root.automation-id + "-step-\{idx}";
+                    accessible-label: step.title;
+                    accessible-action-default => {
+                        if (idx <= root.current-step) {
+                            root.current-step = idx;
+                            root.step-changed(idx);
+                        }
+                    }
+
+                    TouchArea {
+                        enabled: idx <= root.current-step;
+                        clicked => {
+                            root.current-step = idx;
+                            root.step-changed(idx);
+                        }
+                    }
+
+                    if (step.completed || idx < root.current-step) : SlateCheckIcon {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        icon-color: #ffffff;
+                    }
+
+                    if (!step.completed && idx >= root.current-step) : Text {
+                        text: "\{idx + 1}";
+                        font-size: SlateTheme.font-xs;
+                        font-weight: 700;
+                        color: idx == root.current-step ? #ffffff : SlateTheme.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    Text {
+                        text: step.title;
+                        font-size: SlateTheme.font-sm;
+                        font-weight: idx == root.current-step ? 700 : 500;
+                        color: idx == root.current-step ? SlateTheme.text-primary : SlateTheme.text-muted;
+                    }
+                    if step.subtitle != "" : Text {
+                        text: step.subtitle;
+                        font-size: SlateTheme.font-xs;
+                        color: SlateTheme.text-muted;
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: SlateTheme.border-subtle;
+        }
+
+        // Active Step Content Slot
+        Rectangle {
+            vertical-stretch: 1;
+            background: Colors.transparent;
+            @children
+        }
+
+        Rectangle {
+            height: 1px;
+            background: SlateTheme.border-subtle;
+        }
+
+        // Wizard Footer Bar
+        HorizontalLayout {
+            alignment: space-between;
+
+            SlateButton {
+                automation-id: root.automation-id + "-cancel";
+                text: "Cancel";
+                variant: SlateButtonVariant.ghost;
+                size: SlateButtonSize.sm;
+                clicked => { root.cancelled(); }
+            }
+
+            HorizontalLayout {
+                spacing: SlateTheme.spacing-sm;
+
+                SlateButton {
+                    automation-id: root.automation-id + "-back";
+                    text: "Back";
+                    variant: SlateButtonVariant.outline;
+                    size: SlateButtonSize.sm;
+                    enabled: root.current-step > 0;
+                    clicked => {
+                        if (root.current-step > 0) {
+                            root.current-step -= 1;
+                            root.step-changed(root.current-step);
+                        }
+                    }
+                }
+
+                if root.current-step < root.steps.length - 1 : SlateButton {
+                    automation-id: root.automation-id + "-next";
+                    text: "Next";
+                    variant: SlateButtonVariant.primary;
+                    size: SlateButtonSize.sm;
+                    enabled: root.can-advance;
+                    clicked => {
+                        if (root.can-advance && root.current-step < root.steps.length - 1) {
+                            root.current-step += 1;
+                            root.step-changed(root.current-step);
+                        }
+                    }
+                }
+
+                if root.current-step >= root.steps.length - 1 : SlateButton {
+                    automation-id: root.automation-id + "-finish";
+                    text: root.finish-text;
+                    variant: SlateButtonVariant.primary;
+                    size: SlateButtonSize.sm;
+                    enabled: root.can-advance;
+                    clicked => {
+                        if (root.can-advance) {
+                            root.finished();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

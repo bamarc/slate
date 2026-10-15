@@ -1,0 +1,183 @@
+import { SlateTheme } from "../components/theme.slint";
+import { SlateButton, SlateButtonVariant, SlateButtonSize } from "../components/button.slint";
+import { SlateBadge } from "../components/badge.slint";
+import { SlateProgressBar } from "../components/progress_bar.slint";
+
+export struct SlateToolbarItem {
+    id: string,
+    label: string,
+    active: bool,
+    disabled: bool,
+}
+
+export struct SlateStatusItem {
+    id: string,
+    label: string,
+    value: string,
+    variant: string,
+}
+
+/// Top or inline command toolbar with model-driven actions + `@children` slot.
+export component SlateToolbar inherits Rectangle {
+    in property <string> automation-id: "toolbar";
+    in property <string> title: "";
+    in property <[SlateToolbarItem]> items: [];
+    callback action-triggered(string);
+
+    height: 40px;
+    background: SlateTheme.surface-1;
+
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: root.title != "" ? root.title : "Toolbar";
+
+    Rectangle {
+        y: parent.height - 1px;
+        width: 100%;
+        height: 1px;
+        background: SlateTheme.border-subtle;
+    }
+
+    HorizontalLayout {
+        padding-left: SlateTheme.spacing-md;
+        padding-right: SlateTheme.spacing-md;
+        spacing: SlateTheme.spacing-xs;
+        alignment: space-between;
+
+        HorizontalLayout {
+            spacing: SlateTheme.spacing-xs;
+            alignment: start;
+
+            if root.title != "" : Text {
+                text: root.title;
+                font-size: SlateTheme.font-sm;
+                font-weight: 700;
+                color: SlateTheme.text-primary;
+                vertical-alignment: center;
+            }
+
+            for item[idx] in root.items : VerticalLayout {
+                alignment: center;
+                SlateButton {
+                    automation-id: root.automation-id + "-action-" + (item.id != "" ? item.id : "\{idx}");
+                    text: item.label;
+                    variant: item.active ? SlateButtonVariant.primary : SlateButtonVariant.ghost;
+                    size: SlateButtonSize.sm;
+                    enabled: !item.disabled;
+                    clicked => {
+                        root.action-triggered(item.id);
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: SlateTheme.spacing-xs;
+            alignment: end;
+            @children
+        }
+    }
+}
+
+/// Bottom application status bar with status items, connection/status badge, and task progress indicator.
+export component SlateStatusBar inherits Rectangle {
+    in property <string> automation-id: "status-bar";
+    in property <string> status-text: "Ready";
+    in property <string> status-variant: "success"; // "success", "warning", "error", "info"
+    in property <[SlateStatusItem]> items: [];
+    in property <bool> task-running: false;
+    in property <float> task-progress: 0.0; // 0.0 .. 1.0
+    in property <string> task-label: "";
+
+    height: 28px;
+    background: SlateTheme.surface-1;
+
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: "Status Bar";
+    accessible-value: root.status-text;
+
+    Rectangle {
+        y: 0px;
+        width: 100%;
+        height: 1px;
+        background: SlateTheme.border-subtle;
+    }
+
+    HorizontalLayout {
+        padding-left: SlateTheme.spacing-md;
+        padding-right: SlateTheme.spacing-md;
+        spacing: SlateTheme.spacing-md;
+        alignment: space-between;
+
+        HorizontalLayout {
+            spacing: SlateTheme.spacing-sm;
+            alignment: start;
+
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 4px;
+                    background: root.status-variant == "error" ? SlateTheme.status-error
+                        : (root.status-variant == "warning" ? SlateTheme.status-warning
+                        : (root.status-variant == "info" ? SlateTheme.status-info : SlateTheme.status-success));
+                }
+            }
+
+            Text {
+                text: root.status-text;
+                font-size: SlateTheme.font-xs;
+                font-weight: 600;
+                color: SlateTheme.text-secondary;
+                vertical-alignment: center;
+            }
+
+            if root.task-running : HorizontalLayout {
+                spacing: SlateTheme.spacing-xs;
+                alignment: center;
+
+                if root.task-label != "" : Text {
+                    text: root.task-label;
+                    font-size: SlateTheme.font-xs;
+                    color: SlateTheme.text-muted;
+                    vertical-alignment: center;
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    width: 80px;
+                    SlateProgressBar {
+                        progress: root.task-progress;
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: SlateTheme.spacing-md;
+            alignment: end;
+
+            for item[idx] in root.items : HorizontalLayout {
+                spacing: 4px;
+                alignment: center;
+
+                Text {
+                    text: item.label + ":";
+                    font-size: SlateTheme.font-xs;
+                    color: SlateTheme.text-muted;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: item.value;
+                    font-size: SlateTheme.font-xs;
+                    font-weight: 600;
+                    color: SlateTheme.text-primary;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

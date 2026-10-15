@@ -75,3 +75,127 @@ export component SlateResizableHandle {
         animate background { duration: 150ms; }
     }
 }
+
+/// A full 2-pane resizable split view (horizontal or vertical) with MCP ratio control,
+/// collapse snapping, and double-click reset.
+export component SlateSplitView inherits Rectangle {
+    in property <string> automation-id: "split-view";
+    in property <bool> vertical: false;
+    in-out property <float> split-ratio: 0.35;
+    in property <float> default-ratio: 0.35;
+    in property <float> min-ratio: 0.15;
+    in property <float> max-ratio: 0.85;
+    in-out property <bool> first-collapsed: false;
+    in-out property <bool> second-collapsed: false;
+    in property <string> first-title: "Primary Pane";
+    in property <string> second-title: "Secondary Pane";
+    in property <bool> show-headers: false;
+
+    callback ratio-changed(float);
+
+    out property <float> effective-ratio:
+        root.first-collapsed ? 0.0 :
+        (root.second-collapsed ? 1.0 : Math.max(root.min-ratio, Math.min(root.max-ratio, root.split-ratio)));
+
+    out property <length> first-pane-width: root.vertical ? root.width : (root.width * root.effective-ratio);
+    out property <length> first-pane-height: root.vertical ? (root.height * root.effective-ratio) : root.height;
+
+    width: 100%;
+    height: 100%;
+    background: SlateTheme.background;
+    clip: true;
+
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: root.first-title + " / " + root.second-title;
+
+    // First Pane
+    first-pane := Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.vertical ? parent.width : (root.second-collapsed ? parent.width : parent.width * root.effective-ratio);
+        height: root.vertical ? (root.second-collapsed ? parent.height : parent.height * root.effective-ratio) : parent.height;
+        visible: !root.first-collapsed;
+        background: SlateTheme.surface-1;
+        clip: true;
+
+        if root.show-headers : Rectangle {
+            x: 0px;
+            y: 0px;
+            width: 100%;
+            height: 32px;
+            background: SlateTheme.surface-2;
+            Text {
+                x: SlateTheme.spacing-sm;
+                text: root.first-title;
+                font-size: SlateTheme.font-xs;
+                font-weight: 600;
+                color: SlateTheme.text-secondary;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    // Second Pane (hosts @children)
+    second-pane := Rectangle {
+        x: root.vertical ? 0px : (root.first-collapsed ? 0px : first-pane.width + 8px);
+        y: root.vertical ? (root.first-collapsed ? 0px : first-pane.height + 8px) : 0px;
+        width: root.vertical ? parent.width : Math.max(0px, parent.width - self.x);
+        height: root.vertical ? Math.max(0px, parent.height - self.y) : parent.height;
+        visible: !root.second-collapsed;
+        background: SlateTheme.background;
+        clip: true;
+
+        @children
+    }
+
+    // Resizable Splitter Handle with MCP accessibility actions
+    if !root.first-collapsed && !root.second-collapsed : Rectangle {
+        x: root.vertical ? 0px : first-pane.width;
+        y: root.vertical ? first-pane.height : 0px;
+        width: root.vertical ? parent.width : 8px;
+        height: root.vertical ? 8px : parent.height;
+
+        accessible-role: slider;
+        accessible-id: root.automation-id + "-handle";
+        accessible-label: "Split Divider";
+        accessible-description: "mcp:controllable,value";
+        accessible-value: "\{Math.round(root.effective-ratio * 100)}%";
+        accessible-value-minimum: root.min-ratio * 100;
+        accessible-value-maximum: root.max-ratio * 100;
+        accessible-value-step: 5;
+        accessible-action-set-value(val) => {
+            if (val.is-float()) {
+                root.split-ratio = Math.max(root.min-ratio, Math.min(root.max-ratio, val.to-float()));
+                root.ratio-changed(root.split-ratio);
+            }
+        }
+        accessible-action-increment => {
+            root.split-ratio = Math.min(root.max-ratio, root.split-ratio + 0.05);
+            root.ratio-changed(root.split-ratio);
+        }
+        accessible-action-decrement => {
+            root.split-ratio = Math.max(root.min-ratio, root.split-ratio - 0.05);
+            root.ratio-changed(root.split-ratio);
+        }
+
+        SlateResizableHandle {
+            width: 100%;
+            height: 100%;
+            vertical: root.vertical;
+            dragged(delta) => {
+                if (root.vertical && root.height > 0px) {
+                    root.split-ratio = Math.max(root.min-ratio, Math.min(root.max-ratio, root.split-ratio + (delta / root.height)));
+                    root.ratio-changed(root.split-ratio);
+                } else if (!root.vertical && root.width > 0px) {
+                    root.split-ratio = Math.max(root.min-ratio, Math.min(root.max-ratio, root.split-ratio + (delta / root.width)));
+                    root.ratio-changed(root.split-ratio);
+                }
+            }
+            double-clicked => {
+                root.split-ratio = root.default-ratio;
+                root.ratio-changed(root.split-ratio);
+            }
+        }
+    }
+}

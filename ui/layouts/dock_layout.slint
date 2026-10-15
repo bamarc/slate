@@ -1,0 +1,235 @@
+import { SlateTheme } from "../components/theme.slint";
+import { SlateButton, SlateButtonVariant, SlateButtonSize } from "../components/button.slint";
+import { SlateBadge } from "../components/badge.slint";
+import { SlateResizableHandle } from "resizable_panel_group.slint";
+
+/// IDE/Studio Dockable Workspace Layout with collapsible Left, Right, and Bottom tool panels,
+/// central workspace canvas (`@children`), and MCP panel toggles (`T9`).
+export component SlateDockLayout inherits Rectangle {
+    in property <string> automation-id: "dock-layout";
+    in property <string> workspace-title: "Studio Workspace";
+    in property <string> left-title: "Explorer";
+    in property <string> right-title: "Inspector";
+    in property <string> bottom-title: "Console & Output";
+
+    in-out property <bool> left-open: true;
+    in-out property <bool> right-open: true;
+    in-out property <bool> bottom-open: true;
+
+    in-out property <length> left-width: 220px;
+    in-out property <length> right-width: 240px;
+    in-out property <length> bottom-height: 160px;
+
+    in property <string> left-summary: "Project tree & assets";
+    in property <string> right-summary: "Properties & metadata";
+    in property <string> bottom-summary: "Ready";
+
+    callback panel-toggled(string, bool);
+
+    width: 100%;
+    height: 100%;
+    background: SlateTheme.background;
+
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: root.workspace-title;
+
+    VerticalLayout {
+        spacing: 0px;
+
+        // Top Dock Control Strip
+        Rectangle {
+            height: 36px;
+            background: SlateTheme.surface-1;
+
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                width: 100%;
+                background: SlateTheme.border-subtle;
+            }
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-md;
+                padding-right: SlateTheme.spacing-md;
+                spacing: SlateTheme.spacing-sm;
+                alignment: space-between;
+
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-sm;
+                    alignment: start;
+                    Text {
+                        text: root.workspace-title;
+                        font-size: SlateTheme.font-sm;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-xs;
+                    alignment: end;
+
+                    SlateButton {
+                        automation-id: root.automation-id + "-toggle-left";
+                        text: root.left-open ? "Hide Left" : "Show Left";
+                        variant: root.left-open ? SlateButtonVariant.secondary : SlateButtonVariant.ghost;
+                        size: SlateButtonSize.sm;
+                        clicked => {
+                            root.left-open = !root.left-open;
+                            root.panel-toggled("left", root.left-open);
+                        }
+                    }
+
+                    SlateButton {
+                        automation-id: root.automation-id + "-toggle-bottom";
+                        text: root.bottom-open ? "Hide Bottom" : "Show Bottom";
+                        variant: root.bottom-open ? SlateButtonVariant.secondary : SlateButtonVariant.ghost;
+                        size: SlateButtonSize.sm;
+                        clicked => {
+                            root.bottom-open = !root.bottom-open;
+                            root.panel-toggled("bottom", root.bottom-open);
+                        }
+                    }
+
+                    SlateButton {
+                        automation-id: root.automation-id + "-toggle-right";
+                        text: root.right-open ? "Hide Right" : "Show Right";
+                        variant: root.right-open ? SlateButtonVariant.secondary : SlateButtonVariant.ghost;
+                        size: SlateButtonSize.sm;
+                        clicked => {
+                            root.right-open = !root.right-open;
+                            root.panel-toggled("right", root.right-open);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Upper Area: Left Dock + Center Canvas + Right Dock
+        HorizontalLayout {
+            vertical-stretch: 1;
+            spacing: 0px;
+
+            if root.left-open : Rectangle {
+                width: root.left-width;
+                background: SlateTheme.surface-1;
+                clip: true;
+                accessible-role: region;
+                accessible-id: root.automation-id + "-left-dock";
+                accessible-label: root.left-title;
+
+                VerticalLayout {
+                    padding: SlateTheme.spacing-sm;
+                    spacing: SlateTheme.spacing-xs;
+                    Text {
+                        text: root.left-title;
+                        font-size: SlateTheme.font-xs;
+                        font-weight: 700;
+                        color: SlateTheme.text-secondary;
+                    }
+                    Text {
+                        text: root.left-summary;
+                        font-size: SlateTheme.font-xs;
+                        color: SlateTheme.text-muted;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            if root.left-open : SlateResizableHandle {
+                vertical: false;
+                dragged(d) => {
+                    root.left-width = Math.max(120px, Math.min(420px, root.left-width + d));
+                }
+            }
+
+            // Center Canvas
+            Rectangle {
+                horizontal-stretch: 1;
+                background: SlateTheme.background;
+                clip: true;
+                accessible-role: region;
+                accessible-id: root.automation-id + "-center-dock";
+                accessible-label: "Center Workspace";
+
+                @children
+            }
+
+            if root.right-open : SlateResizableHandle {
+                vertical: false;
+                dragged(d) => {
+                    root.right-width = Math.max(140px, Math.min(420px, root.right-width - d));
+                }
+            }
+
+            if root.right-open : Rectangle {
+                width: root.right-width;
+                background: SlateTheme.surface-1;
+                clip: true;
+                accessible-role: region;
+                accessible-id: root.automation-id + "-right-dock";
+                accessible-label: root.right-title;
+
+                VerticalLayout {
+                    padding: SlateTheme.spacing-sm;
+                    spacing: SlateTheme.spacing-xs;
+                    Text {
+                        text: root.right-title;
+                        font-size: SlateTheme.font-xs;
+                        font-weight: 700;
+                        color: SlateTheme.text-secondary;
+                    }
+                    Text {
+                        text: root.right-summary;
+                        font-size: SlateTheme.font-xs;
+                        color: SlateTheme.text-muted;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+
+        // Bottom Dock
+        if root.bottom-open : SlateResizableHandle {
+            vertical: true;
+            dragged(d) => {
+                root.bottom-height = Math.max(80px, Math.min(320px, root.bottom-height - d));
+            }
+        }
+
+        if root.bottom-open : Rectangle {
+            height: root.bottom-height;
+            background: SlateTheme.surface-1;
+            clip: true;
+            accessible-role: region;
+            accessible-id: root.automation-id + "-bottom-dock";
+            accessible-label: root.bottom-title;
+
+            VerticalLayout {
+                padding: SlateTheme.spacing-sm;
+                spacing: SlateTheme.spacing-xs;
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: root.bottom-title;
+                        font-size: SlateTheme.font-xs;
+                        font-weight: 700;
+                        color: SlateTheme.text-secondary;
+                    }
+                    SlateBadge {
+                        text: "Docked";
+                        variant: "info";
+                    }
+                }
+                Text {
+                    text: root.bottom-summary;
+                    font-size: SlateTheme.font-xs;
+                    color: SlateTheme.text-muted;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}

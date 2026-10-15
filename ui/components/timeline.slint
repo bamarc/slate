@@ -1,0 +1,103 @@
+import { SlateTheme } from "theme.slint";
+import { SlateBadge } from "badge.slint";
+
+export struct SlateTimelineEvent {
+    id: string,
+    title: string,
+    description: string,
+    timestamp: string,
+    status: string, // "success", "warning", "error", "info", "default"
+}
+
+/// Chronological Activity / Audit Timeline with vertical rail and status indicators.
+export component SlateTimeline inherits Rectangle {
+    in property <string> automation-id: "timeline";
+    in property <string> title: "";
+    in property <[SlateTimelineEvent]> events: [];
+
+    border-radius: SlateTheme.radius-md;
+    border-width: 1px;
+    border-color: SlateTheme.border-subtle;
+    background: SlateTheme.surface-1;
+
+    accessible-role: list;
+    accessible-id: root.automation-id;
+    accessible-label: root.title != "" ? root.title : "Timeline";
+
+    VerticalLayout {
+        padding: SlateTheme.spacing-md;
+        spacing: SlateTheme.spacing-sm;
+
+        if root.title != "" : Text {
+            text: root.title;
+            font-size: SlateTheme.font-md;
+            font-weight: 700;
+            color: SlateTheme.text-primary;
+        }
+
+        for ev[idx] in root.events : Rectangle {
+            height: ev.description != "" ? 62px : 42px;
+            background: Colors.transparent;
+
+            accessible-role: list-item;
+            accessible-id: root.automation-id + "-event-" + (ev.id != "" ? ev.id : "\{idx}");
+            accessible-label: ev.title;
+            accessible-value: ev.timestamp;
+
+            HorizontalLayout {
+                spacing: SlateTheme.spacing-sm;
+
+                // Rail + Dot column
+                Rectangle {
+                    width: 20px;
+
+                    if idx < root.events.length - 1 : Rectangle {
+                        x: 9px;
+                        y: 16px;
+                        width: 2px;
+                        height: parent.height - 10px;
+                        background: SlateTheme.border-subtle;
+                    }
+
+                    Rectangle {
+                        x: 5px;
+                        y: 6px;
+                        width: 10px;
+                        height: 10px;
+                        border-radius: 5px;
+                        background: ev.status == "error" ? SlateTheme.status-error
+                            : (ev.status == "warning" ? SlateTheme.status-warning
+                            : (ev.status == "success" ? SlateTheme.status-success : SlateTheme.accent-primary));
+                    }
+                }
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 2px;
+
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: ev.title;
+                            font-size: SlateTheme.font-sm;
+                            font-weight: 600;
+                            color: SlateTheme.text-primary;
+                        }
+                        Text {
+                            text: ev.timestamp;
+                            font-size: SlateTheme.font-xs;
+                            color: SlateTheme.text-muted;
+                        }
+                    }
+
+                    if ev.description != "" : Text {
+                        text: ev.description;
+                        font-size: SlateTheme.font-xs;
+                        color: SlateTheme.text-secondary;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+    }
+}

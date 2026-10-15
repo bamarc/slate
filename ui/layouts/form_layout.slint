@@ -1,0 +1,157 @@
+import { SlateTheme } from "../components/theme.slint";
+import { SlateButton, SlateButtonVariant, SlateButtonSize } from "../components/button.slint";
+import { SlateAlert } from "../components/alert.slint";
+import { SlateBadge } from "../components/badge.slint";
+
+/// Labeled form field group with optional required marker, hint text, and validation error.
+export component SlateFieldGroup inherits Rectangle {
+    in property <string> automation-id: "field-group";
+    in property <string> label: "Field";
+    in property <string> hint: "";
+    in property <string> error-message: "";
+    in property <bool> required: false;
+
+    background: Colors.transparent;
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: root.label;
+
+    VerticalLayout {
+        spacing: 4px;
+
+        HorizontalLayout {
+            spacing: 4px;
+            alignment: start;
+
+            Text {
+                text: root.label;
+                font-size: SlateTheme.font-sm;
+                font-weight: 600;
+                color: SlateTheme.text-primary;
+            }
+
+            if root.required : Text {
+                text: "*";
+                font-size: SlateTheme.font-sm;
+                font-weight: 700;
+                color: SlateTheme.status-error;
+            }
+        }
+
+        @children
+
+        if root.error-message != "" : Text {
+            text: root.error-message;
+            font-size: SlateTheme.font-xs;
+            color: SlateTheme.status-error;
+        }
+
+        if root.error-message == "" && root.hint != "" : Text {
+            text: root.hint;
+            font-size: SlateTheme.font-xs;
+            color: SlateTheme.text-muted;
+        }
+    }
+}
+
+/// Form layout with header, validation banner, dirty-state badge, and Save/Reset action bar.
+export component SlateFormLayout inherits Rectangle {
+    in property <string> automation-id: "form-layout";
+    in property <string> title: "Form";
+    in property <string> description: "";
+    in property <string> error-banner: "";
+    in-out property <bool> dirty: false;
+    in property <bool> valid: true;
+    in property <string> submit-text: "Save Changes";
+    in property <string> reset-text: "Reset";
+
+    callback submitted();
+    callback reset-requested();
+
+    border-radius: SlateTheme.radius-md;
+    border-width: 1px;
+    border-color: SlateTheme.border-subtle;
+    background: SlateTheme.surface-1;
+
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: root.title;
+
+    VerticalLayout {
+        padding: SlateTheme.spacing-lg;
+        spacing: SlateTheme.spacing-md;
+
+        HorizontalLayout {
+            alignment: space-between;
+
+            VerticalLayout {
+                spacing: 2px;
+                Text {
+                    text: root.title;
+                    font-size: SlateTheme.font-lg;
+                    font-weight: 700;
+                    color: SlateTheme.text-primary;
+                }
+                if root.description != "" : Text {
+                    text: root.description;
+                    font-size: SlateTheme.font-xs;
+                    color: SlateTheme.text-muted;
+                }
+            }
+
+            if root.dirty : VerticalLayout {
+                alignment: start;
+                SlateBadge {
+                    text: "Unsaved Changes";
+                    variant: "warning";
+                }
+            }
+        }
+
+        if root.error-banner != "" : SlateAlert {
+            title: "Validation Error";
+            message: root.error-banner;
+            variant: "error";
+        }
+
+        VerticalLayout {
+            spacing: SlateTheme.spacing-md;
+            vertical-stretch: 1;
+            @children
+        }
+
+        Rectangle {
+            height: 1px;
+            background: SlateTheme.border-subtle;
+        }
+
+        HorizontalLayout {
+            alignment: end;
+            spacing: SlateTheme.spacing-sm;
+
+            SlateButton {
+                automation-id: root.automation-id + "-reset";
+                text: root.reset-text;
+                variant: SlateButtonVariant.outline;
+                size: SlateButtonSize.sm;
+                enabled: root.dirty;
+                clicked => {
+                    root.dirty = false;
+                    root.reset-requested();
+                }
+            }
+
+            SlateButton {
+                automation-id: root.automation-id + "-save";
+                text: root.submit-text;
+                variant: SlateButtonVariant.primary;
+                size: SlateButtonSize.sm;
+                enabled: root.valid;
+                clicked => {
+                    root.dirty = false;
+                    root.submitted();
+                }
+            }
+        }
+    }
+}

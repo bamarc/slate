@@ -1,0 +1,275 @@
+// Log Viewer Component — Streaming monospace log viewer with severity filter, search, and actions.
+
+import { SlateTheme } from "theme.slint";
+import { SlateCopyIcon } from "icons.slint";
+import { SlateMcpValueTarget } from "mcp.slint";
+
+export struct SlateLogEntry {
+    id: string,
+    timestamp: string,
+    severity: string, // "info" | "warn" | "error" | "debug"
+    source: string,
+    message: string,
+}
+
+export component SlateLogViewer inherits Rectangle {
+    in property <string> automation-id: "log-viewer";
+    in property <[SlateLogEntry]> entries: [];
+    in-out property <string> severity-filter: "all";
+    in-out property <string> search-query: "";
+    in property <int> total-count: root.entries.length;
+    in property <bool> auto-scroll: true;
+
+    callback filter-severity-changed(string /* severity */);
+    callback search-changed(string /* query */);
+    callback clear-requested();
+    callback copy-requested();
+    callback entry-clicked(string /* id */);
+
+    accessible-role: list;
+    accessible-id: root.automation-id;
+    accessible-label: "Log Viewer (" + root.entries.length + "/" + root.total-count + ")";
+    background: #0f1117;
+    border-radius: SlateTheme.radius-md;
+    border-width: 1px;
+    border-color: SlateTheme.border-subtle;
+    clip: true;
+
+    VerticalLayout {
+        spacing: 0px;
+
+        // Top toolbar
+        Rectangle {
+            height: 40px;
+            background: SlateTheme.surface-1;
+
+            HorizontalLayout {
+                padding-left: SlateTheme.spacing-sm;
+                padding-right: SlateTheme.spacing-sm;
+                spacing: SlateTheme.spacing-xs;
+                alignment: space-between;
+
+                // Severity pills
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+
+                    for sev in ["all", "info", "warn", "error"] : Rectangle {
+                        width: 48px;
+                        height: 24px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: root.severity-filter == sev ? SlateTheme.accent-primary-subtle : transparent;
+                        border-width: 1px;
+                        border-color: root.severity-filter == sev ? SlateTheme.accent-primary : SlateTheme.border-subtle;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-sev-" + sev;
+                        accessible-label: "Filter " + sev;
+                        accessible-checkable: true;
+                        accessible-checked: root.severity-filter == sev;
+                        accessible-action-default => {
+                            root.severity-filter = sev;
+                            root.filter-severity-changed(sev);
+                        }
+
+                        Text {
+                            text: sev;
+                            color: root.severity-filter == sev ? SlateTheme.accent-primary : SlateTheme.text-secondary;
+                            font-size: SlateTheme.font-xs;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.severity-filter = sev;
+                                root.filter-severity-changed(sev);
+                            }
+                        }
+                    }
+                }
+
+                // Search input + Clear/Copy actions
+                HorizontalLayout {
+                    spacing: SlateTheme.spacing-xs;
+                    alignment: end;
+
+                    SlateMcpValueTarget {
+                        width: 150px;
+                        height: 26px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: SlateTheme.surface-2;
+                        border-width: 1px;
+                        border-color: SlateTheme.border-subtle;
+                        automation-id: root.automation-id + "-search";
+                        label: "Search logs";
+                        text-value <=> root.search-query;
+                        value-submitted(val) => {
+                            root.search-query = val;
+                            root.search-changed(val);
+                        }
+
+                        search-input := TextInput {
+                            x: SlateTheme.spacing-xs;
+                            width: parent.width - 2 * SlateTheme.spacing-xs;
+                            height: 100%;
+                            text <=> root.search-query;
+                            color: SlateTheme.text-primary;
+                            font-size: SlateTheme.font-xs;
+                            vertical-alignment: center;
+                            edited => {
+                                root.search-changed(self.text);
+                            }
+                        }
+                    }
+
+                    // Copy action
+                    Rectangle {
+                        width: 52px;
+                        height: 26px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: copy-touch.has-hover ? SlateTheme.surface-2 : transparent;
+                        border-width: 1px;
+                        border-color: SlateTheme.border-subtle;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-copy";
+                        accessible-label: "Copy Logs";
+                        accessible-action-default => { root.copy-requested(); }
+
+                        HorizontalLayout {
+                            alignment: center;
+                            spacing: 4px;
+                            SlateCopyIcon {
+                                width: 12px;
+                                height: 12px;
+                                y: (parent.height - self.height) / 2;
+                                icon-color: SlateTheme.text-secondary;
+                            }
+                            Text {
+                                text: "Copy";
+                                color: SlateTheme.text-secondary;
+                                font-size: SlateTheme.font-xs;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        copy-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.copy-requested(); }
+                        }
+                    }
+
+                    // Clear action
+                    Rectangle {
+                        width: 48px;
+                        height: 26px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: SlateTheme.radius-xs;
+                        background: clear-touch.has-hover ? SlateTheme.surface-2 : transparent;
+                        border-width: 1px;
+                        border-color: SlateTheme.border-subtle;
+                        accessible-role: button;
+                        accessible-id: root.automation-id + "-clear";
+                        accessible-label: "Clear Logs";
+                        accessible-action-default => { root.clear-requested(); }
+
+                        Text {
+                            text: "Clear";
+                            color: SlateTheme.text-secondary;
+                            font-size: SlateTheme.font-xs;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        clear-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.clear-requested(); }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                width: 100%;
+                background: SlateTheme.border-subtle;
+            }
+        }
+
+        // Log lines area
+        VerticalLayout {
+            vertical-stretch: 1;
+            padding: SlateTheme.spacing-sm;
+            spacing: 2px;
+            alignment: start;
+
+            for entry in root.entries : Rectangle {
+                height: 22px;
+                border-radius: 2px;
+                background: line-touch.has-hover ? #1e293b : transparent;
+                accessible-role: list-item;
+                accessible-id: root.automation-id + "-entry-" + entry.id;
+                accessible-label: "[" + entry.severity + "] " + entry.timestamp + " " + entry.message;
+                accessible-value: entry.severity;
+                accessible-action-default => { root.entry-clicked(entry.id); }
+
+                HorizontalLayout {
+                    padding-left: SlateTheme.spacing-xs;
+                    padding-right: SlateTheme.spacing-xs;
+                    spacing: SlateTheme.spacing-sm;
+
+                    Text {
+                        width: 68px;
+                        text: entry.timestamp;
+                        color: #64748b;
+                        font-family: "monospace";
+                        font-size: SlateTheme.font-xs;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        width: 44px;
+                        text: entry.severity;
+                        color: entry.severity == "error" ? SlateTheme.status-error
+                             : entry.severity == "warn" ? SlateTheme.status-warning
+                             : entry.severity == "info" ? SlateTheme.status-info
+                             : #94a3b8;
+                        font-family: "monospace";
+                        font-size: SlateTheme.font-xs;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+
+                    if entry.source != "" : Text {
+                        width: 80px;
+                        text: entry.source;
+                        color: #94a3b8;
+                        font-family: "monospace";
+                        font-size: SlateTheme.font-xs;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: entry.message;
+                        color: #e2e8f0;
+                        font-family: "monospace";
+                        font-size: SlateTheme.font-xs;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+
+                line-touch := TouchArea {
+                    clicked => { root.entry-clicked(entry.id); }
+                }
+            }
+        }
+    }
+}

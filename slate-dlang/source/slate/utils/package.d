@@ -8,3 +8,5 @@ public import slate.utils.format;
 public import slate.utils.math;
 public import slate.utils.json;
 public import slate.utils.optional;
+public import slate.utils.chart;
+

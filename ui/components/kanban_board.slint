@@ -1,0 +1,301 @@
+import { SlateTheme } from "theme.slint";
+import { SlateBadge } from "badge.slint";
+import { SlateButton, SlateButtonVariant, SlateButtonSize } from "button.slint";
+
+export struct SlateKanbanCard {
+    id: string,
+    title: string,
+    subtitle: string,
+    tag: string,
+    tag-variant: string,
+}
+
+/// Multi-lane Kanban Board displaying Backlog, In Progress, Review, and Done columns.
+export component SlateKanbanBoard inherits Rectangle {
+    in property <string> automation-id: "kanban";
+    in property <[SlateKanbanCard]> todo-cards: [];
+    in property <[SlateKanbanCard]> in-progress-cards: [];
+    in property <[SlateKanbanCard]> review-cards: [];
+    in property <[SlateKanbanCard]> done-cards: [];
+
+    callback card-clicked(string, string); // (lane, card-id)
+    callback card-moved(string, string, string); // (card-id, from-lane, to-lane)
+
+    background: Colors.transparent;
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: "Kanban Board";
+
+    HorizontalLayout {
+        spacing: SlateTheme.spacing-md;
+
+        // Lane 1: To Do
+        Rectangle {
+            horizontal-stretch: 1;
+            border-radius: SlateTheme.radius-md;
+            border-width: 1px;
+            border-color: SlateTheme.border-subtle;
+            background: SlateTheme.surface-1;
+
+            VerticalLayout {
+                padding: SlateTheme.spacing-sm;
+                spacing: SlateTheme.spacing-sm;
+
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: "To Do";
+                        font-size: SlateTheme.font-sm;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                    }
+                    SlateBadge {
+                        text: "\{root.todo-cards.length}";
+                        variant: "default";
+                    }
+                }
+
+                for card[idx] in root.todo-cards : Rectangle {
+                    height: 68px;
+                    border-radius: SlateTheme.radius-sm;
+                    border-width: 1px;
+                    border-color: SlateTheme.border-subtle;
+                    background: SlateTheme.surface-2;
+
+                    accessible-role: list-item;
+                    accessible-id: root.automation-id + "-todo-" + (card.id != "" ? card.id : "\{idx}");
+                    accessible-label: card.title;
+                    accessible-action-default => {
+                        root.card-moved(card.id, "todo", "in-progress");
+                    }
+
+                    VerticalLayout {
+                        padding: SlateTheme.spacing-sm;
+                        spacing: 4px;
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text {
+                                text: card.title;
+                                font-size: SlateTheme.font-sm;
+                                font-weight: 600;
+                                color: SlateTheme.text-primary;
+                                overflow: elide;
+                            }
+                            if card.tag != "" : SlateBadge {
+                                text: card.tag;
+                                variant: card.tag-variant != "" ? card.tag-variant : "info";
+                            }
+                        }
+                        Text {
+                            text: card.subtitle;
+                            font-size: SlateTheme.font-xs;
+                            color: SlateTheme.text-muted;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Lane 2: In Progress
+        Rectangle {
+            horizontal-stretch: 1;
+            border-radius: SlateTheme.radius-md;
+            border-width: 1px;
+            border-color: SlateTheme.border-subtle;
+            background: SlateTheme.surface-1;
+
+            VerticalLayout {
+                padding: SlateTheme.spacing-sm;
+                spacing: SlateTheme.spacing-sm;
+
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: "In Progress";
+                        font-size: SlateTheme.font-sm;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                    }
+                    SlateBadge {
+                        text: "\{root.in-progress-cards.length}";
+                        variant: "info";
+                    }
+                }
+
+                for card[idx] in root.in-progress-cards : Rectangle {
+                    height: 68px;
+                    border-radius: SlateTheme.radius-sm;
+                    border-width: 1px;
+                    border-color: SlateTheme.accent-primary;
+                    background: SlateTheme.surface-2;
+
+                    accessible-role: list-item;
+                    accessible-id: root.automation-id + "-inprogress-" + (card.id != "" ? card.id : "\{idx}");
+                    accessible-label: card.title;
+                    accessible-action-default => {
+                        root.card-moved(card.id, "in-progress", "review");
+                    }
+
+                    VerticalLayout {
+                        padding: SlateTheme.spacing-sm;
+                        spacing: 4px;
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text {
+                                text: card.title;
+                                font-size: SlateTheme.font-sm;
+                                font-weight: 600;
+                                color: SlateTheme.text-primary;
+                                overflow: elide;
+                            }
+                            if card.tag != "" : SlateBadge {
+                                text: card.tag;
+                                variant: card.tag-variant != "" ? card.tag-variant : "warning";
+                            }
+                        }
+                        Text {
+                            text: card.subtitle;
+                            font-size: SlateTheme.font-xs;
+                            color: SlateTheme.text-muted;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Lane 3: Review
+        Rectangle {
+            horizontal-stretch: 1;
+            border-radius: SlateTheme.radius-md;
+            border-width: 1px;
+            border-color: SlateTheme.border-subtle;
+            background: SlateTheme.surface-1;
+
+            VerticalLayout {
+                padding: SlateTheme.spacing-sm;
+                spacing: SlateTheme.spacing-sm;
+
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: "Review";
+                        font-size: SlateTheme.font-sm;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                    }
+                    SlateBadge {
+                        text: "\{root.review-cards.length}";
+                        variant: "warning";
+                    }
+                }
+
+                for card[idx] in root.review-cards : Rectangle {
+                    height: 68px;
+                    border-radius: SlateTheme.radius-sm;
+                    border-width: 1px;
+                    border-color: SlateTheme.border-subtle;
+                    background: SlateTheme.surface-2;
+
+                    accessible-role: list-item;
+                    accessible-id: root.automation-id + "-review-" + (card.id != "" ? card.id : "\{idx}");
+                    accessible-label: card.title;
+                    accessible-action-default => {
+                        root.card-moved(card.id, "review", "done");
+                    }
+
+                    VerticalLayout {
+                        padding: SlateTheme.spacing-sm;
+                        spacing: 4px;
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text {
+                                text: card.title;
+                                font-size: SlateTheme.font-sm;
+                                font-weight: 600;
+                                color: SlateTheme.text-primary;
+                                overflow: elide;
+                            }
+                            if card.tag != "" : SlateBadge {
+                                text: card.tag;
+                                variant: card.tag-variant != "" ? card.tag-variant : "warning";
+                            }
+                        }
+                        Text {
+                            text: card.subtitle;
+                            font-size: SlateTheme.font-xs;
+                            color: SlateTheme.text-muted;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Lane 4: Done
+        Rectangle {
+            horizontal-stretch: 1;
+            border-radius: SlateTheme.radius-md;
+            border-width: 1px;
+            border-color: SlateTheme.border-subtle;
+            background: SlateTheme.surface-1;
+
+            VerticalLayout {
+                padding: SlateTheme.spacing-sm;
+                spacing: SlateTheme.spacing-sm;
+
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: "Done";
+                        font-size: SlateTheme.font-sm;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                    }
+                    SlateBadge {
+                        text: "\{root.done-cards.length}";
+                        variant: "success";
+                    }
+                }
+
+                for card[idx] in root.done-cards : Rectangle {
+                    height: 68px;
+                    border-radius: SlateTheme.radius-sm;
+                    border-width: 1px;
+                    border-color: SlateTheme.border-subtle;
+                    background: SlateTheme.surface-2;
+
+                    accessible-role: list-item;
+                    accessible-id: root.automation-id + "-done-" + (card.id != "" ? card.id : "\{idx}");
+                    accessible-label: card.title;
+
+                    VerticalLayout {
+                        padding: SlateTheme.spacing-sm;
+                        spacing: 4px;
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text {
+                                text: card.title;
+                                font-size: SlateTheme.font-sm;
+                                font-weight: 600;
+                                color: SlateTheme.text-primary;
+                                overflow: elide;
+                            }
+                            SlateBadge {
+                                text: card.tag != "" ? card.tag : "Done";
+                                variant: "success";
+                            }
+                        }
+                        Text {
+                            text: card.subtitle;
+                            font-size: SlateTheme.font-xs;
+                            color: SlateTheme.text-muted;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

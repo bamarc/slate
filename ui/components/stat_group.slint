@@ -1,0 +1,88 @@
+import { SlateTheme } from "theme.slint";
+import { SlateBadge } from "badge.slint";
+import { SlateSparkline } from "sparkline.slint";
+
+export struct SlateStatItem {
+    id: string,
+    label: string,
+    value: string,
+    delta: string,
+    delta-variant: string, // "success", "warning", "error", "default"
+    sparkline-commands: string,
+}
+
+/// KPI Stat Group rendering a horizontal strip of metric cards with delta badges and sparklines.
+export component SlateStatGroup inherits Rectangle {
+    in property <string> automation-id: "stat-group";
+    in property <[SlateStatItem]> items: [];
+
+    height: 108px;
+    background: Colors.transparent;
+
+    accessible-role: region;
+    accessible-id: root.automation-id;
+    accessible-label: "KPI Statistics";
+
+    HorizontalLayout {
+        spacing: SlateTheme.spacing-md;
+
+        for stat[idx] in root.items : Rectangle {
+            horizontal-stretch: 1;
+            border-radius: SlateTheme.radius-md;
+            border-width: 1px;
+            border-color: SlateTheme.border-subtle;
+            background: SlateTheme.surface-1;
+
+            accessible-role: region;
+            accessible-id: root.automation-id + "-stat-" + (stat.id != "" ? stat.id : "\{idx}");
+            accessible-label: stat.label;
+            accessible-value: stat.value;
+
+            VerticalLayout {
+                padding: SlateTheme.spacing-md;
+                spacing: 6px;
+                alignment: space-between;
+
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: stat.label;
+                        font-size: SlateTheme.font-xs;
+                        font-weight: 600;
+                        color: SlateTheme.text-secondary;
+                    }
+                    if stat.delta != "" : SlateBadge {
+                        text: stat.delta;
+                        variant: stat.delta-variant != "" ? stat.delta-variant : "default";
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: space-between;
+                    spacing: SlateTheme.spacing-sm;
+
+                    Text {
+                        text: stat.value;
+                        font-size: SlateTheme.font-xl;
+                        font-weight: 700;
+                        color: SlateTheme.text-primary;
+                        vertical-alignment: center;
+                    }
+
+                    if stat.sparkline-commands != "" : VerticalLayout {
+                        alignment: center;
+                        SlateSparkline {
+                            automation-id: root.automation-id + "-spark-" + (stat.id != "" ? stat.id : "\{idx}");
+                            width: 76px;
+                            height: 24px;
+                            line-commands: stat.sparkline-commands;
+                            show-area: false;
+                            stroke-color: stat.delta-variant == "error" ? SlateTheme.status-error
+                                : (stat.delta-variant == "success" ? SlateTheme.status-success : SlateTheme.accent-primary);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

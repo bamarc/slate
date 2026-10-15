@@ -1,0 +1,43 @@
+import { SlateTheme } from "theme.slint";
+
+/// Vector Sparkline component rendering SVG polyline + optional shaded area fill (`U4`).
+/// Pair with `slate.utils.chart.buildSparklinePath` and `buildAreaPath`.
+export component SlateSparkline inherits Rectangle {
+    in property <string> automation-id: "sparkline";
+    in property <string> label: "Sparkline";
+    in property <string> line-commands: "M 0 15 L 33 10 L 66 20 L 100 5";
+    in property <string> area-commands: "M 0 15 L 33 10 L 66 20 L 100 5 L 100 30 L 0 30 Z";
+    in property <color> stroke-color: SlateTheme.accent-primary;
+    in property <bool> show-area: true;
+    in property <string> summary: "";
+
+    width: 100px;
+    height: 30px;
+    background: Colors.transparent;
+
+    accessible-role: image;
+    accessible-id: root.automation-id;
+    accessible-label: root.label;
+    accessible-value: root.summary;
+
+    if root.show-area && root.area-commands != "" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 100;
+        viewbox-height: 30;
+        commands: root.area-commands;
+        fill: root.stroke-color.with-alpha(0.18);
+    }
+
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 100;
+        viewbox-height: 30;
+        commands: root.line-commands;
+        stroke: root.stroke-color;
+        stroke-width: 2px;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+    }
+}

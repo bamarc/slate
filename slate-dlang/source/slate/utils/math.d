@@ -16,17 +16,21 @@ in
 out (result)
 {
     import std.algorithm.comparison : max, min;
-    import std.math : isNaN;
+    import std.math : abs, isNaN;
 
     assert(!isNaN(result), "lerp result must not be NaN");
-    assert(result >= min(a, b) - 1e-4f && result <= max(a, b) + 1e-4f,
+    auto lo = min(a, b);
+    auto hi = max(a, b);
+    auto tol = max(1e-4f, max(abs(lo), abs(hi)) * 1e-5f);
+    assert(result >= lo - tol && result <= hi + tol,
         "lerp result must lie between min(a, b) and max(a, b)");
 }
 do
 {
     import std.algorithm.comparison : clamp;
 
-    return a + (b - a) * clamp(t, 0.0f, 1.0f);
+    float ct = clamp(t, 0.0f, 1.0f);
+    return cast(float)(cast(double) a + (cast(double) b - cast(double) a) * cast(double) ct);
 }
 
 /// Smoothstep curve for natural UI transitions.
@@ -65,6 +69,8 @@ unittest
     assert(lerp(0, 100, 0.5f) == 50.0f);
     assert(lerp(0, 100, 2.0f) == 100.0f);
     assert(lerp(100, 0, 0.25f) == 75.0f);
+    assert(lerp(1e7f, 2e7f, 0.5f) == 1.5e7f);
+    assert(lerp(-3e38f, 3e38f, 0.5f) == 0.0f);
     assert(smoothstep(0, 1, 0.0f) == 0.0f);
     assert(smoothstep(0, 1, 1.0f) == 1.0f);
     assert(smoothstep(0, 1, 0.5f) == 0.5f);
