@@ -564,6 +564,22 @@ pub extern "C" fn slint_instance_hide(instance: *mut slint_interpreter::Componen
     instance.hide().ok();
 }
 
+static EVENT_LOOP_ACTIVE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+struct EventLoopGuard;
+impl EventLoopGuard {
+    fn enter() -> Self {
+        EVENT_LOOP_ACTIVE.store(true, std::sync::atomic::Ordering::SeqCst);
+        EventLoopGuard
+    }
+}
+impl Drop for EventLoopGuard {
+    fn drop(&mut self) {
+        EVENT_LOOP_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn slint_instance_run(
     instance: *mut slint_interpreter::ComponentInstance,
@@ -571,6 +587,7 @@ pub extern "C" fn slint_instance_run(
     if instance.is_null() {
         return error_owned("null instance");
     }
+    let _guard = EventLoopGuard::enter();
     // SAFETY: pointer came from `slint_definition_create`.
     let instance = unsafe { &*instance };
     let r = instance.run();
@@ -581,6 +598,7 @@ pub extern "C" fn slint_instance_run(
 
 #[no_mangle]
 pub extern "C" fn slint_run_event_loop() -> *mut c_char {
+    let _guard = EventLoopGuard::enter();
     ok_or_error(slint_interpreter::run_event_loop())
 }
 
@@ -1684,7 +1702,22 @@ pub extern "C" fn slint_instance_snapshot(
     }
     // SAFETY: pointer came from `slint_definition_create`.
     let instance = unsafe { &*instance };
-    let pixels = match instance.window().take_snapshot() {
+    let window = instance.window();
+    let phys = window.size();
+    if phys.width == 0 || phys.height == 0 {
+        let mut w = 0.0_f64;
+        let mut h = 0.0_f64;
+        let _ = slint_window_get_size(
+            instance as *const _ as *mut slint_interpreter::ComponentInstance,
+            &mut w,
+            &mut h,
+        );
+        let target_w = if w > 0.0 { w as f32 } else { 800.0 };
+        let target_h = if h > 0.0 { h as f32 } else { 600.0 };
+        window.set_size(slint_interpreter::LogicalSize::new(target_w, target_h));
+    }
+    let _ = instance.show();
+    let pixels = match window.take_snapshot() {
         Ok(p) => p,
         Err(e) => return error_owned(e.to_string()),
     };
@@ -1719,6 +1752,9 @@ pub extern "C" fn slint_invoke_from_event_loop(shim: SlintShim, ctx: usize) -> *
     let Some(shim) = shim else {
         return error_owned("null event-loop shim");
     };
+    if !EVENT_LOOP_ACTIVE.load(std::sync::atomic::Ordering::SeqCst) {
+        return error_owned("The Slint event loop is not running");
+    }
     ok_or_error(slint_interpreter::invoke_from_event_loop(move || {
         shim(ctx, std::ptr::null(), 0);
     }))
@@ -1893,7 +1929,10 @@ fn accessible_role_to_str(role: i_slint_core::items::AccessibleRole) -> &'static
     }
 }
 
-fn collect_accessible_value(item: &i_slint_core::items::ItemRc) -> serde_json::Value {
+fn collect_accessible_value(
+    item: &i_slint_core::items::ItemRc,
+    seen_explicit_ids: &mut std::collections::HashMap<String, String>,
+) -> Result<serde_json::Value, String> {
     use i_slint_core::accessibility::{accessible_descendents, AccessibleStringProperty};
     let role = item.accessible_role();
     let role_str = accessible_role_to_str(role);
@@ -1905,9 +1944,21 @@ fn collect_accessible_value(item: &i_slint_core::items::ItemRc) -> serde_json::V
     let value_opt = item.accessible_string_property(AccessibleStringProperty::Value);
     let checked_opt = item.accessible_string_property(AccessibleStringProperty::Checked);
     let enabled_opt = item.accessible_string_property(AccessibleStringProperty::Enabled);
+    let desc_opt = item.accessible_string_property(AccessibleStringProperty::Description);
 
     let label_str = label_opt.as_ref().map(|s| s.to_string()).unwrap_or_default();
-    let id_str = id_opt.as_ref().map(|s| s.to_string()).unwrap_or_else(|| {
+    let desc_str = desc_opt.as_ref().map(|s| s.to_string()).unwrap_or_default();
+    let explicit_id = id_opt.as_ref().map(|s| s.to_string()).filter(|s| !s.is_empty());
+    let id_stable = explicit_id.is_some();
+
+    if let Some(ref eid) = explicit_id {
+        if let Some(prev_role) = seen_explicit_ids.get(eid) {
+            return Err(format!("duplicate accessible-id '{}' found in UI tree (roles: '{}' and '{}')", eid, prev_role, role_str));
+        }
+        seen_explicit_ids.insert(eid.clone(), role_str.to_string());
+    }
+
+    let id_str = explicit_id.unwrap_or_else(|| {
         if !label_str.is_empty() {
             label_str.clone()
         } else {
@@ -1931,14 +1982,16 @@ fn collect_accessible_value(item: &i_slint_core::items::ItemRc) -> serde_json::V
     let mut children = Vec::new();
     for child in accessible_descendents(item) {
         if child.accessible_role() != i_slint_core::items::AccessibleRole::None {
-            children.push(collect_accessible_value(&child));
+            children.push(collect_accessible_value(&child, seen_explicit_ids)?);
         }
     }
 
-    serde_json::json!({
+    Ok(serde_json::json!({
         "id": id_str,
+        "id_stable": id_stable,
         "role": role_str,
         "label": label_str,
+        "description": desc_str,
         "value": value_str,
         "x": abs_origin.x,
         "y": abs_origin.y,
@@ -1953,7 +2006,7 @@ fn collect_accessible_value(item: &i_slint_core::items::ItemRc) -> serde_json::V
         "enabled": is_enabled,
         "visible": true,
         "children": children,
-    })
+    }))
 }
 
 fn item_matches_target(item: &i_slint_core::items::ItemRc, target: &str) -> bool {
@@ -2044,12 +2097,16 @@ pub extern "C" fn slint_instance_dump_ui_tree(
         (size.width as f32, size.height as f32)
     };
 
+    let mut seen_explicit_ids = std::collections::HashMap::new();
     let mut children = Vec::new();
     if let Some(comp_rc) = window_inner.try_component() {
         let root_item = i_slint_core::items::ItemRc::new(comp_rc, 0);
         for child in i_slint_core::accessibility::accessible_descendents(&root_item) {
             if child.accessible_role() != i_slint_core::items::AccessibleRole::None {
-                children.push(collect_accessible_value(&child));
+                match collect_accessible_value(&child, &mut seen_explicit_ids) {
+                    Ok(v) => children.push(v),
+                    Err(e) => return error_owned(e),
+                }
             }
         }
     }
@@ -2057,15 +2114,20 @@ pub extern "C" fn slint_instance_dump_ui_tree(
         let popup_root = i_slint_core::items::ItemRc::new_root(popup.component.clone());
         for child in i_slint_core::accessibility::accessible_descendents(&popup_root) {
             if child.accessible_role() != i_slint_core::items::AccessibleRole::None {
-                children.push(collect_accessible_value(&child));
+                match collect_accessible_value(&child, &mut seen_explicit_ids) {
+                    Ok(v) => children.push(v),
+                    Err(e) => return error_owned(e),
+                }
             }
         }
     }
 
     let root_node = serde_json::json!({
         "id": "root_window",
+        "id_stable": true,
         "role": "window",
         "label": "Window",
+        "description": "",
         "value": "",
         "x": 0.0,
         "y": 0.0,
@@ -2192,8 +2254,18 @@ pub extern "C" fn slint_instance_invoke_element_action(
     instance: *mut slint_interpreter::ComponentInstance,
     target: *const c_char,
 ) -> *mut c_char {
+    slint_instance_invoke_element_accessibility_action(instance, target, 0, std::ptr::null())
+}
+
+#[no_mangle]
+pub extern "C" fn slint_instance_invoke_element_accessibility_action(
+    instance: *mut slint_interpreter::ComponentInstance,
+    target: *const c_char,
+    action_kind: c_int,
+    value_str: *const c_char,
+) -> *mut c_char {
     if instance.is_null() || target.is_null() {
-        return error_owned("null pointer passed to slint_instance_invoke_element_action");
+        return error_owned("null pointer passed to slint_instance_invoke_element_accessibility_action");
     }
     let instance = unsafe { &*instance };
     let target_str = read_str(target);
@@ -2205,25 +2277,77 @@ pub extern "C" fn slint_instance_invoke_element_action(
     };
 
     use i_slint_core::accessibility::{AccessibilityAction, SupportedAccessibilityAction};
-    if item.supported_accessibility_actions().contains(SupportedAccessibilityAction::Default) {
-        item.accessible_action(&AccessibilityAction::Default);
-    } else {
-        // Fallback to synthetic pointer events directed at element center
-        let geom = item.geometry();
-        let abs_origin = item.map_to_native_window(geom.origin);
-        let center_x = abs_origin.x + geom.size.width / 2.0;
-        let center_y = abs_origin.y + geom.size.height / 2.0;
-        let pos = slint_interpreter::LogicalPosition::new(center_x, center_y);
+    let supported = item.supported_accessibility_actions();
+    match action_kind {
+        0 => {
+            if supported.contains(SupportedAccessibilityAction::Default) {
+                item.accessible_action(&AccessibilityAction::Default);
+            } else {
+                // Fallback to synthetic pointer events directed at element center
+                let geom = item.geometry();
+                let abs_origin = item.map_to_native_window(geom.origin);
+                let center_x = abs_origin.x + geom.size.width / 2.0;
+                let center_y = abs_origin.y + geom.size.height / 2.0;
+                let pos = slint_interpreter::LogicalPosition::new(center_x, center_y);
 
-        window.dispatch_event(i_slint_core::platform::WindowEvent::PointerMoved { position: pos });
-        window.dispatch_event(i_slint_core::platform::WindowEvent::PointerPressed {
-            position: pos,
-            button: i_slint_core::items::PointerEventButton::Left,
-        });
-        window.dispatch_event(i_slint_core::platform::WindowEvent::PointerReleased {
-            position: pos,
-            button: i_slint_core::items::PointerEventButton::Left,
-        });
+                window.dispatch_event(i_slint_core::platform::WindowEvent::PointerMoved { position: pos });
+                window.dispatch_event(i_slint_core::platform::WindowEvent::PointerPressed {
+                    position: pos,
+                    button: i_slint_core::items::PointerEventButton::Left,
+                });
+                window.dispatch_event(i_slint_core::platform::WindowEvent::PointerReleased {
+                    position: pos,
+                    button: i_slint_core::items::PointerEventButton::Left,
+                });
+            }
+        }
+        1 => {
+            if supported.contains(SupportedAccessibilityAction::Increment) {
+                item.accessible_action(&AccessibilityAction::Increment);
+            } else {
+                return error_owned(format!(
+                    "element '{}' does not support Increment accessibility action",
+                    target_str
+                ));
+            }
+        }
+        2 => {
+            if supported.contains(SupportedAccessibilityAction::Decrement) {
+                item.accessible_action(&AccessibilityAction::Decrement);
+            } else {
+                return error_owned(format!(
+                    "element '{}' does not support Decrement accessibility action",
+                    target_str
+                ));
+            }
+        }
+        3 => {
+            if supported.contains(SupportedAccessibilityAction::Expand) {
+                item.accessible_action(&AccessibilityAction::Expand);
+            } else if supported.contains(SupportedAccessibilityAction::Default) {
+                item.accessible_action(&AccessibilityAction::Default);
+            } else {
+                return error_owned(format!(
+                    "element '{}' does not support Expand accessibility action",
+                    target_str
+                ));
+            }
+        }
+        4 => {
+            let val = i_slint_core::SharedString::from(read_str(value_str));
+            if supported.contains(SupportedAccessibilityAction::SetValue) {
+                item.accessible_action(&AccessibilityAction::SetValue(val));
+            } else {
+                return error_owned(format!(
+                    "element '{}' does not support SetValue accessibility action",
+                    target_str
+                ));
+            }
+        }
+        _ => {
+            return error_owned(format!("unknown accessibility action kind: {}", action_kind));
+        }
     }
     std::ptr::null_mut()
 }
+

@@ -98,7 +98,8 @@ interface Model(T)
 version (SlintNative)
 {
     import slint.capi : SlintModelRaw, SlintValue, SlintTag;
-    import slint.value : Color, Brush, SlintStruct, Value, toSlintValue, fromSlintValue;
+    import slint.value : Color, Brush, SlintStruct, Value, toSlintValue, fromSlintValue,
+        toSlintStruct, fromSlintStruct;
 
     private T convertFromSlint(T)(const SlintValue outVal) @trusted
     {
@@ -137,6 +138,11 @@ version (SlintNative)
         }
         else static if (is(T == Value))
             return fromSlintValue(outVal);
+        else static if (is(T == struct))
+        {
+            auto v = fromSlintValue(outVal);
+            return fromSlintStruct!T(v.structFields);
+        }
         else
             static assert(false, "Unsupported model element type: " ~ T.stringof);
     }
@@ -164,6 +170,10 @@ version (SlintNative)
         else static if (is(T == Color) || is(T == Brush) || is(T == SlintStruct) || is(T == Value))
         {
             itemVal = toSlintValue(val);
+        }
+        else static if (is(T == struct))
+        {
+            itemVal = toSlintValue(toSlintStruct(val));
         }
         else
             static assert(false, "Unsupported model element type: " ~ T.stringof);
@@ -822,7 +832,8 @@ class GeneratorModel(T) : Model!T
 
 private import core.thread.fiber : Fiber;
 
-///
+// Best practice: Derived models (MapModel, FilterModel, SortedModel, ReverseModel, GeneratorModel)
+/// Example:
 unittest
 {
     // Map: lazy projection, row edits forward, structural edits reset.
@@ -889,7 +900,8 @@ unittest
 
 private import std.conv : to;
 
-///
+// Best practice: ArrayModel row mutation, notification callbacks, and iteration
+/// Example:
 unittest
 {
     auto m = new ArrayModel!int([1, 2, 3]);
@@ -919,7 +931,8 @@ unittest
     assertThrown(m.rowData(99));
 }
 
-/// Test ArrayModel index operators, set convenience alias, clear, and native operations
+// Best practice: ArrayModel index operators, set convenience alias, clear, and native operations
+/// Example:
 unittest
 {
     auto m = new ArrayModel!int([10, 20, 30]);
@@ -1022,4 +1035,289 @@ unittest
     assert(rangeModel[1] == 25);
 }
 
+/// Hierarchical tree node storing payload `T` and arbitrary nested children.
+final class TreeNode(T)
+{
+    string id;
+    T data;
+    bool expanded;
+    TreeNode!T[] children;
 
+    this(string id, T data, TreeNode!T[] children = null, bool expanded = false) @safe pure nothrow
+    {
+        this.id = id;
+        this.data = data;
+        this.children = children;
+        this.expanded = expanded;
+    }
+
+    bool hasChildren() const @safe pure nothrow @nogc
+    {
+        return children.length > 0;
+    }
+}
+
+/// Flattened visible-row entry projected by `TreeModel!T`.
+struct FlatTreeRow(T)
+{
+    string id;
+    T data;
+    int depth;
+    bool hasChildren;
+    bool expanded;
+    TreeNode!T nodeRef;
+}
+
+/// Flattened visible-row model over a hierarchical `TreeNode!T` forest.
+/// Toggling expansion inserts/removes visible descendant slices in-place and
+/// emits granular `notifyRowsAdded` / `notifyRowsRemoved` events (`E5`, `T4`).
+class TreeModel(T) : Model!(FlatTreeRow!T)
+{
+    enum size_t maxTreeDepth = 128;
+
+    private TreeNode!T[] _roots;
+    private FlatTreeRow!T[] _visible;
+    private ModelNotify _notify;
+
+    this(TreeNode!T[] roots = null) @safe
+    {
+        _notify = new ModelNotify();
+        _roots = roots;
+        rebuildVisible();
+    }
+
+    private void rebuildVisible() @safe pure
+    {
+        _visible = null;
+        foreach (r; _roots)
+            appendSubtree(r, 0, _visible);
+    }
+
+    private static void appendSubtree(TreeNode!T node, int depth, ref FlatTreeRow!T[] target) @safe pure
+    {
+        if (node is null)
+            return;
+        if (depth > maxTreeDepth)
+            throw new Exception("TreeModel maximum depth exceeded");
+        target ~= FlatTreeRow!T(node.id, node.data, depth, node.hasChildren(), node.expanded, node);
+        if (node.expanded)
+        {
+            foreach (child; node.children)
+                appendSubtree(child, depth + 1, target);
+        }
+    }
+
+    private static void appendDescendants(TreeNode!T node, int parentDepth, ref FlatTreeRow!T[] target) @safe pure
+    {
+        if (node is null || !node.expanded)
+            return;
+        foreach (child; node.children)
+            appendSubtree(child, parentDepth + 1, target);
+    }
+
+    size_t rowCount() @safe pure nothrow
+    {
+        return _visible.length;
+    }
+
+    FlatTreeRow!T rowData(size_t row) @safe
+    {
+        if (row >= _visible.length)
+            throw new Exception("TreeModel row index out of range");
+        return _visible[row];
+    }
+
+    void setRowData(size_t row, FlatTreeRow!T data) @safe
+    {
+        if (row >= _visible.length)
+            throw new Exception("TreeModel row index out of range");
+        _visible[row].data = data.data;
+        if (_visible[row].nodeRef !is null)
+            _visible[row].nodeRef.data = data.data;
+        _notify.notifyRowChanged(row);
+    }
+
+    ModelNotify notify() @safe pure nothrow
+    {
+        return _notify;
+    }
+
+    /// Replace the root nodes and reset the visible projection.
+    void setRoots(TreeNode!T[] roots) @safe
+    {
+        _roots = roots;
+        rebuildVisible();
+        _notify.notifyReset();
+    }
+
+    /// Toggle the expanded state of the node at `flatRow`, firing granular
+    /// `notifyRowsAdded` or `notifyRowsRemoved` notifications (`E5`).
+    void toggleExpand(size_t flatRow) @safe
+    {
+        if (flatRow >= _visible.length)
+            throw new Exception("TreeModel.toggleExpand: row index out of range");
+        auto entry = _visible[flatRow];
+        auto node = entry.nodeRef;
+        if (node is null || !node.hasChildren())
+            return;
+
+        if (!node.expanded)
+        {
+            node.expanded = true;
+            _visible[flatRow].expanded = true;
+            _notify.notifyRowChanged(flatRow);
+
+            FlatTreeRow!T[] inserted;
+            appendDescendants(node, entry.depth, inserted);
+            if (inserted.length > 0)
+            {
+                size_t insertPos = flatRow + 1;
+                _visible = _visible[0 .. insertPos] ~ inserted ~ _visible[insertPos .. $];
+                _notify.notifyRowsAdded(insertPos, inserted.length);
+            }
+        }
+        else
+        {
+            // Count how many following visible rows belong to this node's subtree (depth > entry.depth)
+            size_t removeStart = flatRow + 1;
+            size_t removeEnd = removeStart;
+            while (removeEnd < _visible.length && _visible[removeEnd].depth > entry.depth)
+                ++removeEnd;
+            size_t removedCount = removeEnd - removeStart;
+
+            node.expanded = false;
+            _visible[flatRow].expanded = false;
+            _notify.notifyRowChanged(flatRow);
+
+            if (removedCount > 0)
+            {
+                _visible = _visible[0 .. removeStart] ~ _visible[removeEnd .. $];
+                _notify.notifyRowsRemoved(removeStart, removedCount);
+            }
+        }
+    }
+
+    /// Expand every node in the tree.
+    void expandAll() @safe
+    {
+        static void markExpanded(TreeNode!T n, bool state, size_t depth = 0) @safe
+        {
+            if (n is null)
+                return;
+            if (depth > maxTreeDepth)
+                throw new Exception("TreeModel maximum depth exceeded");
+            if (n.hasChildren())
+                n.expanded = state;
+            foreach (c; n.children)
+                markExpanded(c, state, depth + 1);
+        }
+        foreach (r; _roots)
+            markExpanded(r, true, 0);
+        rebuildVisible();
+        _notify.notifyReset();
+    }
+
+    /// Collapse every node in the tree.
+    void collapseAll() @safe
+    {
+        static void markCollapsed(TreeNode!T n, size_t depth = 0) @safe
+        {
+            if (n is null)
+                return;
+            if (depth > maxTreeDepth)
+                throw new Exception("TreeModel maximum depth exceeded");
+            n.expanded = false;
+            foreach (c; n.children)
+                markCollapsed(c, depth + 1);
+        }
+        foreach (r; _roots)
+            markCollapsed(r, 0);
+        rebuildVisible();
+        _notify.notifyReset();
+    }
+}
+
+// Spec: Scenario T4: TreeModel hierarchical expand and collapse
+/// Example:
+unittest
+{
+    auto folder1 = new TreeNode!string("src", "src", [
+        new TreeNode!string("main.d", "main.d"),
+        new TreeNode!string("utils.d", "utils.d"),
+        new TreeNode!string("sub", "sub", [
+            new TreeNode!string("inner.d", "inner.d")
+        ], false)
+    ], false);
+    auto folder2 = new TreeNode!string("docs", "docs", [
+        new TreeNode!string("README.md", "README.md")
+    ], false);
+
+    auto tree = new TreeModel!string([folder1, folder2]);
+    assert(tree.rowCount() == 2);
+    assert(tree.rowData(0).id == "src" && tree.rowData(0).depth == 0 && tree.rowData(0).hasChildren);
+    assert(tree.rowData(1).id == "docs" && tree.rowData(1).depth == 0);
+
+    size_t addedIndex = size_t.max, addedCount = 0;
+    size_t removedIndex = size_t.max, removedCount = 0;
+    tree.notify().onRowsAdded((idx, cnt) { addedIndex = idx; addedCount = cnt; });
+    tree.notify().onRowsRemoved((idx, cnt) { removedIndex = idx; removedCount = cnt; });
+
+    // Expand root 0 ("src") -> inserts 3 direct children at index 1
+    tree.toggleExpand(0);
+    assert(addedIndex == 1 && addedCount == 3);
+    assert(tree.rowCount() == 5);
+    assert(tree.rowData(1).id == "main.d" && tree.rowData(1).depth == 1);
+    assert(tree.rowData(2).id == "utils.d" && tree.rowData(2).depth == 1);
+    assert(tree.rowData(3).id == "sub" && tree.rowData(3).depth == 1 && tree.rowData(3).hasChildren);
+    assert(tree.rowData(4).id == "docs" && tree.rowData(4).depth == 0);
+
+    // Expand nested child "sub" at flatRow 3 -> inserts 1 grandchild at index 4
+    tree.toggleExpand(3);
+    assert(addedIndex == 4 && addedCount == 1);
+    assert(tree.rowCount() == 6);
+    assert(tree.rowData(4).id == "inner.d" && tree.rowData(4).depth == 2);
+
+    // Collapse root 0 ("src") -> removes all 4 visible descendants (3 children + 1 grandchild)
+    tree.toggleExpand(0);
+    assert(removedIndex == 1 && removedCount == 4);
+    assert(tree.rowCount() == 2);
+
+    // ExpandAll and CollapseAll
+    tree.expandAll();
+    assert(tree.rowCount() == 7);
+    tree.collapseAll();
+    assert(tree.rowCount() == 2);
+}
+
+// Spec: E5 / Security: TreeModel maxTreeDepth limit enforcement against unbounded recursion
+/// Example:
+unittest
+{
+    import std.exception : assertThrown;
+
+    // Create a chain of nodes with depth exceeding maxTreeDepth (128)
+    TreeNode!string root = new TreeNode!string("node_0", "val_0", null, true);
+    TreeNode!string cur = root;
+    foreach (i; 1 .. 135)
+    {
+        auto next = new TreeNode!string("node", "val", null, true);
+        cur.children = [next];
+        cur = next;
+    }
+
+    // Creating TreeModel with root expanded past 128 depth should throw Exception
+    assertThrown!Exception(new TreeModel!string([root]));
+
+    // Unexpanded deep chain throws on expandAll and collapseAll
+    TreeNode!string root2 = new TreeNode!string("node_0", "val_0", null, false);
+    TreeNode!string cur2 = root2;
+    foreach (i; 1 .. 135)
+    {
+        auto next = new TreeNode!string("node", "val", null, false);
+        cur2.children = [next];
+        cur2 = next;
+    }
+    auto tree2 = new TreeModel!string([root2]);
+    assertThrown!Exception(tree2.expandAll());
+    assertThrown!Exception(tree2.collapseAll());
+}

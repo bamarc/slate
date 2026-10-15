@@ -385,6 +385,10 @@ version (SlintNative)
                 {
                     itemVal = toSlintValue(model.rowData(i));
                 }
+                else static if (is(T == struct))
+                {
+                    itemVal = toSlintValue(Value.of(toSlintStruct(model.rowData(i))));
+                }
                 scope (exit)
                     freeSlint(&itemVal);
                 slint_model_vec_push(raw, &itemVal);
@@ -432,6 +436,10 @@ version (SlintNative)
                 else static if (is(T == Color) || is(T == Brush) || is(T == SlintStruct) || is(T == Value))
                 {
                     itemVal = toSlintValue(item);
+                }
+                else static if (is(T == struct))
+                {
+                    itemVal = toSlintValue(Value.of(toSlintStruct(item)));
                 }
                 scope (exit)
                     freeSlint(&itemVal);
@@ -683,7 +691,8 @@ else
 }
 
 
-///
+// Best practice: C-ABI SlintValue conversion round-trips for numbers, booleans, and strings
+/// Example:
 unittest
 {
     assert(toSlint(Value.of(2.5)).number == 2.5);
@@ -697,7 +706,8 @@ unittest
     assert(fromSlint(SlintValue.voidValue()).isVoid());
 }
 
-///
+// Best practice: High-level Value variants, Color, Brush, EnumValue, and SlintStruct manipulation
+/// Example:
 unittest
 {
     assert(Value.nil().isVoid());
@@ -723,7 +733,8 @@ unittest
     assert(!StyledText.fromPlainText("hi").markdown);
 }
 
-/// Color, Brush, EnumValue, SlintStruct <-> SlintValue conversions
+// Best practice: Color, Brush, EnumValue, SlintStruct <-> SlintValue conversions
+/// Example:
 unittest
 {
     // Color <-> SlintValue (ARGB uint32 0xAARRGGBB)
@@ -784,4 +795,164 @@ unittest
         assert(sBack.structFields["count"].number == 42.0);
     }
 }
+
+/// Optional UDA to override the Slint struct field name for a D struct field.
+struct SlintField
+{
+    string name;
+}
+
+/// Convert a camelCase or snake_case identifier into Slint's canonical kebab-case field name.
+string camelToKebab(string ident) @safe pure nothrow
+{
+    char[] buf;
+    buf.reserve(ident.length + 4);
+    foreach (i, char c; ident)
+    {
+        if (c == '_')
+        {
+            buf ~= '-';
+        }
+        else if (c >= 'A' && c <= 'Z')
+        {
+            if (i > 0 && ident[i - 1] != '_' && ident[i - 1] != '-')
+                buf ~= '-';
+            buf ~= cast(char)(c + ('a' - 'A'));
+        }
+        else
+        {
+            buf ~= c;
+        }
+    }
+    return (() @trusted => cast(string) buf)();
+}
+
+/// Compile-time helper resolving the Slint struct key for field `member` of `T`.
+template slintFieldName(T, string member)
+{
+    import std.traits : getUDAs;
+
+    alias udas = getUDAs!(__traits(getMember, T, member), SlintField);
+    static if (udas.length > 0)
+        enum string slintFieldName = udas[0].name;
+    else
+        enum string slintFieldName = camelToKebab(member);
+}
+
+/// Automatically map a D struct `T` into a `SlintStruct` (`Value[string]`),
+/// converting camelCase field names to kebab-case (and also storing snake_case
+/// aliases when needed by Slint's interpreter).
+SlintStruct toSlintStruct(T)(const T record) @safe pure
+if (is(T == struct))
+{
+    import std.traits : isIntegral, isFloatingPoint, isBoolean, isSomeString;
+
+    SlintStruct res;
+    static foreach (idx, fieldName; T.tupleof)
+    {{
+        enum string memberName = __traits(identifier, T.tupleof[idx]);
+        enum string key = slintFieldName!(T, memberName);
+        alias F = typeof(T.tupleof[idx]);
+        auto v = record.tupleof[idx];
+
+        static if (isBoolean!F)
+            res[key] = Value.of(cast(bool) v);
+        else static if (isIntegral!F || isFloatingPoint!F)
+            res[key] = Value.of(cast(double) v);
+        else static if (isSomeString!F)
+            res[key] = Value.of(cast(string) v);
+        else static if (is(Unqual!F == Color))
+            res[key] = Value.of(Color(v.red, v.green, v.blue, v.alpha));
+        else static if (is(Unqual!F == Brush))
+            res[key] = Value.of(Brush(v.kind, Color(v.color.red, v.color.green, v.color.blue, v.color.alpha)));
+        else static if (is(Unqual!F == EnumValue))
+            res[key] = Value.of(EnumValue(v.enumName, v.value));
+        else static if (is(F == enum))
+        {
+            import std.conv : to;
+            res[key] = Value.of(camelToKebab(v.to!string));
+        }
+        else static if (is(F == struct))
+            res[key] = Value.of(toSlintStruct(v));
+    }}
+    return res;
+}
+
+private template Unqual(T)
+{
+    static if (is(T U == const U))
+        alias Unqual = Unqual!U;
+    else static if (is(T U == immutable U))
+        alias Unqual = Unqual!U;
+    else
+        alias Unqual = T;
+}
+
+/// Reconstruct a D struct `T` from a `SlintStruct` (`Value[string]`),
+/// matching either kebab-case, snake_case, or exact D field names.
+T fromSlintStruct(T)(const SlintStruct s) @safe pure
+if (is(T == struct))
+{
+    import std.traits : isIntegral, isFloatingPoint, isBoolean, isSomeString;
+
+    T result;
+    static foreach (idx, _; T.tupleof)
+    {{
+        enum string memberName = __traits(identifier, T.tupleof[idx]);
+        enum string kebabKey = slintFieldName!(T, memberName);
+        alias F = typeof(T.tupleof[idx]);
+
+        const(Value)* found = (kebabKey in s);
+        if (found is null)
+            found = (memberName in s);
+
+        if (found !is null)
+        {
+            static if (isBoolean!F)
+                result.tupleof[idx] = found.boolean;
+            else static if (isIntegral!F)
+                result.tupleof[idx] = cast(F) found.number;
+            else static if (isFloatingPoint!F)
+                result.tupleof[idx] = cast(F) found.number;
+            else static if (isSomeString!F)
+                result.tupleof[idx] = found.text;
+            else static if (is(F == Color))
+                result.tupleof[idx] = found.color;
+            else static if (is(F == Brush))
+                result.tupleof[idx] = found.brush;
+            else static if (is(F == struct))
+                result.tupleof[idx] = fromSlintStruct!F(found.structFields);
+        }
+    }}
+    return result;
+}
+
+// Spec: Slint Interpreter Property/Struct Naming: camelCase to kebab-case mapping and @SlintField UDA round-trip
+/// Example:
+unittest
+{
+    static struct SampleRow
+    {
+        string id;
+        string statusVariant;
+        int rowIndex;
+        double cpuLoad;
+        bool isActive;
+        @SlintField("custom-metric")
+        string metric;
+    }
+
+    auto row = SampleRow("srv-01", "success", 3, 72.5, true, "99.9%");
+    auto ss = toSlintStruct(row);
+    assert(ss["id"].text == "srv-01");
+    assert(ss["status-variant"].text == "success");
+    assert(ss["row-index"].number == 3.0);
+    assert(ss["cpu-load"].number == 72.5);
+    assert(ss["is-active"].boolean == true);
+    assert(ss["custom-metric"].text == "99.9%");
+
+    auto roundtrip = fromSlintStruct!SampleRow(ss);
+    assert(roundtrip == row);
+}
+
 

@@ -840,6 +840,78 @@ class ComponentInstance
         }
     }
 
+    /// Triggers AccessibilityAction::SetValue(value) on the target element.
+    void setElementValue(string target, string value)
+    {
+        version (SlintNative)
+        {
+            requireHandle();
+            import std.string : toStringz;
+
+            checkError(slint_instance_invoke_element_accessibility_action(
+                _handle, target.toStringz, 4, value.toStringz));
+        }
+        else
+        {
+            import slint : NativeUnavailable;
+            throw new NativeUnavailable(nativeOnly("setElementValue"));
+        }
+    }
+
+    /// Triggers AccessibilityAction::Increment on the target element.
+    void incrementElement(string target)
+    {
+        version (SlintNative)
+        {
+            requireHandle();
+            import std.string : toStringz;
+
+            checkError(slint_instance_invoke_element_accessibility_action(
+                _handle, target.toStringz, 1, null));
+        }
+        else
+        {
+            import slint : NativeUnavailable;
+            throw new NativeUnavailable(nativeOnly("incrementElement"));
+        }
+    }
+
+    /// Triggers AccessibilityAction::Decrement on the target element.
+    void decrementElement(string target)
+    {
+        version (SlintNative)
+        {
+            requireHandle();
+            import std.string : toStringz;
+
+            checkError(slint_instance_invoke_element_accessibility_action(
+                _handle, target.toStringz, 2, null));
+        }
+        else
+        {
+            import slint : NativeUnavailable;
+            throw new NativeUnavailable(nativeOnly("decrementElement"));
+        }
+    }
+
+    /// Triggers AccessibilityAction::Expand on the target element.
+    void expandElement(string target)
+    {
+        version (SlintNative)
+        {
+            requireHandle();
+            import std.string : toStringz;
+
+            checkError(slint_instance_invoke_element_accessibility_action(
+                _handle, target.toStringz, 3, null));
+        }
+        else
+        {
+            import slint : NativeUnavailable;
+            throw new NativeUnavailable(nativeOnly("expandElement"));
+        }
+    }
+
     private static string nativeOnly(string what) @safe pure
     {
         return "ComponentInstance." ~ what ~
@@ -959,7 +1031,8 @@ struct Snapshot
     ubyte[] pixels;
 }
 
-///
+// Best practice: Pure-D ComponentInstance throws NativeUnavailable for all native operations
+/// Example:
 unittest
 {
     // Pure-D: every native path raises NativeUnavailable (now also with
@@ -1024,12 +1097,17 @@ unittest
         ElementInfo info;
         assertThrown!NativeUnavailable(i.findElement("test", info));
         assertThrown!NativeUnavailable(i.invokeElementAction("test"));
+        assertThrown!NativeUnavailable(i.setElementValue("test", "42"));
+        assertThrown!NativeUnavailable(i.incrementElement("test"));
+        assertThrown!NativeUnavailable(i.decrementElement("test"));
+        assertThrown!NativeUnavailable(i.expandElement("test"));
     }
 }
 
 version (SlintNative)
 {
-    /// Native integration test for rich properties on ComponentInstance
+    // Best practice: Native integration test for rich properties on ComponentInstance
+    /// Example:
     unittest
     {
         import slint.compiler : Compiler;
@@ -1106,6 +1184,8 @@ version (SlintNative)
 
 version (SlintNative)
 {
+    // Best practice: Native integration test for model properties and array synchronization
+    /// Example:
     unittest
     {
         import slint.compiler : Compiler;
@@ -1166,12 +1246,14 @@ version (SlintNative)
         assert(nameModel.rowData(1) == "eve");
     }
 
-    /// Native integration test for Window controls, input dispatch, and Element Introspection
+    // Best practice: Native integration test for Window controls, input dispatch, and Element Introspection
+    /// Example:
     unittest
     {
         import slint.compiler : Compiler;
         import slint.window : WindowHandle, PointerEvent, PointerButton, KeyEvent;
         import std.string : indexOf;
+        import std.exception : assertThrown;
 
         auto c = new Compiler();
         auto res = c.buildFromSource(
@@ -1180,6 +1262,8 @@ version (SlintNative)
             "    height: 200px;\n" ~
             "    in-out property <int> clicks: 0;\n" ~
             "    in-out property <int> action_count: 0;\n" ~
+            "    in-out property <float> slider_val: 10.0;\n" ~
+            "    in-out property <bool> node_expanded: false;\n" ~
             "    touch := TouchArea {\n" ~
             "        x: 10px; y: 10px; width: 100px; height: 50px;\n" ~
             "        clicked => { root.clicks += 1; }\n" ~
@@ -1187,9 +1271,28 @@ version (SlintNative)
             "    btn := TouchArea {\n" ~
             "        x: 10px; y: 70px; width: 100px; height: 50px;\n" ~
             "        accessible-role: button;\n" ~
+            "        accessible-id: \"btn_submit\";\n" ~
             "        accessible-label: \"SubmitButton\";\n" ~
+            "        accessible-description: \"mcp:controllable\";\n" ~
             "        accessible-action-default => { root.action_count += 1; }\n" ~
             "        clicked => { root.action_count += 1; }\n" ~
+            "    }\n" ~
+            "    scrubber := Rectangle {\n" ~
+            "        x: 10px; y: 130px; width: 100px; height: 20px;\n" ~
+            "        accessible-role: slider;\n" ~
+            "        accessible-id: \"player_scrubber\";\n" ~
+            "        accessible-value: \"\\{root.slider_val}\";\n" ~
+            "        accessible-action-set-value(v) => { if (v.is-float()) { root.slider_val = v.to-float(); } }\n" ~
+            "        accessible-action-increment => { root.slider_val += 5.0; }\n" ~
+            "        accessible-action-decrement => { root.slider_val -= 5.0; }\n" ~
+            "    }\n" ~
+            "    tree_node := Rectangle {\n" ~
+            "        x: 10px; y: 160px; width: 100px; height: 20px;\n" ~
+            "        accessible-role: list-item;\n" ~
+            "        accessible-id: \"tree_node_0\";\n" ~
+            "        accessible-expandable: true;\n" ~
+            "        accessible-expanded: root.node_expanded;\n" ~
+            "        accessible-action-expand => { root.node_expanded = !root.node_expanded; }\n" ~
             "    }\n" ~
             "}\n"
         );
@@ -1214,11 +1317,13 @@ version (SlintNative)
         win.click(50, 30);
         assert(inst.getNumber("clicks") == 1);
 
-        // Element Introspection: dumpUiTree
+        // Element Introspection: dumpUiTree includes id_stable and description
         string json = inst.dumpUiTree();
         assert(json.length > 0);
         assert(json.indexOf("button") != -1);
         assert(json.indexOf("SubmitButton") != -1);
+        assert(json.indexOf("\"id_stable\":true") != -1);
+        assert(json.indexOf("mcp:controllable") != -1);
 
         // Element Introspection: findElement
         ElementInfo info;
@@ -1229,10 +1334,31 @@ version (SlintNative)
         assert(info.width == 100.0);
         assert(info.height == 50.0);
 
-        // Accessibility action execution
+        // Accessibility action execution: default, setValue, increment, decrement, expand
         assert(inst.getNumber("action_count") == 0);
         inst.invokeElementAction("SubmitButton");
         assert(inst.getNumber("action_count") == 1);
+
+        inst.setElementValue("player_scrubber", "42.5");
+        assert(inst.getNumber("slider_val") == 42.5);
+        inst.incrementElement("player_scrubber");
+        assert(inst.getNumber("slider_val") == 47.5);
+        inst.decrementElement("player_scrubber");
+        assert(inst.getNumber("slider_val") == 42.5);
+
+        assert(!inst.getBool("node_expanded"));
+        inst.expandElement("tree_node_0");
+        assert(inst.getBool("node_expanded"));
+
+        // W2 duplicate explicit accessible-id rejection
+        auto dupRes = c.buildFromSource(
+            "export component DupTreeTest inherits Window {\n" ~
+            "    Rectangle { accessible-role: button; accessible-id: \"dup_id\"; }\n" ~
+            "    Rectangle { accessible-role: button; accessible-id: \"dup_id\"; }\n" ~
+            "}\n"
+        );
+        auto dupInst = dupRes.component("DupTreeTest").create();
+        assertThrown!SlintCallError(dupInst.dumpUiTree());
     }
 }
 

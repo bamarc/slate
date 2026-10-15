@@ -282,6 +282,8 @@ char* slint_instance_find_element(SlintInstance* instance, const char* target,
     double* outX, double* outY, double* outWidth, double* outHeight,
     int* outEnabled, int* outVisible);
 char* slint_instance_invoke_element_action(SlintInstance* instance, const char* target);
+char* slint_instance_invoke_element_accessibility_action(SlintInstance* instance,
+    const char* target, int actionKind, const char* valueStr);
 
 // -- strings ------------------------------------------------------------
 
