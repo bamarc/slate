@@ -132,10 +132,15 @@ Use `just` recipes from the repository root (or run `dub` directly):
 | `just d-bridge` | Build the Rust C-ABI bridge (`slint-d/bridge`) |
 | `just d-test` | Run `slint-d` pure-D unit tests (`14/14` modules) |
 | `just d-test-native` | Run `slint-d` native unit tests with `SLINT_BACKEND=software` |
-| `just slate-test` | Run `slate-dlang` pure-D unit tests (`81/81` modules) |
-| `just slate-test-native` | Run `slate-dlang` native Slint + MCP E2E tests (`SLINT_BACKEND=software`) |
+| `just slate-test-core` | Run `slate:core` pure-D unit tests (`12/12` modules) |
+| `just slate-test-net` | Run `slate:net` unit tests (`41/41` modules) |
+| `just slate-test-mcp` | Run `slate:mcp` automation & MCP unit tests (`19/19` modules) |
+| `just slate-test-ui` | Run `slate:ui` pure-D UI component tests (`9/9` modules) |
+| `just slate-test-ui-native` | Run `slate:ui` native Slint + MCP tests (`SLINT_BACKEND=software`) |
+| `just slate-test` | Run full `slate` umbrella pure-D unit tests |
+| `just slate-test-native` | Run full `slate` umbrella native Slint + MCP E2E tests (`SLINT_BACKEND=software`) |
 | `just d-build` | Build `slint-d` library |
-| `just slate-build` | Build `slate-dlang` library |
+| `just slate-build` | Build `slate` library |
 | `just d-gallery` | Render offscreen PNG component snapshots from D into `renders/dlang-gallery` |
 
 #### Direct DUB Commands

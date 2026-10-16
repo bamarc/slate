@@ -35,7 +35,7 @@ class Timer
 
     version (SlintNative)
     {
-    private SlintTimer* _handle;
+        private SlintTimer* _handle;
 
         ~this() @system
         {
@@ -85,8 +85,8 @@ class Timer
                 callbacks.remove(id);
                 _callback = null;
             }
-            char* err = slint_timer_start(handle(), mode == TimerMode.SingleShot ? 1 : 0,
-                cast(ulong) intervalMsecs, &slintDCallbackShim, id);
+            char* err = slint_timer_start(handle(), mode == TimerMode.SingleShot
+                    ? 1 : 0, cast(ulong) intervalMsecs, &slintDCallbackShim, id);
             if (err !is null)
             {
                 string msg = fromStringz(err).idup;

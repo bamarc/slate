@@ -109,12 +109,12 @@ void slint_compiler_set_translation_domain(SlintCompiler* compiler, const char* 
 
 /// Compile `.slint` markup from memory. On success `*outResult` is set and
 /// the return is null; on failure the return is an owned error string.
-char* slint_compiler_build_from_source(SlintCompiler* compiler, const char* source,
-    const char* path, SlintResult** outResult);
+char* slint_compiler_build_from_source(SlintCompiler* compiler,
+        const char* source, const char* path, SlintResult** outResult);
 
 /// Compile a `.slint` file from disk. Same ownership rules as above.
 char* slint_compiler_build_from_path(SlintCompiler* compiler, const char* path,
-    SlintResult** outResult);
+        SlintResult** outResult);
 
 // -- compilation result -------------------------------------------------
 
@@ -149,18 +149,18 @@ size_t slint_definition_global_count(SlintDefinition* definition);
 char* slint_definition_global_name(SlintDefinition* definition, size_t index, char** outName);
 
 size_t slint_definition_global_property_count(SlintDefinition* definition, const char* global);
-char* slint_definition_global_property_name(SlintDefinition* definition, const char* global,
-    size_t index, char** outName);
-int slint_definition_global_property_type(SlintDefinition* definition, const char* global,
-    size_t index);
+char* slint_definition_global_property_name(SlintDefinition* definition,
+        const char* global, size_t index, char** outName);
+int slint_definition_global_property_type(SlintDefinition* definition,
+        const char* global, size_t index);
 
 size_t slint_definition_global_callback_count(SlintDefinition* definition, const char* global);
-char* slint_definition_global_callback_name(SlintDefinition* definition, const char* global,
-    size_t index, char** outName);
+char* slint_definition_global_callback_name(SlintDefinition* definition,
+        const char* global, size_t index, char** outName);
 
 size_t slint_definition_global_function_count(SlintDefinition* definition, const char* global);
-char* slint_definition_global_function_name(SlintDefinition* definition, const char* global,
-    size_t index, char** outName);
+char* slint_definition_global_function_name(SlintDefinition* definition,
+        const char* global, size_t index, char** outName);
 
 SlintInstance* slint_definition_create(SlintDefinition* definition);
 
@@ -178,7 +178,8 @@ char* slint_instance_get_string(SlintInstance* instance, const char* name, char*
 char* slint_instance_get_bool(SlintInstance* instance, const char* name, int* outValue);
 
 char* slint_instance_get_property(SlintInstance* instance, const char* name, SlintValue* outValue);
-char* slint_instance_set_property(SlintInstance* instance, const char* name, const SlintValue* value);
+char* slint_instance_set_property(SlintInstance* instance, const char* name,
+        const SlintValue* value);
 
 /// Invoke a callback with no arguments. Variadic invoke is a later phase.
 char* slint_instance_invoke(SlintInstance* instance, const char* name);
@@ -186,30 +187,30 @@ char* slint_instance_invoke(SlintInstance* instance, const char* name);
 /// Invoke a callback with `SlintValue` arguments; the return payload is
 /// written to `outReturn` (string payloads owned; see `SlintValue`).
 char* slint_instance_invoke_values(SlintInstance* instance, const char* name,
-    const SlintValue* args, size_t nargs, SlintValue* outReturn);
+        const SlintValue* args, size_t nargs, SlintValue* outReturn);
 
 /// Register a D callback handler. `shim` is invoked as
 /// `shim(ctx, args, nargs)`; `ctx` is the `slint.callback` registry id.
 /// Re-registering a name replaces the previous handler.
 char* slint_instance_set_callback(SlintInstance* instance, const char* name,
-    SlintShim shim, size_t ctx);
+        SlintShim shim, size_t ctx);
 
-char* slint_instance_get_global_number(SlintInstance* instance, const char* global,
-    const char* name, double* outValue);
-char* slint_instance_set_global_number(SlintInstance* instance, const char* global,
-    const char* name, double value);
-char* slint_instance_get_global_string(SlintInstance* instance, const char* global,
-    const char* name, char** outValue);
-char* slint_instance_set_global_string(SlintInstance* instance, const char* global,
-    const char* name, const char* value);
-char* slint_instance_get_global_bool(SlintInstance* instance, const char* global,
-    const char* name, int* outValue);
-char* slint_instance_set_global_bool(SlintInstance* instance, const char* global,
-    const char* name, int value);
+char* slint_instance_get_global_number(SlintInstance* instance,
+        const char* global, const char* name, double* outValue);
+char* slint_instance_set_global_number(SlintInstance* instance,
+        const char* global, const char* name, double value);
+char* slint_instance_get_global_string(SlintInstance* instance,
+        const char* global, const char* name, char** outValue);
+char* slint_instance_set_global_string(SlintInstance* instance,
+        const char* global, const char* name, const char* value);
+char* slint_instance_get_global_bool(SlintInstance* instance,
+        const char* global, const char* name, int* outValue);
+char* slint_instance_set_global_bool(SlintInstance* instance,
+        const char* global, const char* name, int value);
 char* slint_instance_invoke_global(SlintInstance* instance, const char* global,
-    const char* name, const SlintValue* args, size_t nargs, SlintValue* outReturn);
-char* slint_instance_set_global_callback(SlintInstance* instance, const char* global,
-    const char* name, SlintShim shim, size_t ctx);
+        const char* name, const SlintValue* args, size_t nargs, SlintValue* outReturn);
+char* slint_instance_set_global_callback(SlintInstance* instance,
+        const char* global, const char* name, SlintShim shim, size_t ctx);
 
 void slint_instance_show(SlintInstance* instance);
 void slint_instance_hide(SlintInstance* instance);
@@ -221,7 +222,7 @@ char* slint_instance_run(SlintInstance* instance);
 /// software backend headless). `*outPixels` is owned (`*outLen` bytes);
 /// release with `slint_bytes_free`.
 char* slint_instance_snapshot(SlintInstance* instance, ubyte** outPixels,
-    size_t* outLen, uint* outWidth, uint* outHeight);
+        size_t* outLen, uint* outWidth, uint* outHeight);
 void slint_bytes_free(ubyte* ptr, size_t len);
 
 // -- timers -------------------------------------------------------------
@@ -232,7 +233,7 @@ void slint_timer_free(SlintTimer* timer);
 /// Arm the timer; `shim(ctx, null, 0)` fires on the event-loop thread.
 /// `singleShot != 0` fires once, otherwise repeatedly.
 char* slint_timer_start(SlintTimer* timer, int singleShot, ulong intervalMs,
-    SlintShim shim, size_t ctx);
+        SlintShim shim, size_t ctx);
 void slint_timer_stop(SlintTimer* timer);
 
 // -- event loop ---------------------------------------------------------
@@ -271,19 +272,20 @@ char* slint_model_vec_clear(SlintModelRaw* model);
 char* slint_window_get_size(SlintInstance* instance, double* outWidth, double* outHeight);
 char* slint_window_set_size(SlintInstance* instance, double width, double height);
 char* slint_window_is_visible(SlintInstance* instance, int* outVisible);
-char* slint_window_dispatch_pointer(SlintInstance* instance, int eventType, double x, double y, int button);
+char* slint_window_dispatch_pointer(SlintInstance* instance, int eventType,
+        double x, double y, int button);
 char* slint_window_dispatch_key(SlintInstance* instance, int eventType, const char* text);
 
 // -- element & accessibility introspection -----------------------------
 
 char* slint_instance_dump_ui_tree(SlintInstance* instance, char** outJson);
 char* slint_instance_find_element(SlintInstance* instance, const char* target,
-    char** outId, char** outRole, char** outLabel, char** outValue,
-    double* outX, double* outY, double* outWidth, double* outHeight,
-    int* outEnabled, int* outVisible);
+        char** outId, char** outRole, char** outLabel, char** outValue,
+        double* outX, double* outY, double* outWidth, double* outHeight,
+        int* outEnabled, int* outVisible);
 char* slint_instance_invoke_element_action(SlintInstance* instance, const char* target);
 char* slint_instance_invoke_element_accessibility_action(SlintInstance* instance,
-    const char* target, int actionKind, const char* valueStr);
+        const char* target, int actionKind, const char* valueStr);
 
 // -- strings ------------------------------------------------------------
 

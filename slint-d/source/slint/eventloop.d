@@ -37,8 +37,8 @@ void runEventLoop()
     {
         import slint : NativeUnavailable;
 
-        throw new NativeUnavailable("runEventLoop needs the native Slint runtime; " ~
-            "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
+        throw new NativeUnavailable("runEventLoop needs the native Slint runtime; "
+                ~ "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
     }
 }
 
@@ -64,8 +64,8 @@ void quitEventLoop()
     {
         import slint : NativeUnavailable;
 
-        throw new NativeUnavailable("quitEventLoop needs the native Slint runtime; " ~
-            "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
+        throw new NativeUnavailable("quitEventLoop needs the native Slint runtime; "
+                ~ "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
     }
 }
 
@@ -97,8 +97,8 @@ void invokeFromEventLoop(void delegate() work)
     {
         import slint : NativeUnavailable;
 
-        throw new NativeUnavailable("invokeFromEventLoop needs the native Slint runtime; " ~
-            "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
+        throw new NativeUnavailable("invokeFromEventLoop needs the native Slint runtime; "
+                ~ "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
     }
 }
 
@@ -124,8 +124,8 @@ void setXdgAppId(string appId)
     {
         import slint : NativeUnavailable;
 
-        throw new NativeUnavailable("setXdgAppId needs the native Slint runtime; " ~
-            "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
+        throw new NativeUnavailable("setXdgAppId needs the native Slint runtime; "
+                ~ "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
     }
 }
 

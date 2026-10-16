@@ -1,0 +1,35 @@
+{
+    "name": "ui",
+    "description": "Slate UI: declarative desktop UI shell, Slint components, and Slint backend integration",
+    "authors": ["Slate Contributors"],
+    "license": "MIT",
+    "homepage": "https://github.com/slate-framework/slate",
+    "targetType": "library",
+    "sourcePaths": ["source"],
+    "importPaths": ["source"],
+    "targetName": "slate-ui",
+    "dependencies": {
+        "slate:core": "*",
+        "slate:mcp": "*",
+        "slint-d": {"path": "../../../slint-d"}
+    },
+    "configurations": [
+        {
+            "name": "library",
+            "targetType": "library"
+        },
+        {
+            "name": "native",
+            "targetType": "library",
+            "versions": ["SlintNative"],
+            "subConfigurations": {
+                "slint-d": "native"
+            }
+        }
+    ],
+    "buildTypes": {
+        "unittest": {
+            "buildOptions": ["unittests", "debugMode", "debugInfo"]
+        }
+    }
+}

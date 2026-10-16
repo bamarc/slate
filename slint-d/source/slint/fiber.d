@@ -79,16 +79,8 @@ unittest
 {
     // Interleaved tasks resume in order, preserving locals across yields.
     int[] log;
-    auto a = spawnTask({
-        log ~= 1;
-        UiTask.yield();
-        log ~= 3;
-    });
-    auto b = spawnTask({
-        log ~= 2;
-        UiTask.yield();
-        log ~= 4;
-    });
+    auto a = spawnTask({ log ~= 1; UiTask.yield(); log ~= 3; });
+    auto b = spawnTask({ log ~= 2; UiTask.yield(); log ~= 4; });
     assert(!a.done && !b.done);
     a.step();
     b.step();

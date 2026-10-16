@@ -8,54 +8,47 @@ set dotenv-load := true
 default:
     @just --list --unsorted
 
-# ── Slate Rust UI Framework ────────────────────────────────
-
+# ── Slate Rust UI Framework (reference/slate-rust) ────────
 # Build all crates in the Slate Rust workspace
 build:
-    cd slate-rust && cargo build --workspace
+    cd reference/slate-rust && cargo build --workspace
 
 # Fast check compilation of all workspace crates without emitting binaries
 check:
-    cd slate-rust && cargo check --workspace
+    cd reference/slate-rust && cargo check --workspace
 
 # Run all unit and integration tests across the Slate Rust workspace.
-# SLINT_EMIT_DEBUG_INFO=1 is required at BUILD time: Slint's ElementHandle
-# query pipeline (targeting, debug-id identity) needs compiler debug info,
-# and ANY value enables it (`=0` does NOT disable — only an unset var does).
-# Changing the var needs a rebuild of Slint consumers (`cargo clean -p
-# <crate>` first): Cargo fingerprints do not track env changes, so a stale
-# build keeps the old expansion and the query-path tests fail.
 test:
-    cd slate-rust && SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace
+    cd reference/slate-rust && SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace
 
 # Run the comprehensive 4-tier Agent / MCP end-to-end test suite
 e2e:
-    cd slate-rust && cargo run -p slate-tests --bin e2e_runner
+    cd reference/slate-rust && cargo run -p slate-tests --bin e2e_runner
 
 # Launch the interactive Slate desktop showcase application (Desktop layout)
 run:
-    cd slate-rust && cargo run -p slate-showcase
+    cd reference/slate-rust && cargo run -p slate-showcase
 
 # Alias for run
 showcase: run
 
 # Launch the interactive Slate WebApp mirror showcase (Web layout matching webapp 1:1)
 web-mirror:
-    cd slate-rust && cargo run -p slate-showcase --bin web_mirror
+    cd reference/slate-rust && cargo run -p slate-showcase --bin web_mirror
 
 # Render offline pixel-perfect PNG snapshots of all views into the output directory
 render out_dir="renders":
-    cd slate-rust && SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- snapshot {{out_dir}}
+    cd reference/slate-rust && SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- snapshot {{out_dir}}
 
 # Optically compare two snapshots and generate a visual diff heatmap: `just compare a.png b.png diff.png [threshold%]`; exits non-zero above threshold
 compare img_a img_b diff_out="renders/optical-diff.png" threshold="0.0":
-    cd slate-rust && SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- compare {{img_a}} {{img_b}} {{diff_out}} --threshold {{threshold}}
+    cd reference/slate-rust && SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- compare {{img_a}} {{img_b}} {{diff_out}} --threshold {{threshold}}
 
-# Optical regression gate: render to a temp dir and compare against slate-rust/examples/showcase/golden/
+# Optical regression gate: render to a temp dir and compare against reference/slate-rust/examples/showcase/golden/
 optical-check:
     #!/usr/bin/env bash
     set -euo pipefail
-    golden=slate-rust/examples/showcase/golden
+    golden=reference/slate-rust/examples/showcase/golden
     if [ ! -d "$golden" ] || [ -z "$(ls -A "$golden" 2>/dev/null)" ]; then
         echo "✗ No golden images in $golden — nothing to compare against."
         echo "  Run 'just optical-bless' to generate them, review them, and commit."
@@ -63,41 +56,61 @@ optical-check:
     fi
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
-    (cd slate-rust && SLINT_BACKEND=software cargo run -q -p slate-showcase --bin render -- snapshot "$tmp")
-    (cd slate-rust && SLINT_BACKEND=software cargo run -q -p slate-showcase --bin render -- check "$golden" "$tmp")
+    (cd reference/slate-rust && SLINT_BACKEND=software cargo run -q -p slate-showcase --bin render -- snapshot "$tmp")
+    (cd reference/slate-rust && SLINT_BACKEND=software cargo run -q -p slate-showcase --bin render -- check "$golden" "$tmp")
 
 # Regenerate golden images from the current UI (review them before committing!)
 optical-bless:
-    cd slate-rust && SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- snapshot examples/showcase/golden
-    @echo "⚠ Golden images regenerated in slate-rust/examples/showcase/golden — review before committing."
+    cd reference/slate-rust && SLINT_BACKEND=software cargo run -p slate-showcase --bin render -- snapshot examples/showcase/golden
+    @echo "⚠ Golden images regenerated in reference/slate-rust/examples/showcase/golden — review before committing."
 
 # Format Rust code across all workspace crates
 fmt:
-    cd slate-rust && cargo fmt --all
+    cd reference/slate-rust && cargo fmt --all
 
 # Clean Cargo build artifacts
 clean-slate:
-    cd slate-rust && cargo clean
+    cd reference/slate-rust && cargo clean
 
 # Build standalone Linux AppImage for the Slate desktop showcase application
 appimage:
-    bash slate-rust/packaging/appimage/build.sh
+    bash reference/slate-rust/packaging/appimage/build.sh
 
-# ── Slate Carbon Bindings ──────────────────────────────────
-
+# ── Slate Carbon Bindings (reference/slate-carbon) ────────
 # Build Slate Carbon application with Google Carbon toolchain
 carbon-build:
-    slate-carbon/examples/gallery/build.sh
+    reference/slate-carbon/examples/gallery/build.sh
 
 # Compile shared Slint UI markup into C++ header code for Carbon
 carbon-ui:
-    cd slate-carbon && bazel build //:slint_ui_cpp
+    cd reference/slate-carbon && bazel build //:slint_ui_cpp
 
 # Run the Slate Desktop Component Gallery via Google Carbon
 carbon-gallery:
-    slate-carbon/examples/gallery/run.sh
+    reference/slate-carbon/examples/gallery/run.sh
 
-# ── Slint-D Bindings ─────────────────────────────────────
+# ── Slint-D Bindings & Linting ───────────────────────────
+# Lint verification for Slint-D Rust bridge and Dlang packages (dscanner + dub build)
+lint: _dlang d-lint
+    cd slint-d/bridge && cargo fmt --check && cargo clippy -- -D warnings
+    bash -c 'source ~/dlang/dmd-*/activate && cd slint-d && dub build && cd ../slate-dlang && dub build'
+
+# Run D-Scanner syntax and static analysis checks across slint-d and slate-dlang
+d-lint: _dlang
+    dscanner --syntaxCheck slint-d/source slate-dlang/source slate-dlang/packages/*/source
+    dscanner --styleCheck --config dscanner.ini slint-d/source slate-dlang/source slate-dlang/packages/*/source
+
+# Format all D source files in-place with dfmt
+d-fmt: _dlang
+    find slint-d/source slint-d/examples slate-dlang/source slate-dlang/packages -name '*.d' -exec dfmt -i {} +
+
+# Install or update the portable slate-dev toolchain (DMD, serve-d, DCD, dscanner, dfmt, slint-lsp, Antigravity plugin)
+d-setup *args:
+    ./slate-dev/install.sh {{args}}
+
+# Verify installed Dlang & Slint LSP/linter/formatter toolchain and Antigravity plugin
+d-check:
+    ./slate-dev/install.sh --check
 
 # Activate the user-local D toolchain (~/dlang) for the chained command
 _dlang:
@@ -140,6 +153,26 @@ slate-test-native: _dlang d-bridge
 # Build the slate-dlang library (pure-D configuration)
 slate-build: _dlang
     bash -c 'source ~/dlang/dmd-*/activate && cd slate-dlang && dub build'
+
+# Run slate:core sub-package pure-D unit tests (no Slint runtime needed)
+slate-test-core: _dlang
+    bash -c 'source ~/dlang/dmd-*/activate && cd slate-dlang && dub test :core'
+
+# Run slate:net sub-package unit tests (HTTP + QUIC)
+slate-test-net: _dlang
+    bash -c 'source ~/dlang/dmd-*/activate && cd slate-dlang && dub test :net'
+
+# Run slate:mcp sub-package unit tests (automation engine + MCP protocol)
+slate-test-mcp: _dlang
+    bash -c 'source ~/dlang/dmd-*/activate && cd slate-dlang && dub test :mcp'
+
+# Run slate:ui sub-package pure-D unit tests
+slate-test-ui: _dlang
+    bash -c 'source ~/dlang/dmd-*/activate && cd slate-dlang && dub test :ui'
+
+# Run slate:ui sub-package native Slint unit tests with headless software renderer
+slate-test-ui-native: _dlang d-bridge
+    bash -c 'source ~/dlang/dmd-*/activate && cd slate-dlang && LD_LIBRARY_PATH="$PWD/../slint-d/bridge/target/debug:$LD_LIBRARY_PATH" SLINT_BACKEND=software dub test :ui --config=native'
 
 # ── Reference Webapp Stack (reference/) ────────────────────
 

@@ -6,7 +6,7 @@ name = "slint-d-bridge"
 version = "0.1.0"
 edition = "2021"
 description = "C ABI bridge exposing slint-interpreter to the slint-d DLang bindings"
-license = "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0"
+license = "MIT"
 
 [lib]
 crate-type = ["cdylib", "staticlib"]

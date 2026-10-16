@@ -63,6 +63,7 @@ struct WindowHandle
                     scope (exit)
                         slint_string_free(err);
                     import core.stdc.string : strlen;
+
                     string msg = err[0 .. strlen(err)].idup;
                     throw new Exception("slint_window_get_size failed: " ~ msg);
                 }
@@ -96,6 +97,7 @@ struct WindowHandle
                     scope (exit)
                         slint_string_free(err);
                     import core.stdc.string : strlen;
+
                     string msg = err[0 .. strlen(err)].idup;
                     throw new Exception("slint_window_set_size failed: " ~ msg);
                 }
@@ -123,6 +125,7 @@ struct WindowHandle
                     scope (exit)
                         slint_string_free(err);
                     import core.stdc.string : strlen;
+
                     string msg = err[0 .. strlen(err)].idup;
                     throw new Exception("slint_window_is_visible failed: " ~ msg);
                 }
@@ -136,7 +139,8 @@ struct WindowHandle
     }
 
     /// Dispatch a pointer event to the window at logical coordinate (x, y).
-    void dispatchPointer(PointerEvent ev, double x, double y, PointerButton btn = PointerButton.left) @safe
+    void dispatchPointer(PointerEvent ev, double x, double y, PointerButton btn = PointerButton
+            .left) @safe
     {
         version (SlintNative)
         {
@@ -144,12 +148,14 @@ struct WindowHandle
                 return;
 
             () @trusted {
-                char* err = slint_window_dispatch_pointer(_instance.handle, cast(int) ev, x, y, cast(int) btn);
+                char* err = slint_window_dispatch_pointer(_instance.handle,
+                        cast(int) ev, x, y, cast(int) btn);
                 if (err !is null)
                 {
                     scope (exit)
                         slint_string_free(err);
                     import core.stdc.string : strlen;
+
                     string msg = err[0 .. strlen(err)].idup;
                     throw new Exception("slint_window_dispatch_pointer failed: " ~ msg);
                 }
@@ -179,12 +185,15 @@ struct WindowHandle
 
             () @trusted {
                 import std.string : toStringz;
-                char* err = slint_window_dispatch_key(_instance.handle, cast(int) ev, text.toStringz);
+
+                char* err = slint_window_dispatch_key(_instance.handle, cast(int) ev,
+                        text.toStringz);
                 if (err !is null)
                 {
                     scope (exit)
                         slint_string_free(err);
                     import core.stdc.string : strlen;
+
                     string msg = err[0 .. strlen(err)].idup;
                     throw new Exception("slint_window_dispatch_key failed: " ~ msg);
                 }
@@ -231,6 +240,7 @@ struct WindowHandle
     {
         auto wh = WindowHandle(null);
         import std.exception : assertThrown;
+
         assertThrown!NativeUnavailable(wh.size);
         assertThrown!NativeUnavailable(wh.setSize(100, 100));
         assertThrown!NativeUnavailable(wh.isVisible);
@@ -244,24 +254,15 @@ version (SlintNative)
     unittest
     {
         import slint.compiler : Compiler;
+
         auto c = new Compiler();
-        auto res = c.buildFromSource(
-            "export component WindowUnitTest inherits Window {\n" ~
-            "    width: 350px;\n" ~
-            "    height: 250px;\n" ~
-            "    in-out property <int> clicks: 0;\n" ~
-            "    in-out property <string> key_received: \"\";\n" ~
-            "    TouchArea {\n" ~
-            "        x: 15px; y: 15px; width: 120px; height: 60px;\n" ~
-            "        clicked => { root.clicks += 1; }\n" ~
-            "    }\n" ~
-            "    forward-focus: ti;\n" ~
-            "    ti := TextInput {\n" ~
-            "        x: 15px; y: 90px; width: 120px; height: 30px;\n" ~
-            "        edited => { root.key_received = self.text; }\n" ~
-            "    }\n" ~
-            "}\n"
-        );
+        auto res = c.buildFromSource("export component WindowUnitTest inherits Window {\n"
+                ~ "    width: 350px;\n" ~ "    height: 250px;\n"
+                ~ "    in-out property <int> clicks: 0;\n" ~ "    in-out property <string> key_received: \"\";\n"
+                ~ "    TouchArea {\n" ~ "        x: 15px; y: 15px; width: 120px; height: 60px;\n"
+                ~ "        clicked => { root.clicks += 1; }\n" ~ "    }\n" ~ "    forward-focus: ti;\n"
+                ~ "    ti := TextInput {\n" ~ "        x: 15px; y: 90px; width: 120px; height: 30px;\n"
+                ~ "        edited => { root.key_received = self.text; }\n" ~ "    }\n" ~ "}\n");
         auto comp = res.component("WindowUnitTest");
         assert(comp !is null);
         auto inst = comp.create();

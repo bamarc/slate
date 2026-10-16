@@ -1,0 +1,51 @@
+{
+    "name": "net",
+    "description": "Slate Net: QUIC and HTTP networking client stack",
+    "authors": ["Slate Contributors"],
+    "license": "MIT",
+    "homepage": "https://github.com/slate-framework/slate",
+    "targetType": "library",
+    "sourcePaths": ["source"],
+    "importPaths": ["source"],
+    "targetName": "slate-net",
+    "dependencies": {
+        "slate:core": "*"
+    },
+    "libs": ["curl", "ssl", "crypto"],
+    "lflags-posix": ["-L/home/developer/.local/lib", "-L../../lib", "-Llib", "-L/usr/local/lib"],
+    "systemDependencies": "Requires libcurl >= 8.6 (pkg-config libcurl) with nghttp2 for HTTP/2 and ngtcp2+nghttp3 or OpenSSL 3.2+ for HTTP/3",
+    "configurations": [
+        {
+            "name": "library",
+            "targetType": "library"
+        },
+        {
+            "name": "h3",
+            "targetType": "library",
+            "versions": ["HaveCurlHttp3"]
+        },
+        {
+            "name": "integration",
+            "targetType": "library",
+            "versions": ["IntegrationTest"]
+        },
+        {
+            "name": "debug-http",
+            "targetType": "library",
+            "versions": ["SlateHttpDebug"]
+        },
+        {
+            "name": "durl",
+            "targetType": "executable",
+            "targetName": "durl",
+            "targetPath": "bin",
+            "mainSourceFile": "source/slate/bin/durl.d",
+            "versions": ["SlateHttpDebug"]
+        }
+    ],
+    "buildTypes": {
+        "unittest": {
+            "buildOptions": ["unittests", "debugMode", "debugInfo"]
+        }
+    }
+}

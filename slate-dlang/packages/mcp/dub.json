@@ -1,0 +1,25 @@
+{
+    "name": "mcp",
+    "description": "Slate MCP: embedded Model Context Protocol (MCP) server, tools, resources, and agent automation engine",
+    "authors": ["Slate Contributors"],
+    "license": "MIT",
+    "homepage": "https://github.com/slate-framework/slate",
+    "targetType": "library",
+    "sourcePaths": ["source"],
+    "importPaths": ["source"],
+    "targetName": "slate-mcp",
+    "dependencies": {
+        "slate:core": "*"
+    },
+    "configurations": [
+        {
+            "name": "library",
+            "targetType": "library"
+        }
+    ],
+    "buildTypes": {
+        "unittest": {
+            "buildOptions": ["unittests", "debugMode", "debugInfo"]
+        }
+    }
+}

@@ -1,14 +1,24 @@
 {
     "name": "slate",
-    "description": "Slate: declarative desktop UI framework on Slint, in DLang. Ports slate-rust (core theme/tasks, utils, extensions, AppBuilder, ComputeController, demo) against slint-d.",
+    "description": "Slate: declarative desktop UI framework on Slint, in DLang. Ports slate-rust against slint-d across layered sub-packages.",
     "authors": ["Slate Contributors"],
-    "license": "MIT OR Apache-2.0",
+    "license": "MIT",
     "homepage": "https://github.com/slate-framework/slate",
     "targetType": "library",
     "sourcePaths": ["source"],
     "importPaths": ["source"],
     "targetName": "slate",
+    "subPackages": [
+        "./packages/core",
+        "./packages/net",
+        "./packages/mcp",
+        "./packages/ui"
+    ],
     "dependencies": {
+        "slate:core": "*",
+        "slate:net": "*",
+        "slate:mcp": "*",
+        "slate:ui": "*",
         "slint-d": {"path": "../slint-d"}
     },
     "libs": ["curl", "ssl", "crypto"],
@@ -24,30 +34,40 @@
             "targetType": "library",
             "versions": ["SlintNative"],
             "subConfigurations": {
+                "slate:ui": "native",
                 "slint-d": "native"
             }
         },
         {
             "name": "h3",
             "targetType": "library",
-            "versions": ["HaveCurlHttp3"]
+            "versions": ["HaveCurlHttp3"],
+            "subConfigurations": {
+                "slate:net": "h3"
+            }
         },
         {
             "name": "integration",
             "targetType": "library",
-            "versions": ["IntegrationTest"]
+            "versions": ["IntegrationTest"],
+            "subConfigurations": {
+                "slate:net": "integration"
+            }
         },
         {
             "name": "debug-http",
             "targetType": "library",
-            "versions": ["SlateHttpDebug"]
+            "versions": ["SlateHttpDebug"],
+            "subConfigurations": {
+                "slate:net": "debug-http"
+            }
         },
         {
             "name": "durl",
             "targetType": "executable",
             "targetName": "durl",
             "targetPath": "bin",
-            "mainSourceFile": "source/slate/bin/durl.d",
+            "mainSourceFile": "packages/net/source/slate/bin/durl.d",
             "versions": ["SlateHttpDebug"]
         }
     ],

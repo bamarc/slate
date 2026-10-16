@@ -1,61 +1,70 @@
 # Slate — Claude Code Project Rules
 
-Slate is a declarative desktop UI framework for **Rust + [Slint](https://slint.dev)**, inspired by
+Slate is a declarative desktop UI framework for **Dlang + [Slint](https://slint.dev)**, inspired by
 Libadwaita/Kirigami and mirroring a web-app design language 1:1.
 
 ## Workspace Layout
 
-Slate is a multi-language UI framework with a shared declarative Slint UI layer:
+Slate is a desktop UI framework built in **Dlang** and backed by **Slint** via an idiomatic C-ABI bridge, with legacy prototypes and webapp references preserved in `reference/`:
 
 | Path | Purpose |
 |------|---------|
 | `ui/` | Shared Slint components (`components/`), layouts (`layouts/`), and registry (`index.slint`) |
-| `slate-rust/` | Rust implementation, crates, agent/MCP control, and showcase desktop application |
-| `slate-carbon/` | Google Carbon bindings, C++ runtime bridge, and Bazel workspace |
-| `slint-d/` | Dlang bindings for Slint runtime via C ABI bridge (`slint-d/bridge/`) |
-| `slate-dlang/` | Slate Dlang framework, MCP server, agents, tasks, and fibers |
+| `slint-d/` | Dlang bindings for Slint runtime via modular Rust C ABI bridge (`slint-d/bridge/`) |
+| `slate-dlang/` | Slate Dlang framework, subdivided into fine-grained DUB subpackages |
+| `reference/` | Preserved prototype implementations (`slate-rust/`, `slate-carbon/`, `agent/`, legacy webapp stack) |
 
-### Rust Crates (`slate-rust/`)
+### Dlang & Slint Architecture (`slint-d/` & `slate-dlang/`)
 
-| Path | Crate | Purpose |
-|------|-------|---------|
-| `slate-rust/core/` | `slate-core` | Theme modes, background tasks (`spawn_compute`, `TaskCancellation`) |
-| `slate-rust/utils/` | `slate-utils` | Formatting and color helpers |
-| `slate-rust/extensions/` | `slate-extensions` | Platform detection (system dark mode), plugins |
-| `slate-rust/agent/` | `slate-agent` | Agent automation, ACP protocol adapter, tree inspection |
-| `slate-rust/mcp/` | `slate-mcp` | Model Context Protocol (MCP) server, stdio/memory transports, CLI |
-| `slate-rust/lib/` | `slate` | Public facade: re-exports crates and generated Slint types; `AppBuilder` |
-| `slate-rust/test/` | `slate-tests` | Comprehensive cross-crate and end-to-end tests |
-| `slate-rust/examples/showcase/` | `slate-showcase` | Desktop showcase, `web_mirror` and `render` binaries |
+#### 1. `slint-d` (Slint Runtime Bindings)
+- `slint-d/bridge/`: Rust C ABI bridge (`libslint_d_bridge`), structured into focused submodules:
+  - `error.rs`: Slint bridge error types and error mapping
+  - `compiler.rs`: Dynamic `.slint` file compilation and component registration
+  - `value.rs`: `slint::Value` C-ABI conversion (`Model`, `Struct`, `Brush`, `Image`, `Array`, `String`)
+  - `model.rs`: Slint `Model` adapter and notification bindings
+  - `instance.rs`: Component instance lifecycle, property access, and callback invoke
+  - `window.rs`: Slint window control, rendering dispatch, and event pumps
+  - `accessibility.rs`: Semantic accessibility tree inspection and UI interaction
+- `slint-d/source/slint/`: Idiomatic Dlang API wrapping the bridge (`instance.d`, `model.d`, `value.d`, etc.) with companion test modules (`*_test.d`).
 
-### Carbon Bindings (`slate-carbon/`)
+#### 2. `slate-dlang` (Slate Desktop Framework Subpackages)
+- `slate:core` (`packages/core/`): Foundational utilities, JSON serialization, task scheduling (`spawnCompute`), and cancellation tokens. Zero Slint runtime dependency.
+- `slate:net` (`packages/net/`): HTTP transfer engine (`slate.http`) with libcurl binding and pure sans-I/O QUIC transport (`slate.quic`) implementing RFC 9000 / RFC 9001 / RFC 9002.
+- `slate:mcp` (`packages/mcp/`): Model Context Protocol server, agent automation (`slate.agent`), fiber execution, and geometry abstractions (`slate.agent.geometry`).
+- `slate:ui` (`packages/ui/`): Slint UI backend integration (`slate.agent.slint_backend`), UI components (`datagrid`, `file_dialog`, `media`, `log_viewer`, `dropzone`), and desktop app entrypoint.
 
-| Path | Purpose |
-|------|---------|
-| `slate-carbon/carbon/` | Carbon package definitions (`package Slate library "ui"`, theme tokens) |
-| `slate-carbon/include/slate/` | C++ lifecycle and `AppBuilder` headers |
-| `slate-carbon/src/` | C++ runtime implementation on top of Slint C++ |
-| `slate-carbon/slint.bzl` | Bazel rule compiling `ui/index.slint` into C++ headers |
-| `slate-carbon/examples/` | Example Carbon desktop application |
+## Canonical Just Recipes
 
-### Dlang Packages (`slate-dlang/` & `slint-d/`)
-
-| Path | Package | Purpose |
-|------|---------|---------|
-| `slint-d/` | `slint-d` | Dlang bindings for Slint runtime via C ABI bridge crate (`slint-d/bridge/`) |
-| `slate-dlang/` | `slate` | Slate framework port to D: declarative JSON serialization, MCP server, agents, tasks, fibers |
-
-## Just recipes
-
+### Linting & Building
 | Recipe | What it does |
 |--------|--------------|
-| `just build` / `check` / `test` / `fmt` | cargo build / check / test / fmt for the workspace |
-| `just run` (`showcase`) | Desktop showcase |
-| `just web-mirror` | Web-layout mirror showcase |
-| `just render [dir]` | Offline PNG snapshots (software renderer) into `renders/` |
-| `just compare a b [diff] [threshold]` | Pixel diff of two PNGs; non-zero exit above threshold % |
-| `just optical-check` | Render to a temp dir and compare with `examples/showcase/golden/`; fails if none exist |
-| `just optical-bless` | Regenerate the golden images (review before committing) |
+| `just lint` | Enforces `cargo fmt --check` and `cargo clippy -- -D warnings` on Rust bridge, followed by DUB builds of `slint-d` and `slate-dlang` |
+| `just d-build` | Builds the `slint-d` library |
+| `just slate-build` | Builds the `slate-dlang` library |
+
+### Testing (All 9 Suites)
+| Recipe | What it does |
+|--------|--------------|
+| `just d-test` | Runs `slint-d` pure-D unittests |
+| `just d-test-native` | Runs `slint-d` native unittests with headless software renderer |
+| `just slate-test-core` | Runs `slate:core` subpackage unittests |
+| `just slate-test-net` | Runs `slate:net` subpackage unittests (HTTP + QUIC) |
+| `just slate-test-mcp` | Runs `slate:mcp` subpackage unittests (automation engine + MCP protocol) |
+| `just slate-test-ui` | Runs `slate:ui` subpackage pure-D unittests |
+| `just slate-test-ui-native` | Runs `slate:ui` native Slint unit tests with headless software renderer |
+| `just slate-test` | Runs `slate-dlang` full pure-D test suite |
+| `just slate-test-native` | Runs `slate-dlang` full native test suite with software renderer |
+
+### Preserved Reference Targets (`reference/`)
+| Recipe | What it does |
+|--------|--------------|
+| `just build` / `check` / `test` / `fmt` | Cargo build / check / test / fmt in `reference/slate-rust` |
+| `just run` (`showcase`) | Desktop showcase in `reference/slate-rust` |
+| `just web-mirror` | Web-layout mirror showcase in `reference/slate-rust` |
+| `just render [dir]` | Offline PNG snapshots in `reference/slate-rust` |
+| `just optical-check` / `optical-bless` | Optical regression checks in `reference/slate-rust` |
+| `just carbon-build` / `carbon-gallery` | Build / run Carbon bindings in `reference/slate-carbon` |
+| `just dev` / `up` / `down` / `down-hard` | Docker Compose webapp stack in `reference/` |
 
 Conventions: Conventional Commits with DCO sign-off (`git commit -s`), no new dependencies without
 approval, never edit generated code. `.cargo/config.toml` is local and gitignored (see

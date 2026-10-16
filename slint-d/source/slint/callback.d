@@ -135,7 +135,10 @@ unittest
     assert(ret.tag == SlintTag.Number && ret.number == 42);
 
     // Handler throwing surfaces void + captured error, never escapes.
-    auto boom = callbacks.put((const(Value)[]) { throw new Exception("kaput"); return Value.nil(); });
+    auto boom = callbacks.put((const(Value)[]) {
+        throw new Exception("kaput");
+        return Value.nil();
+    });
     assert(slintDCallbackShim(boom, null, 0).tag == SlintTag.Void);
     assert(callbacks.takeError(boom) == "kaput");
 

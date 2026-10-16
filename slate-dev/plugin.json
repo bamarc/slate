@@ -1,0 +1,12 @@
+{
+  "name": "slate-dev",
+  "displayName": "Slate Dlang & Slint Dev Kit",
+  "version": "1.0.0",
+  "description": "Portable Dlang + Slint developer environment, LSP (serve-d, DCD, slint-lsp), static analysis (dscanner), code formatting (dfmt), and Antigravity MCP tools for Slate.",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "Lint all Dlang packages and check for syntax or style issues",
+    "Find the declaration of DataGridController and list its document symbols",
+    "Validate the Slint UI components and format modified D files"
+  ]
+}

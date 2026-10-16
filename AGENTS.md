@@ -1,7 +1,30 @@
 # AGENTS.md — Project Instructions
 
-> **Note:** The active project is the Slate Rust/Slint workspace — see the top of `README.md`/`CLAUDE.md` for crates and `just` recipes. The rest of this file covers the legacy webapp stack.
+> **Note:** The active project is the **Slate Dlang + Slint workspace** (`slate-dlang/`, `slint-d/`, `ui/`) — see the top of `README.md`/`CLAUDE.md` and the Dlang & Slint Toolchain section below for packages, LSP/linting tools, and `just` recipes. The remainder of this file also covers the preserved reference webapp stack (`reference/`).
 
+## Slate Dlang & Slint Toolchain, LSP & Linting (`slate-dev/`)
+
+The entire Dlang + Slint compiler, LSP, linting, formatting, and Antigravity plugin setup is packaged in [`slate-dev/`](slate-dev/README.md) and can be installed or shared onto any machine via `./slate-dev/install.sh` (or `just d-setup`). All binaries are installed in `~/.local/bin` and synced to `~/.gemini/antigravity/bin` (via `sync-dev-tools`):
+
+| Tool | Command / Binary | Purpose |
+|---|---|---|
+| **Portable Dev Kit & Plugin** | `./slate-dev/install.sh` (`just d-setup`) | One-command installer for all binaries, configs, and the `~/.gemini/config/plugins/slate-dev` Antigravity plugin |
+| **D Compiler & DUB** | `dmd` (`v2.113.0`), `dub` (`v1.42.0`) | Dlang reference compiler and package/build manager (`slint-d` and `slate-dlang`) |
+| **D Language Server (LSP)** | `serve-d` (`v0.8.0-beta.18`) + `dcd-server` / `dcd-client` (`v0.19.4`) | IDE & LSP intelligence (autocomplete, hover docs, go-to-definition, workspace symbol lookup) |
+| **D Static Analyzer / Linter** | `dscanner` (`v0.15.2`, configured via `dscanner.ini`) | Fast AST syntax checking (`--syntaxCheck`), static analysis (`--styleCheck`), declaration lookup (`-d <symbol>`), and outline extraction (`--ctags`) |
+| **D Formatter** | `dfmt` (`v0.15.2`, configured via `.editorconfig`) | Canonical D code formatting (`just d-fmt` or `dfmt -i <file.d>`) |
+| **Slint LSP & Viewer** | `slint-lsp`, `slint-viewer` (`v1.18.1`) | Language server and live previewer for declarative `.slint` UI files in `ui/` |
+| **Antigravity MCP Bridge** | `slate-dev/mcp/dlang-lsp-mcp.py` (`slate-dev` plugin & `dlang-lsp`) | Exposes `d_lint`, `d_find_declaration`, `d_lsp_document_symbols`, `d_module_imports`, `d_format`, and `slint_check` as native MCP tools in Antigravity |
+
+### Canonical Dlang & Slint `just` Recipes
+- `just d-setup` / `just d-check`: Install or verify the portable `slate-dev` toolchain and Antigravity plugin.
+- `just d-lint`: Run `dscanner --syntaxCheck` and `dscanner --styleCheck --config dscanner.ini` across `slint-d` and `slate-dlang`.
+- `just d-fmt`: Format all `.d` files in-place using `dfmt` and `.editorconfig`.
+- `just lint`: Run `just d-lint`, Rust bridge `cargo fmt --check` & `cargo clippy`, and `dub build` across `slint-d` and `slate-dlang`.
+- `just d-test` / `just d-test-native`: Run `slint-d` pure-D and headless software-rendered native tests.
+- `just slate-test` / `just slate-test-native`: Run `slate-dlang` (`:core`, `:net`, `:mcp`, `:ui`) pure-D and native E2E tests.
+
+---
 
 Project-wide instructions for GitHub Copilot, Kilo Code, and other compatible
 coding assistants. GitHub Copilot remains supported through the `.github/skills/`
@@ -50,6 +73,7 @@ scripts and Justfile usage, local stack management, and authentication/OIDC inte
 | `terraform-usage` | Manage multi-layer OpenTofu cloud infrastructure on Azure, tfvars sync, and state backend. | `.agents/skills/terraform-usage/SKILL.md` |
 | `docs-usage` | Guidelines for reading, using, and maintaining project documentation and style guides. | `.agents/skills/docs-usage/SKILL.md` |
 | `slate-agent-control` | Inspect, interact with, automate, and capture visual snapshots of Slate desktop applications using the native Model Context Protocol (MCP) toolset and `slate-mcp` CLI helper. | `.agents/skills/slate-agent-control/SKILL.md` |
+| `dlang-lsp-tooling` | Inspect, lint, format, and query AST/LSP symbols for Dlang (`.d`) and Slint (`.slint`) files using `serve-d`, `dcd`, `dscanner`, `dfmt`, `slint-lsp`, and the `dlang-lsp` MCP server. | `.agents/skills/dlang-lsp-tooling/SKILL.md` |
 | `adversarial-tdd-workflow` | Orchestrate high-assurance implementation using a fast Implementor subagent (`flash`) and a fresh-context, read-only Adversarial Reviewer subagent (`pro`) that verifies TDD spec compliance and zero hardcoding/cheating, looping up to 4 rounds before human escalation. | `.agents/skills/adversarial-tdd-workflow/SKILL.md` |
 
 Kilo-specific configuration lives under `.kilo/`.

@@ -1,0 +1,22 @@
+{
+    "name": "core",
+    "description": "Slate Core: foundational theme, tasks, controller, platform, plugin, demo, and utilities",
+    "authors": ["Slate Contributors"],
+    "license": "MIT",
+    "homepage": "https://github.com/slate-framework/slate",
+    "targetType": "library",
+    "sourcePaths": ["source"],
+    "importPaths": ["source"],
+    "targetName": "slate-core",
+    "configurations": [
+        {
+            "name": "library",
+            "targetType": "library"
+        }
+    ],
+    "buildTypes": {
+        "unittest": {
+            "buildOptions": ["unittests", "debugMode", "debugInfo"]
+        }
+    }
+}

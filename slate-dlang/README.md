@@ -1,42 +1,71 @@
 # Slate-DLang (`slate-dlang`)
 
-D port of the **Slate** Rust framework (`slate-rust`), built on `slint-d`
-the way `slate` builds on the `slint` crate.
+Declarative desktop UI, networking, and Model Context Protocol (MCP) framework in DLang, organized into 4 layered DUB sub-packages under the MIT License:
 
-## Layer map (Rust → D)
+- **`slate:core`** (`packages/core`): Foundational themes, tasks, worker thread dispatch, controllers, platform integration, plugins, Monte Carlo demo, and utilities (`@safe`, total purity, zero external dependencies).
+- **`slate:net`** (`packages/net`): Full QUIC (RFC 9000/9001/9002) client stack, HTTP/1.1, HTTP/2, and HTTP/3 client engines, async task bridges, and `durl` CLI tool (depends only on `slate:core` and system `curl`, `ssl`, `crypto`).
+- **`slate:mcp`** (`packages/mcp`): Embedded Model Context Protocol (MCP) JSON-RPC 2.0 server, schema definitions, tool handlers, bounded log resources, stdio/fiber transports, and agent automation engine (`AutomationEngine`, `ComponentBridge`, `McpStateRegistry`) (depends only on `slate:core`, 100% Slint-free).
+- **`slate:ui`** (`packages/ui`): Application builder (`AppBuilder`), Slint desktop component controllers (`DataGridController`, `MediaPlayerController`, `UploadQueueController`, `FileDialogController`, `WorkspaceDockController`, `MasterDetailController`, `WizardController`, `RingBufferLogModel`), `SlintUiInspector`, `SlintElementController`, `SlintVisualRenderer`, and end-to-end MCP UI integration tests (depends on `slate:core`, `slate:mcp`, and `slint-d`).
 
-| Rust (`slate-rust`) | D (`slate-dlang`) | Status |
-|---|---|---|
-| `slate-core::theme::ThemeMode` | `slate.theme` | ✅ exact port + tests |
-| `slate-core::task` (`TaskCancellation`, `spawn_compute`) | `slate.tasks` | ✅ + tests |
-| `slate-utils` (color, format, math) | `slate.utils.*` | ✅ exact port + tests |
-| `slate-extensions::platform` | `slate.platform` | ✅ exact port + tests |
-| `slate-extensions::plugin` | `slate.plugin` | ✅ + tests |
-| `slate::AppBuilder`, `slate::init` | `slate.app` | ✅ + tests |
-| `slate::controller::ComputeController` | `slate.controller` | ✅ + tests |
-| `slate::demo` (Monte Carlo π) | `slate.demo` | ✅ bit-identical PRNG + tests |
-| `slate-agent` engine (traits, model, error, defaults, bridge, builder) | `slate.agent.{model,error,engine,protocol,bridge,builder}` | ✅ + tests |
-| `slate-agent` Slint backends / ACP / semantic | `slate.agent.slint_backend`, `acp`, `semantic` | 🔜 next (needs slint-d element APIs) |
-| `slate-mcp` (server, client, tools, transports) | `slate.mcp.*` | 🔜 next |
-| `slate-showcase` desktop app | `examples/showcase` | 🔜 next |
+## Sub-Package Layer Map
 
-## Canonical-D adaptations
+```
+┌────────────────────────────────────────────────────────┐
+│                        slate:ui                        │
+│  (AppBuilder, Slint Component Controllers, Backends)   │
+└───────────────┬────────────────────────┬───────────────┘
+                │                        │
+                ▼                        │
+┌────────────────────────┐               │
+│       slate:mcp        │               │
+│ (MCP JSON-RPC, Engine) │               │
+└───────────────┬────────┘               │
+                │                        │
+                ▼                        ▼
+┌────────────────────────────────────────────────────────┐
+│                       slate:core                       │
+│     (Themes, Tasks, Dispatch, Controllers, Utils)      │
+└────────────────────────────────────────────────────────┘
+                ▲
+                │
+┌───────────────┴────────┐
+│       slate:net        │
+│  (HTTP, QUIC, durl)    │
+└────────────────────────┘
+```
 
-- `Option<T>` → `std.typecons.Nullable!T`; `Result<T, E>` → exceptions
-  (`PluginException.duplicate`, `SlintCallError` in slint-d).
-- Rust trait defaults don't exist for D interfaces: `Plugin.init` has a
-  default via the `PluginInit` mixin.
-- `AppBuilder` is a value-type builder: combinators return modified copies.
-- Purity/safety are explicit: `@safe pure nothrow @nogc` where the Rust code
-  is total, `@system`/`@trusted` at thread and FFI boundaries.
-- Concurrency uses `core.thread`, `core.sync`, `core.atomic`; UI marshaling
-  rides `slint-d` (`invokeFromEventLoop` on native builds).
+## Build & Test Commands
 
-## Build & test
+Use `just` recipes from repository root:
+
+```sh
+just slate-test-core       # Test slate:core (pure D)
+just slate-test-net        # Test slate:net (HTTP + QUIC)
+just slate-test-mcp        # Test slate:mcp (MCP JSON-RPC + agent automation)
+just slate-test-ui         # Test slate:ui (pure-D UI component tests)
+just slate-test-ui-native  # Test slate:ui native with Slint software renderer
+just slate-test            # Test full slate umbrella package (pure D)
+just slate-test-native     # Test full slate umbrella package (SlintNative)
+```
+
+Or via direct `dub` commands:
 
 ```sh
 source ~/dlang/dmd-*/activate
 cd slate-dlang
-dub test    # pure-D unit tests, no Slint runtime needed
-dub build   # library
+
+# Test individual sub-packages
+dub test :core
+dub test :net
+dub test :mcp
+dub test :ui
+LD_LIBRARY_PATH="$PWD/../slint-d/bridge/target/debug:$LD_LIBRARY_PATH" SLINT_BACKEND=software dub test :ui --config=native
+
+# Test umbrella slate package
+dub test
+LD_LIBRARY_PATH="$PWD/../slint-d/bridge/target/debug:$LD_LIBRARY_PATH" SLINT_BACKEND=software dub test --config=native
 ```
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.

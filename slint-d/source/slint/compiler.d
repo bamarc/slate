@@ -24,7 +24,7 @@ class CompilationResult
 
     version (SlintNative)
     {
-    private SlintResult* _handle;
+        private SlintResult* _handle;
 
         this(SlintResult* handle) @system
         {
@@ -48,10 +48,10 @@ class CompilationResult
             _diagnostics.length = slint_result_diagnostic_count(_handle);
             foreach (i, ref d; _diagnostics)
             {
-                d = Diagnostic(cast(DiagnosticLevel) slint_result_diagnostic_level(_handle, i),
-                    fromStringz(slint_result_diagnostic_message(_handle, i)).idup,
-                    slint_result_diagnostic_line(_handle, i),
-                    slint_result_diagnostic_column(_handle, i));
+                d = Diagnostic(cast(DiagnosticLevel) slint_result_diagnostic_level(_handle,
+                        i), fromStringz(slint_result_diagnostic_message(_handle,
+                        i)).idup, slint_result_diagnostic_line(_handle, i),
+                        slint_result_diagnostic_column(_handle, i));
             }
             _componentNames.length = slint_result_component_count(_handle);
             foreach (i, ref n; _componentNames)
@@ -113,7 +113,7 @@ class Compiler
 
     version (SlintNative)
     {
-    private SlintCompiler* _handle;
+        private SlintCompiler* _handle;
 
         this() @system
         {
@@ -212,9 +212,8 @@ class Compiler
         {
             import slint : NativeUnavailable;
 
-            throw new NativeUnavailable(
-                "Compiler.buildFromPath needs the native Slint runtime; " ~
-                "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
+            throw new NativeUnavailable("Compiler.buildFromPath needs the native Slint runtime; "
+                    ~ "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
         }
     }
 
@@ -228,8 +227,8 @@ class Compiler
 
             applyConfiguration();
             SlintResult* res;
-            char* err = slint_compiler_build_from_source(_handle, source.toStringz,
-                path.toStringz, &res);
+            char* err = slint_compiler_build_from_source(_handle,
+                    source.toStringz, path.toStringz, &res);
             if (err !is null)
             {
                 string msg = fromStringz(err).idup;
@@ -242,9 +241,8 @@ class Compiler
         {
             import slint : NativeUnavailable;
 
-            throw new NativeUnavailable(
-                "Compiler.buildFromSource needs the native Slint runtime; " ~
-                "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
+            throw new NativeUnavailable("Compiler.buildFromSource needs the native Slint runtime; "
+                    ~ "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
         }
     }
 }

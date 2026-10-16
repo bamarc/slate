@@ -28,7 +28,7 @@ class ComponentDefinition
 
     version (SlintNative)
     {
-    private SlintDefinition* _handle;
+        private SlintDefinition* _handle;
 
         /// Wrap a native definition handle (takes ownership) and fetch the
         /// exported metadata lists through the bridge.
@@ -50,15 +50,15 @@ class ComponentDefinition
                 _name = fromStringz(raw).idup;
             }
 
-            fetchNames(&slint_definition_property_count, &slint_definition_property_name,
-                _properties);
+            fetchNames(&slint_definition_property_count,
+                    &slint_definition_property_name, _properties);
             _propertyTypes.length = _properties.length;
             foreach (i, ref t; _propertyTypes)
                 t = cast(ValueType) slint_definition_property_type(_handle, i);
-            fetchNames(&slint_definition_callback_count, &slint_definition_callback_name,
-                _callbacks);
-            fetchNames(&slint_definition_function_count, &slint_definition_function_name,
-                _functions);
+            fetchNames(&slint_definition_callback_count,
+                    &slint_definition_callback_name, _callbacks);
+            fetchNames(&slint_definition_function_count,
+                    &slint_definition_function_name, _functions);
             fetchNames(&slint_definition_global_count, &slint_definition_global_name, _globals);
         }
 
@@ -157,7 +157,7 @@ class ComponentDefinition
     /// Build a metadata-only definition (used in tests and by tooling
     /// that reads compiler output without instantiating).
     this(string name, string[] properties = [], string[] callbacks = [],
-        string[] functions = [], string[] globals = []) @safe pure
+            string[] functions = [], string[] globals = []) @safe pure
     {
         _name = name;
         _properties = properties.dup;
@@ -248,9 +248,8 @@ class ComponentDefinition
         {
             import slint : NativeUnavailable;
 
-            throw new NativeUnavailable(
-                "ComponentDefinition.create needs the native Slint runtime; " ~
-                "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
+            throw new NativeUnavailable("ComponentDefinition.create needs the native Slint runtime; "
+                    ~ "rebuild with -version=SlintNative and link bridge/libslint_d_bridge.");
         }
     }
 }
@@ -260,7 +259,8 @@ version (SlintNative)
 private:
     alias CountFn = extern (C) size_t function(SlintDefinition*);
     alias NameFn = extern (C) char* function(SlintDefinition*, size_t, char**);
-    alias GlobalNameFn = extern (C) char* function(SlintDefinition*, const(char)*, size_t, char**);
+    alias GlobalNameFn = extern (C) char* function(SlintDefinition*,
+            const(char)*, size_t, char**);
 }
 
 /// Normalize a `.slint` identifier the way both official bindings do:
@@ -278,9 +278,8 @@ unittest
     assert(normalizeProp("my-property") == "my_property");
     assert(normalizeProp("counter") == "counter");
 
-    auto d = new ComponentDefinition("MainWindow", ["counter"], ["clicked"], ["doubleIt"], [
-            "Theme"
-        ]);
+    auto d = new ComponentDefinition("MainWindow", ["counter"], ["clicked"],
+            ["doubleIt"], ["Theme"]);
     assert(d.name == "MainWindow");
     assert(d.properties() == ["counter"]);
     assert(d.propertyType("counter") == ValueType.Void); // names only, no types

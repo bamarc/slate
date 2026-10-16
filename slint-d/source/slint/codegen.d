@@ -34,7 +34,6 @@ import std.traits : isArray, ForeachType;
 import slint.model : Model;
 import slint.value : Value, Color, Brush, SlintStruct;
 
-
 /// Compile-time property spec: D accessor name, D value type, and the
 /// `.slint` property name (defaults to the D name; pass explicitly when the
 /// markup uses dashes, e.g. `Prop!("myProp", double, "my-prop")`).
@@ -54,59 +53,48 @@ struct Prop(string DName, T, string SlintName = DName)
 string propCode(S)()
 {
     static if (is(S.Type == double) || is(S.Type == float) || is(S.Type == int)
-        || is(S.Type == long) || is(S.Type == uint) || is(S.Type == ulong))
+            || is(S.Type == long) || is(S.Type == uint) || is(S.Type == ulong))
     {
         return `@property TYPE DNAME() { return cast(TYPE) _instance.getNumber("SLINT"); }
 @property void DNAME(TYPE v) { _instance.setNumber("SLINT", cast(double) v); }
-`
-            .replace("TYPE", S.Type.stringof)
-            .replace("DNAME", S.dName)
-            .replace("SLINT", S.slintName);
+`.replace("TYPE", S.Type.stringof).replace("DNAME", S.dName).replace("SLINT", S.slintName);
     }
     else static if (is(S.Type == string))
     {
         return `@property string DNAME() { return _instance.getString("SLINT"); }
 @property void DNAME(string v) { _instance.setString("SLINT", v); }
-`
-            .replace("DNAME", S.dName).replace("SLINT", S.slintName);
+`.replace("DNAME", S.dName).replace("SLINT", S.slintName);
     }
     else static if (is(S.Type == bool))
     {
         return `@property bool DNAME() { return _instance.getBool("SLINT"); }
 @property void DNAME(bool v) { _instance.setBool("SLINT", v); }
-`
-            .replace("DNAME", S.dName).replace("SLINT", S.slintName);
+`.replace("DNAME", S.dName).replace("SLINT", S.slintName);
     }
     else static if (is(S.Type == Color))
     {
         return `@property Color DNAME() { return _instance.getColor("SLINT"); }
 @property void DNAME(Color v) { _instance.setColor("SLINT", v); }
-`
-            .replace("DNAME", S.dName).replace("SLINT", S.slintName);
+`.replace("DNAME", S.dName).replace("SLINT", S.slintName);
     }
     else static if (is(S.Type == Brush))
     {
         return `@property Brush DNAME() { return _instance.getBrush("SLINT"); }
 @property void DNAME(Brush v) { _instance.setBrush("SLINT", v); }
-`
-            .replace("DNAME", S.dName).replace("SLINT", S.slintName);
+`.replace("DNAME", S.dName).replace("SLINT", S.slintName);
     }
     else static if (is(S.Type == SlintStruct))
     {
         return `@property SlintStruct DNAME() { return _instance.getStruct("SLINT"); }
 @property void DNAME(SlintStruct v) { _instance.setStruct("SLINT", v); }
-`
-            .replace("DNAME", S.dName).replace("SLINT", S.slintName);
+`.replace("DNAME", S.dName).replace("SLINT", S.slintName);
     }
     else static if (is(S.Type : Model!E, E))
     {
         return `@property Model!ELEM DNAME() { return _instance.getModel!ELEM("SLINT"); }
 @property void DNAME(Model!ELEM v) { _instance.setModel!ELEM("SLINT", v); }
 @property void DNAME(ELEM[] v) { _instance.setModel!ELEM("SLINT", v); }
-`
-            .replace("ELEM", E.stringof)
-            .replace("DNAME", S.dName)
-            .replace("SLINT", S.slintName);
+`.replace("ELEM", E.stringof).replace("DNAME", S.dName).replace("SLINT", S.slintName);
     }
     else static if (isArray!(S.Type) && !is(S.Type == string))
     {
@@ -114,15 +102,12 @@ string propCode(S)()
         return `@property ELEM[] DNAME() { return _instance.getArray!ELEM("SLINT"); }
 @property void DNAME(ELEM[] v) { _instance.setModel!ELEM("SLINT", v); }
 @property void DNAME(Model!ELEM v) { _instance.setModel!ELEM("SLINT", v); }
-`
-            .replace("ELEM", E.stringof)
-            .replace("DNAME", S.dName)
-            .replace("SLINT", S.slintName);
+`.replace("ELEM", E.stringof).replace("DNAME", S.dName).replace("SLINT", S.slintName);
     }
     else
     {
-        static assert(false, "SlintProps: unsupported property type " ~ S.Type.stringof
-            ~ " for `" ~ S.dName ~ "` (use double, string, bool, Color, Brush, SlintStruct, Model!T, or T[])");
+        static assert(false, "SlintProps: unsupported property type " ~ S.Type.stringof ~ " for `" ~ S.dName
+                ~ "` (use double, string, bool, Color, Brush, SlintStruct, Model!T, or T[])");
     }
 }
 
@@ -153,8 +138,7 @@ string callbackCode(string name, string onName) @safe pure
     return `void NAME() { _instance.invoke("SLINT"); }
 void ONNAME(Value delegate(const(Value)[]) handler) { _instance.setCallback("SLINT", handler); }
 void ONNAME(void delegate() handler) { _instance.setCallback("SLINT", handler); }
-`
-        .replace("ONNAME", onName).replace("SLINT", name).replace("NAME", name);
+`.replace("ONNAME", onName).replace("SLINT", name).replace("NAME", name);
 }
 
 /// CamelCase a callback name for its `onX` setter: `clicked` → `Clicked`,
@@ -211,8 +195,8 @@ unittest
     struct W
     {
         ComponentInstance _instance;
-        mixin SlintProps!(Prop!("counter", double), Prop!("headline", string),
-            Prop!("on", bool), Prop!("myProp", int, "my-prop"));
+        mixin SlintProps!(Prop!("counter", double), Prop!("headline",
+                string), Prop!("on", bool), Prop!("myProp", int, "my-prop"));
         mixin SlintCallbacks!("clicked");
     }
 
@@ -231,8 +215,9 @@ unittest
     static assert(is(typeof(W.myProp) == int));
 
     // Validation against compiler metadata catches drift.
-    auto def = new ComponentDefinition("MainWindow", ["counter", "headline", "on", "my-prop"],
-        ["clicked"]);
+    auto def = new ComponentDefinition("MainWindow", [
+        "counter", "headline", "on", "my-prop"
+    ], ["clicked"]);
     assert(def.validateSpec(W.slintPropNames(), W.slintCallbackNames()));
 
     auto stale = new ComponentDefinition("MainWindow", ["counter"], []);
@@ -248,11 +233,8 @@ unittest
     struct RichComponent
     {
         ComponentInstance _instance;
-        mixin SlintProps!(
-            Prop!("background", Color),
-            Prop!("fill", Brush),
-            Prop!("data", SlintStruct)
-        );
+        mixin SlintProps!(Prop!("background", Color), Prop!("fill", Brush),
+                Prop!("data", SlintStruct));
     }
 
     assert(RichComponent.slintPropNames() == ["background", "fill", "data"]);
@@ -280,12 +262,9 @@ unittest
         import slint.compiler : Compiler;
 
         auto c = new Compiler();
-        auto res = c.buildFromSource(
-            "export component NumericTest inherits Window {\n" ~
-            "    in-out property <int> count: 10;\n" ~
-            "    in-out property <float> ratio: 0.5;\n" ~
-            "}\n"
-        );
+        auto res = c.buildFromSource("export component NumericTest inherits Window {\n"
+                ~ "    in-out property <int> count: 10;\n"
+                ~ "    in-out property <float> ratio: 0.5;\n" ~ "}\n");
         auto compDef = res.component("NumericTest");
         assert(compDef !is null);
         auto inst = compDef.create();
@@ -311,10 +290,7 @@ unittest
     struct ModelComponent
     {
         ComponentInstance _instance;
-        mixin SlintProps!(
-            Prop!("items", Model!int),
-            Prop!("names", string[])
-        );
+        mixin SlintProps!(Prop!("items", Model!int), Prop!("names", string[]));
     }
 
     assert(ModelComponent.slintPropNames() == ["items", "names"]);
@@ -327,11 +303,8 @@ unittest
 
         auto c = new Compiler();
         auto res = c.buildFromSource(
-            "export component ModelCodegenTest inherits Window {\n" ~
-            "    in-out property <[int]> items: [1, 2, 3];\n" ~
-            "    in-out property <[string]> names: [\"alice\", \"bob\"];\n" ~
-            "}\n"
-        );
+                "export component ModelCodegenTest inherits Window {\n" ~ "    in-out property <[int]> items: [1, 2, 3];\n"
+                ~ "    in-out property <[string]> names: [\"alice\", \"bob\"];\n" ~ "}\n");
         auto compDef = res.component("ModelCodegenTest");
         assert(compDef !is null);
         auto inst = compDef.create();
@@ -346,6 +319,3 @@ unittest
         assert(comp.names == ["charlie", "david"]);
     }
 }
-
-
-

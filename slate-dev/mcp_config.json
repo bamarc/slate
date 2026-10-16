@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "slate-dev-dlang-lsp": {
+      "command": "/home/developer/.gemini/config/plugins/slate-dev/mcp/dlang-lsp-mcp.py",
+      "type": "stdio",
+      "args": []
+    }
+  }
+}

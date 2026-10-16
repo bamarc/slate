@@ -21,8 +21,10 @@ import slint;
 import slate.controller : ComputeController;
 import slate.demo : monteCarloPiSamples, describeResult;
 
-immutable string[] tabNames =
-    ["buttons", "forms", "data", "feedback", "navigation", "overlays", "compute", "settings"];
+immutable string[] tabNames = [
+    "buttons", "forms", "data", "feedback", "navigation", "overlays", "compute",
+    "settings"
+];
 
 struct Gallery
 {
@@ -65,17 +67,17 @@ struct Gallery
             win.setNumber("compute-progress", 0.0);
             win.setString("compute-status", "Computing");
             win.setString("compute-result", "Working on 20,000,000 samples...");
-            controller.start!double(
-                (isCancelled, progress) => monteCarloPiSamples(20_000_000, isCancelled, progress),
-                (float pct) { win.setNumber("compute-progress", pct); },
-                (Nullable!double r) {
-                    auto desc = describeResult(r);
-                    win.setBool("compute-running", false);
-                    if (!r.isNull)
-                        win.setNumber("compute-progress", 1.0);
-                    win.setString("compute-status", desc.status);
-                    win.setString("compute-result", desc.text);
-                });
+            controller.start!double((isCancelled,
+                progress) => monteCarloPiSamples(20_000_000, isCancelled, progress), (float pct) {
+                win.setNumber("compute-progress", pct);
+            }, (Nullable!double r) {
+                auto desc = describeResult(r);
+                win.setBool("compute-running", false);
+                if (!r.isNull)
+                    win.setNumber("compute-progress", 1.0);
+                win.setString("compute-status", desc.status);
+                win.setString("compute-result", desc.text);
+            });
         });
         win.setCallback("cancel-compute", () { controller.cancel(); });
     }
@@ -84,7 +86,8 @@ struct Gallery
 void main(string[] args)
 {
     string showcaseUi = "/home/developer/projects/slate/slate-rust/examples/showcase/ui";
-    string outDir = args.length > 1 ? args[1] : "/home/developer/projects/slate/renders/dlang-gallery";
+    string outDir = args.length > 1 ? args[1]
+        : "/home/developer/projects/slate/renders/dlang-gallery";
     mkdirRecurse(outDir);
 
     // The showcase markup imports "../../ui/index.slint": like the Rust
@@ -93,7 +96,9 @@ void main(string[] args)
     // ".." budget cancels out in the joined path, which the kernel resolves
     // to the real root ui/). It need not exist itself.
     LoadOptions opts;
-    opts.includePaths = ["/home/developer/projects/slate/slate-rust/ui", showcaseUi];
+    opts.includePaths = [
+        "/home/developer/projects/slate/slate-rust/ui", showcaseUi
+    ];
     auto result = loadFile(showcaseUi ~ "/app.slint", opts);
     bool failed;
     foreach (d; result.diagnostics)

@@ -80,9 +80,13 @@ slint-d/examples/hello/hello
 slint-d/examples/menushow/menushow
 slint-d/examples/gallery/gallery
 slate-dlang/*.a
+slate-dlang/**/*.a
 slate-dlang/*-test-*
+slate-dlang/**/*-test-*
 slate-dlang/bin/
 !slate-dlang/source/slate/bin/
+slate-dlang/packages/*/bin/
+!slate-dlang/packages/*/source/slate/bin/
 lib/
 
 # Local, user-owned material
