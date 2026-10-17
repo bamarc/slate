@@ -666,6 +666,8 @@ public struct StreamMap
     {
         foreach (i; 0 .. m_streamCount)
         {
+            if (streams[i].resetQueued || streams[i].stopSendingQueued)
+                return true;
             if (streams[i].id.canSend(localSide) && streams[i].sendBuf.hasPendingBytes)
                 return true;
         }
@@ -1018,4 +1020,27 @@ public struct StreamMap
     sfBadOffset.data = bigPayload[];
     assert(sm.onStreamFrame(sfBadOffset) == TransportErrorCode.finalSizeError);
     assert(sm.streamCount == 0);
+}
+
+/// Example:
+// Spec: RFC 9000 Section 3.2, Section 3.3 - Immediate Control Frame Transmission via hasPendingWritable (covers Scenario T3, U1, U3)
+@nogc unittest
+{
+    StreamMap sm = StreamMap(Side.client, 50, 50, 50, 50, 4, 4, 4, 4);
+    StreamId sid;
+    assert(sm.openLocalStream(StreamDirection.bidirectional, sid) == TransportErrorCode.noError);
+    QuicStream* s = sm.getStream(sid);
+    assert(s !is null);
+    assert(!sm.hasPendingWritable);
+
+    // Queue RESET_STREAM
+    s.resetQueued = true;
+    assert(sm.hasPendingWritable);
+
+    s.resetQueued = false;
+    assert(!sm.hasPendingWritable);
+
+    // Queue STOP_SENDING
+    s.stopSendingQueued = true;
+    assert(sm.hasPendingWritable);
 }

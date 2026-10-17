@@ -3,3 +3,4 @@ module slate.net;
 
 public import slate.http;
 public import slate.quic;
+public import slate.h3;

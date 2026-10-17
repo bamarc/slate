@@ -22,6 +22,7 @@ public import slate.agent.slint_backend;
 public import slate.mcp;
 public import slate.http;
 public import slate.quic;
+public import slate.h3;
 public import slate.components;
 public import slate.traits;
 public import slate.core;

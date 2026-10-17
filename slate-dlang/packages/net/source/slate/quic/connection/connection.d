@@ -1023,6 +1023,11 @@ public struct QuicConnection
         return events.poll(ev);
     }
 
+    void close(ulong errorCode = 0, bool isApp = true) @safe pure @nogc nothrow
+    {
+        enterClosing(errorCode, 0, isApp);
+    }
+
     ulong nextTimeoutMicros(ulong nowMicros) const @safe pure @nogc nothrow
     {
         if (state == ConnectionState.draining)
