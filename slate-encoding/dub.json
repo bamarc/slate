@@ -1,0 +1,13 @@
+{
+    "name": "slate-encoding",
+    "description": "Zero-legacy-ballast pure-D media codecs and container primitives for QUIC / MoQ",
+    "license": "MIT",
+    "targetType": "library",
+    "sourcePaths": ["source"],
+    "importPaths": ["source"],
+    "buildTypes": {
+        "unittest": {
+            "buildOptions": ["unittests", "debugMode", "debugInfo"]
+        }
+    }
+}
