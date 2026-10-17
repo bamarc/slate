@@ -134,10 +134,16 @@ final class McpServer
 
     this(AutomationEngine engine, string name = "slate-mcp", string version_ = "0.1.0")
     {
+        import slate.log : OtelLogRecord, slog;
+
         _engine = engine;
         _name = name;
         _version = version_;
         _logs = new BoundedLog();
+
+        slog.addSink("mcp:" ~ _name, (OtelLogRecord rec) {
+            pushBoundedLog(_logs, rec.toCompactLine());
+        });
     }
 
     AutomationEngine engine()
@@ -294,7 +300,7 @@ final class McpServer
                 foreach (t; allStandardTools())
                     tools ~= t.toJson();
                 return JsonRpcResponse.success(id, true, JSONValue([
-                        "tools": JSONValue(tools)
+                    "tools": JSONValue(tools)
                 ]));
             }
         case "tools/call":
@@ -305,7 +311,7 @@ final class McpServer
                 foreach (r; listResources())
                     res ~= r.toJson();
                 return JsonRpcResponse.success(id, true, JSONValue([
-                        "resources": JSONValue(res)
+                    "resources": JSONValue(res)
                 ]));
             }
         case "resources/read":
@@ -386,7 +392,7 @@ final class McpServer
             auto content = readResource(_engine, _logs, uri, _name, _version, droppedLogCount());
             JSONValue[] contents = [content.toJson()];
             return JsonRpcResponse.success(id, true, JSONValue([
-                    "contents": JSONValue(contents)
+                "contents": JSONValue(contents)
             ]));
         }
         catch (ResourceError e)

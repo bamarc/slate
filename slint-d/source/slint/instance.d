@@ -1058,7 +1058,7 @@ unittest
         assertThrown!NativeUnavailable(i.setBool("enabled", true));
         assertThrown!NativeUnavailable(i.invoke("clicked"));
         assertThrown!NativeUnavailable(i.invoke("add", [
-                Value.of(1.0), Value.of(2.0)
+            Value.of(1.0), Value.of(2.0)
         ]));
         assertThrown!NativeUnavailable(i.setCallback("clicked", (const(Value)[]) {
                 return Value.nil();

@@ -337,18 +337,18 @@ unittest
     assertThrown!AssertError(
             Rect.fromJson(parseJSON(`{"x": 0, "y": 0, "width": 10, "height": -5}`)));
     assertThrown!AssertError(Rect.fromJson(JSONValue([
-                "x": JSONValue(double.nan),
-                "y": JSONValue(0.0),
-                "width": JSONValue(10.0),
-                "height": JSONValue(10.0)
+        "x": JSONValue(double.nan),
+        "y": JSONValue(0.0),
+        "width": JSONValue(10.0),
+        "height": JSONValue(10.0)
     ])));
     assertThrown!AssertError(Point.fromJson(JSONValue([
-                "x": JSONValue(double.nan),
-                "y": JSONValue(0.0)
+        "x": JSONValue(double.nan),
+        "y": JSONValue(0.0)
     ])));
     assertThrown!AssertError(Point.fromJson(JSONValue([
-                "x": JSONValue(0.0),
-                "y": JSONValue(double.nan)
+        "x": JSONValue(0.0),
+        "y": JSONValue(double.nan)
     ])));
 
     // ElementSelector byCoordinate contract validation

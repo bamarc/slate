@@ -1,227 +1,121 @@
-# AGENTS.md — Project Instructions
+# AGENTS.md — Slate Project Instructions
 
-> **Note:** The active project is the **Slate Dlang + Slint workspace** (`slate-dlang/`, `slint-d/`, `ui/`) — see the top of `README.md`/`CLAUDE.md` and the Dlang & Slint Toolchain section below for packages, LSP/linting tools, and `just` recipes. The remainder of this file also covers the preserved reference webapp stack (`reference/`).
+**Slate** is a declarative desktop and web UI framework written in **Dlang** on top of **[Slint](https://slint.dev)**, featuring an idiomatic Rust C-ABI bridge ([`slint-d/`](slint-d/README.md)), a 5-subpackage Dlang framework ([`slate-dlang/`](slate-dlang/README.md)), a standalone `.slint` + Dlang to SolidJS cross-compiler ([`slate:solid`](slate-dlang/packages/solid/README.md)), and trait-driven **Model Context Protocol (MCP)** automation.
+
+---
+
+## Workspace Structure & Scoped `AGENTS.md` Index
+
+Read the scoped `AGENTS.md` file in the directory you are modifying before making changes:
+
+| Path | Scoped Instructions | Purpose |
+|------|---------------------|---------|
+| [`slate-dlang/`](slate-dlang/README.md) | [`slate-dlang/AGENTS.md`](slate-dlang/AGENTS.md) | Core Dlang framework subdivided into 5 layered DUB subpackages (`:core`, `:net`, `:mcp`, `:ui`, `:solid`) |
+| [`slate-encoding/`](slate-encoding/README.md) | — | Pure-D media codecs and container primitives for QUIC / MoQ (`QOI`, `QOIV`, `QOA`, `LOC`) |
+| [`slate-dlang/packages/solid/`](slate-dlang/packages/solid/README.md) | [`slate-dlang/packages/solid/AGENTS.md`](slate-dlang/packages/solid/AGENTS.md) | `slint2solid` `.slint` + Dlang controller to SolidJS (`.tsx`) & TypeScript (`.ts`) cross-compiler |
+| [`slint-d/`](slint-d/README.md) | [`slint-d/AGENTS.md`](slint-d/AGENTS.md) | Dlang bindings for the Slint runtime (`source/slint/`) and modular Rust C-ABI bridge (`slint-d/bridge/`) |
+| [`ui/`](ui/README.md) | [`ui/AGENTS.md`](ui/AGENTS.md) | Shared declarative Slint UI library: 47 components (`ui/components/`), 16 layouts (`ui/layouts/`), and [`ui/index.slint`](ui/index.slint) |
+| [`slate-dev/`](slate-dev/README.md) | [`slate-dev/rules/AGENTS.md`](slate-dev/rules/AGENTS.md) | Portable Dlang & Slint toolchain installer (`./slate-dev/install.sh`), LSP/linter configs, and Antigravity plugin |
+| [`examples/`](examples/README.md) | — | Standalone Slate & `slint-d` example applications (`examples/file-manager/`, `slint-d/examples/`) |
+| [`docs/`](docs/README.md) | — | Project documentation, style guides (`docs/guides/style-dlang.md`, `style-slint.md`, `style-general.md`), and ADRs |
+| [`scripts/`](scripts/README.md) | — | Workspace utility, linting, test, cleanup, and commit/security validation scripts |
+| [`.agents/skills/`](.agents/skills/) | — | Project-standard assistant skills (TDD, Adversarial TDD, Architect, Dlang LSP, Slate MCP control, Git commit) |
+| [`reference/`](reference/) | — | Archived prototype implementations (`slate-rust/`, `slate-carbon/`, `agent/`, and legacy webapp stack) |
+
+---
 
 ## Slate Dlang & Slint Toolchain, LSP & Linting (`slate-dev/`)
 
-The entire Dlang + Slint compiler, LSP, linting, formatting, and Antigravity plugin setup is packaged in [`slate-dev/`](slate-dev/README.md) and can be installed or shared onto any machine via `./slate-dev/install.sh` (or `just d-setup`). All binaries are installed in `~/.local/bin` and synced to `~/.gemini/antigravity/bin` (via `sync-dev-tools`):
+The entire Dlang + Slint compiler, LSP, linting, formatting, and Antigravity plugin setup is packaged in [`slate-dev/`](slate-dev/README.md) and installed via `./slate-dev/install.sh` (or `just d-setup`). All binaries live in `~/.local/bin` and are synced to `~/.gemini/antigravity/bin`:
 
 | Tool | Command / Binary | Purpose |
 |---|---|---|
 | **Portable Dev Kit & Plugin** | `./slate-dev/install.sh` (`just d-setup`) | One-command installer for all binaries, configs, and the `~/.gemini/config/plugins/slate-dev` Antigravity plugin |
 | **D Compiler & DUB** | `dmd` (`v2.113.0`), `dub` (`v1.42.0`) | Dlang reference compiler and package/build manager (`slint-d` and `slate-dlang`) |
 | **D Language Server (LSP)** | `serve-d` (`v0.8.0-beta.18`) + `dcd-server` / `dcd-client` (`v0.19.4`) | IDE & LSP intelligence (autocomplete, hover docs, go-to-definition, workspace symbol lookup) |
-| **D Static Analyzer / Linter** | `dscanner` (`v0.15.2`, configured via `dscanner.ini`) | Fast AST syntax checking (`--syntaxCheck`), static analysis (`--styleCheck`), declaration lookup (`-d <symbol>`), and outline extraction (`--ctags`) |
-| **D Formatter** | `dfmt` (`v0.15.2`, configured via `.editorconfig`) | Canonical D code formatting (`just d-fmt` or `dfmt -i <file.d>`) |
+| **D Static Analyzer / Linter** | `dscanner` (`v0.15.2`, configured via [`dscanner.ini`](dscanner.ini)) | Fast AST syntax checking (`--syntaxCheck`), static analysis (`--styleCheck`), declaration lookup (`-d <symbol>`), and outline extraction (`--ctags`) |
+| **D Formatter** | `dfmt` (`v0.15.2`, configured via [`.editorconfig`](.editorconfig)) | Canonical D code formatting (`just d-fmt` or `dfmt -i <file.d>`) |
 | **Slint LSP & Viewer** | `slint-lsp`, `slint-viewer` (`v1.18.1`) | Language server and live previewer for declarative `.slint` UI files in `ui/` |
-| **Antigravity MCP Bridge** | `slate-dev/mcp/dlang-lsp-mcp.py` (`slate-dev` plugin & `dlang-lsp`) | Exposes `d_lint`, `d_find_declaration`, `d_lsp_document_symbols`, `d_module_imports`, `d_format`, and `slint_check` as native MCP tools in Antigravity |
-
-### Canonical Dlang & Slint `just` Recipes
-- `just d-setup` / `just d-check`: Install or verify the portable `slate-dev` toolchain and Antigravity plugin.
-- `just d-lint`: Run `dscanner --syntaxCheck` and `dscanner --styleCheck --config dscanner.ini` across `slint-d` and `slate-dlang`.
-- `just d-fmt`: Format all `.d` files in-place using `dfmt` and `.editorconfig`.
-- `just lint`: Run `just d-lint`, Rust bridge `cargo fmt --check` & `cargo clippy`, and `dub build` across `slint-d` and `slate-dlang`.
-- `just d-test` / `just d-test-native`: Run `slint-d` pure-D and headless software-rendered native tests.
-- `just slate-test` / `just slate-test-native`: Run `slate-dlang` (`:core`, `:net`, `:mcp`, `:ui`) pure-D and native E2E tests.
+| **SolidJS Cross-Compiler** | `slint2solid` ([`slate:solid`](slate-dlang/packages/solid/README.md)) | Cross-compiles `.slint` UI files and Dlang controllers into reactive SolidJS (`.tsx`) + TypeScript (`.ts`) |
+| **Antigravity MCP Bridge** | `slate-dev/mcp/dlang-lsp-mcp.py` (`slate-dev` plugin & `dlang-lsp`) | Exposes `d_lint`, `d_find_declaration`, `d_lsp_document_symbols`, `d_module_imports`, `d_format`, and `slint_check` as native MCP tools |
 
 ---
 
-Project-wide instructions for GitHub Copilot, Kilo Code, and other compatible
-coding assistants. GitHub Copilot remains supported through the `.github/skills/`
-and `.github/agents/` configuration.
+## Canonical `just` Recipes
 
-## Project Overview
-This is a **contract-first fullstack template** using:
-- **API**: OpenAPI 3.1 specification-driven design
-- **Backend**: Python FastAPI (uv-managed), Pydantic v2 models, SQLAlchemy + Alembic or MongoDB
-- **Frontend**: React + Vite + TypeScript + Tailwind CSS + Orval (auto-generated API client)
-- **Infrastructure**: OpenTofu/Terraform modules targeting Microsoft Azure
-- **CI/CD**: GitLab CI with mandatory JFrog Artifactory image publishing
+Run commands from the repository root. Prefer `just <recipe>` for all standard operations:
 
-## Key Directories
+### Toolchain, Linting & Formatting
+| Recipe | Purpose | Underlying Command |
+|---|---|---|
+| `just` / `just default` | List all available recipes | `just --list --unsorted` |
+| `just d-setup` / `just d-check` | Install or verify the portable `slate-dev` toolchain & plugin | `./slate-dev/install.sh [--check]` |
+| `just d-lint` | Run `dscanner` syntax & style checks across `slint-d`, `slate-dlang`, and `examples` | `dscanner --syntaxCheck ... && dscanner --styleCheck --config dscanner.ini ...` |
+| `just d-fmt` | Format all `.d` files in-place using `dfmt` and `.editorconfig` | `find ... -name '*.d' -exec dfmt -i {} +` |
+| `just lint` | Run `just d-lint`, Rust bridge `cargo fmt --check` & `cargo clippy`, and `dub build` across `slint-d` and `slate-dlang` | Full workspace lint & build gate |
+| `just clean` | Clean DUB/Dlang build artifacts, test binaries, and temporary outputs | `scripts/clean.sh` |
+| `just ctx` | Print a compact workspace context snapshot for AI agents | `scripts/agent-context.sh` |
 
-| Path | Purpose |
-|------|---------|
-| `/api` | OpenAPI 3.1 specification files |
-| `/backend` | FastAPI application (uv project) |
-| `/frontend` | Vite + React + Tailwind application |
-| `/infrastructure` | Layered OpenTofu configuration |
-| `/docs` | Project documentation, ADRs, and runbooks |
-| `/scripts` | Repository utility and validation scripts |
-| `/.agents/skills` | Project-standard assistant skills |
-| `/.kilo/agents` | Kilo Code project-local agents |
-| `/.github/skills` | GitHub Copilot skills |
-| `/.github/agents` | GitHub Copilot custom agents |
+### Building, Codegen & Documentation
+| Recipe | Purpose | Underlying Command |
+|---|---|---|
+| `just new-project <dir> [name]` | Provision a new Slate app (Window + Counter + Button + MCP Switch + `mcp_config.json`) | `./scripts/new-project.sh <dir> [name]` |
+| `just d-bridge` | Build the Rust C-ABI bridge (`libslint_d_bridge`) | `cd slint-d/bridge && cargo build` |
+| `just d-build` | Build `slint-d` library (pure-D configuration) | `cd slint-d && dub build` |
+| `just slate-build` | Build `slate-dlang` umbrella library (pure-D configuration) | `cd slate-dlang && dub build` |
+| `just solid-codegen [out_dir]` | Cross-compile all 64 `.slint` files in `ui/` + Dlang controllers into SolidJS (`target/solid-ui`) | `cd slate-dlang && dub run :solid --config=slint2solid -- ../ui ../target/solid-ui` |
+| `just d-docs` | Generate Ddoc HTML documentation on demand into `slate-dlang/docs/` | `cd slate-dlang && dmd -D -Dd=docs -c ...` |
+| `just d-gallery [out_dir]` | Render offscreen PNG snapshots of the Slate showcase gallery from D | `cd slint-d/examples/gallery && SLINT_BACKEND=software dub run --config=native` |
 
-## Assistant Skills
+### Testing (All Suites)
+| Recipe | Purpose | Underlying Command |
+|---|---|---|
+| `just d-test` | Run `slint-d` pure-D unit tests (15 modules) | `cd slint-d && dub test` |
+| `just d-test-native` | Run `slint-d` native unit tests with headless software renderer | `cd slint-d && SLINT_BACKEND=software dub test --config=native` |
+| `just slate-test` | Run `slate-dlang` umbrella pure-D unit tests | `cd slate-dlang && dub test` |
+| `just slate-test-native` | Run `slate-dlang` umbrella native Slint + MCP E2E tests (`SLINT_BACKEND=software`) | `cd slate-dlang && SLINT_BACKEND=software dub test --config=native` |
+| `just slate-test-core` | Run `slate:core` pure-D unit tests | `cd slate-dlang && dub test :core` |
+| `just slate-test-net` | Run `slate:net` HTTP + QUIC unit tests | `cd slate-dlang && dub test :net` |
+| `just slate-test-mcp` | Run `slate:mcp` automation engine + MCP JSON-RPC unit tests | `cd slate-dlang && dub test :mcp` |
+| `just slate-test-ui` | Run `slate:ui` pure-D component controller unit tests | `cd slate-dlang && dub test :ui` |
+| `just slate-test-ui-native` | Run `slate:ui` native Slint + MCP unit tests (`SLINT_BACKEND=software`) | `cd slate-dlang && SLINT_BACKEND=software dub test :ui --config=native` |
+| `just slate-test-solid` | Run `slate:solid` `.slint` + Dlang to SolidJS compiler & Node/esbuild runtime verification tests | `cd slate-dlang && dub test :solid` |
+| `just file-manager-test` | Run `examples/file-manager` controller unit tests | `cd examples/file-manager && dub test` |
 
-Use the project-standard skills under `.agents/skills/` for architectural planning,
-documentation, Alembic migrations, OpenAPI client generation, Git workflows,
-scripts and Justfile usage, local stack management, and authentication/OIDC integration.
+---
+
+## Assistant Skills (`.agents/skills/`)
+
+Use the project-standard skills under `.agents/skills/` for specialized workflows:
 
 | Skill | Purpose | Location |
 |---|---|---|
-| `test-driven-development` | Work test-driven using the Red, Green, Iterate loop: write a focused failing test first, implement the smallest passing change, and keep production code fully testable with useful, behavior-focused tests. | `.agents/skills/test-driven-development/SKILL.md` |
-| `debug-failure-analysis` | Systematically debug failures by reproducing them, modelling dataflow and auth flows, mapping involved services and infra/CI-CD, drawing dataflow and sequence diagrams, listing implicated files, tracing git history to find where the problem was introduced, and evaluating specifications for breaches, gaps, or ambiguity. | `.agents/skills/debug-failure-analysis/SKILL.md` |
-| `architect` | Architectural planning, trade-off analysis, dataflow modeling, and EARS requirements authoring. | `.agents/skills/architect/SKILL.md` |
-| `code-generation` | Regenerate backend Pydantic models and frontend Orval API client from OpenAPI spec. | `.agents/skills/code-generation/SKILL.md` |
-| `alembic-usage` | Create, review, apply, and roll back database migrations with Alembic. | `.agents/skills/alembic-usage/SKILL.md` |
-| `auth-integration` | Configure and use dual-mode OAuth2/OIDC auth (local mock tokens, Entra ID Easy Auth, Keycloak, GCP). | `.agents/skills/auth-integration/SKILL.md` |
-| `git-commit-workflow` | Structured commit conventions, ticket references, pre-commit security checks, and branch rules. | `.agents/skills/git-commit-workflow/SKILL.md` |
-| `local-stack-management` | Manage local Docker Compose stack (db, backend, frontend), logs, health checks, and troubleshooting. | `.agents/skills/local-stack-management/SKILL.md` |
-| `scripts-usage` | Reference guide for all repository scripts in `scripts/` and their canonical `just` recipes. | `.agents/skills/scripts-usage/SKILL.md` |
-| `terraform-usage` | Manage multi-layer OpenTofu cloud infrastructure on Azure, tfvars sync, and state backend. | `.agents/skills/terraform-usage/SKILL.md` |
-| `docs-usage` | Guidelines for reading, using, and maintaining project documentation and style guides. | `.agents/skills/docs-usage/SKILL.md` |
-| `slate-agent-control` | Inspect, interact with, automate, and capture visual snapshots of Slate desktop applications using the native Model Context Protocol (MCP) toolset and `slate-mcp` CLI helper. | `.agents/skills/slate-agent-control/SKILL.md` |
-| `dlang-lsp-tooling` | Inspect, lint, format, and query AST/LSP symbols for Dlang (`.d`) and Slint (`.slint`) files using `serve-d`, `dcd`, `dscanner`, `dfmt`, `slint-lsp`, and the `dlang-lsp` MCP server. | `.agents/skills/dlang-lsp-tooling/SKILL.md` |
-| `adversarial-tdd-workflow` | Orchestrate high-assurance implementation using a fast Implementor subagent (`flash`) and a fresh-context, read-only Adversarial Reviewer subagent (`pro`) that verifies TDD spec compliance and zero hardcoding/cheating, looping up to 4 rounds before human escalation. | `.agents/skills/adversarial-tdd-workflow/SKILL.md` |
+| `dlang-lsp-tooling` | Inspect, lint, format, and query AST/LSP symbols for Dlang (`.d`) and Slint (`.slint`) files using `serve-d`, `dcd`, `dscanner`, `dfmt`, `slint-lsp`, and the `dlang-lsp` MCP server. | [`.agents/skills/dlang-lsp-tooling/SKILL.md`](.agents/skills/dlang-lsp-tooling/SKILL.md) |
+| `slate-agent-control` | Inspect, interact with, automate, and capture visual snapshots of Slate desktop applications using the native MCP toolset (`inspect_tree`, `click_element`, `send_keys`, `get_state`, `get_screenshot`). | [`.agents/skills/slate-agent-control/SKILL.md`](.agents/skills/slate-agent-control/SKILL.md) |
+| `test-driven-development` | Work test-driven using the Red → Green → Iterate loop: write a focused failing `unittest` first with `// Spec:` and `/// Example:` headers, implement the smallest passing change, and keep code clean. | [`.agents/skills/test-driven-development/SKILL.md`](.agents/skills/test-driven-development/SKILL.md) |
+| `adversarial-tdd-workflow` | Orchestrate high-assurance implementation using a TDD Implementor subagent and fresh-context, strictly read-only Spec/TDD Reviewer and Security Auditor subagents. | [`.agents/skills/adversarial-tdd-workflow/SKILL.md`](.agents/skills/adversarial-tdd-workflow/SKILL.md) |
+| `architect` | Evidence-driven architectural planning, trade-off analysis, dataflow modeling, and EARS/Gherkin specification authoring in `.agents/plans/`. | [`.agents/skills/architect/SKILL.md`](.agents/skills/architect/SKILL.md) |
+| `debug-failure-analysis` | Systematically debug failures by reproducing them, modeling dataflow, tracing git history, and isolating root causes before fixing. | [`.agents/skills/debug-failure-analysis/SKILL.md`](.agents/skills/debug-failure-analysis/SKILL.md) |
+| `git-commit-workflow` | Structured Conventional Commits conventions, pre-commit security checks (`scripts/security-scan.sh`), commit message validation (`scripts/validate-commit-msg.py`), and explicit user consent rules. | [`.agents/skills/git-commit-workflow/SKILL.md`](.agents/skills/git-commit-workflow/SKILL.md) |
+| `docs-usage` | Guidelines for reading, using, and maintaining project documentation and language style guides (`docs/guides/`). | [`.agents/skills/docs-usage/SKILL.md`](.agents/skills/docs-usage/SKILL.md) |
+| `scripts-usage` | Reference guide for repository scripts in `scripts/` and their canonical `just` recipes. | [`.agents/skills/scripts-usage/SKILL.md`](.agents/skills/scripts-usage/SKILL.md) |
 
-Kilo-specific configuration lives under `.kilo/`.
-
-GitHub Copilot users may use the corresponding procedures under
-`.github/skills/`.
-
-## GitHub Copilot Agents
-
-| Agent | Purpose | Location |
-|---|---|---|
-| `architect` | Architectural planning, trade-off analysis, and EARS plan authoring | `.github/agents/architect.agent.md` |
-| `human-gate` | Read-only interview before risky or architectural changes | `.github/agents/human-gate.agent.md` |
-| `security-auditor` | Review new dependencies for CVEs, postinstall behavior, and maintenance risk | `.github/agents/security-auditor.agent.md` |
-| `docs-bot` | Update documentation after commits | `.github/agents/docs-bot.agent.md` |
-| `dev-assistant` | Route development tasks to the appropriate `just` recipe and confirm destructive operations | `.github/agents/dev-assistant.agent.md` |
-| `migration-author` | Draft and review safe Alembic revisions | `.github/agents/migration-author.agent.md` |
-
-Invoke GitHub Copilot agents through the agent picker or with `@<agent-name>`.
-
-## Workflow checklist
-
-1. Work test-driven for all behavior changes: follow the `test-driven-development` skill (Red → Green → Iterate).
-2. Edit `api/openapi.yaml` first for any API change.
-3. `just generate` (or `scripts/generate.sh`) regenerates backend models + frontend client; generated directories are gitignored and rebuilt at build/CI/dev time.
-4. Build the feature; `just test` and `just lint`.
-5. Architecture/design change? → `@architect` (or the `architect` skill) to draft EARS requirements, evaluate alternatives, and obtain plan approval.
-6. New dependency? → `@human-gate` → `@security-auditor` → `uv add` / `pnpm add`.
-7. New migration? → `@migration-author` (or the `alembic-usage` skill).
-8. Debugging a failure? → use the `debug-failure-analysis` skill to reproduce, model, and isolate the root cause before fixing.
-9. Stuck on which script to run? → `@dev-assistant`.
-10. Commit: follow the `git-commit-workflow` skill.
-11. After commit: `@docs-bot` for doc updates.
-
-## Plan Mode
-
-- Follow the portable `architect` skill for evidence-driven investigation,
-  material alternatives, EARS requirements, and test-driven implementation steps.
-- Save the canonical plan in `.agents/plans/YYYYMMDD-HHMMSS-<topic>.md` relative
-  to this project root; revise an existing task plan in place. Native viewers
-  review that same file rather than maintaining a separate artifact.
-- Obtain explicit approval of the current revision through the configured
-  agent's review gate before handing off implementation.
-
-## Command and Script Index
-
-Run commands from the repository root. Prefer `just <recipe>` for all available
-operations. Using the canonical `just` recipes makes command intent explicit,
-enables faster command approval and auto-approval matching, and ensures the
-project's environment setup and guardrails are applied consistently. Use a
-direct underlying command only when no suitable recipe exists or when a
-recipe's argument passthrough cannot express a genuinely narrower check;
-extend the `Justfile` when that gap is recurring. Destructive recipes
-(`down-hard`, `clean-hard`, and `migrate-down`) require confirmation before an
-agent runs them.
-
-### Justfile Recipes
-
-| Recipe | Purpose | Underlying command |
-|---|---|---|
-| `just` / `just default` | List available recipes | `just --list --unsorted` |
-| `just audit` | Run dependency, secret, and container audits | `scripts/audit.sh` |
-| `just audit-strict` | Run audits and fail on moderate+ findings | `AUDIT_STRICT=1 scripts/audit.sh` |
-| `just bootstrap` | Install backend/frontend dependencies and Git hooks | `scripts/bootstrap.sh` |
-| `just clean` | Remove caches, build artifacts, and Python caches | `scripts/clean.sh` |
-| `just clean-hard` | Clean and remove generated client code | `scripts/clean.sh --hard` |
-| `just ctx` | Print an AI-agent project context snapshot | `scripts/agent-context.sh` |
-| `just dev` | Start the attached Docker Compose development stack | `scripts/dev.sh` |
-| `just down` | Stop the Compose stack while keeping volumes | `docker compose down` |
-| `just down-hard` | Stop the stack and remove volumes | `docker compose down -v` |
-| `just format` | Apply Ruff and Prettier formatting after tfvars synchronization | `scripts/format.sh` |
-| `just generate` | Regenerate backend models and frontend API client | `scripts/generate.sh` |
-| `just generate-dry` | Preview API client/model generation | `scripts/generate.sh --dry-run` |
-| `just hooks` | Install Git hooks | `scripts/setup-hooks.sh` |
-| `just lint` | Synchronize tfvars and run Ruff, mypy, ESLint, Prettier, and yamllint | `scripts/lint.sh` |
-| `just lint-backend [paths...]` | Run targeted backend Ruff checks and format verification | `uv run ruff check ... && uv run ruff format --check ...` |
-| `just lint-frontend` | Run frontend ESLint check directly | `cd frontend && pnpm lint` |
-| `just logs [service]` | Follow Compose logs for all or one service | `docker compose logs -f [service]` |
-| `just migrate` | Apply pending Alembic migrations | `scripts/migrate.sh upgrade` |
-| `just migrate-down` | Downgrade one Alembic revision | `scripts/migrate.sh downgrade` |
-| `just migrate-history` | Show Alembic migration history | `cd backend && uv run alembic history --verbose` |
-| `just migrate-new "msg"` | Create an autogenerated migration | `scripts/migrate.sh new "msg"` |
-| `just new-domain NAME` | Scaffold a backend domain | `scripts/new-domain.sh NAME` |
-| `just psql` | Open a PostgreSQL shell in the Compose database | `docker compose exec db psql ...` |
-| `just sync` | Synchronize global tfvars into infrastructure layers | `python3 infrastructure/layers/sync_tfvars.py` |
-| `just test` | Run backend and frontend tests | `scripts/test.sh` |
-| `just test-backend` | Run backend tests only | `cd backend && uv run pytest` |
-| `just test-frontend` | Run frontend tests once | `cd frontend && pnpm test` |
-| `just test-watch` | Run frontend tests in watch mode | `cd frontend && pnpm test:watch` |
-| `just typecheck-frontend` | Run the frontend TypeScript compiler without emitting files | `cd frontend && pnpm exec tsc --noEmit` |
-| `just build-frontend` | Build the frontend for production | `cd frontend && pnpm build` |
-| `just up` | Build and start the Compose stack detached | `docker compose up -d --build` |
-| `just _ensure-env` | Require `.env`, copying `.env.example` when absent | shell check and copy |
-
-### Scripts
-
-| Script | Purpose and supported usage |
-|---|---|
-| `scripts/agent-context.sh` | Print a compact project snapshot; use `--json` for machine-readable output. |
-| `scripts/audit.sh` | Run dependency, secret, and container audits; use `--strict` to fail on findings. |
-| `scripts/bootstrap.sh` | Install toolchains/dependencies and configure hooks; use `--no-hooks` to skip hooks. |
-| `scripts/check-package-security.sh` | Scan `pyproject.toml`, `package.json`, or `Cargo.toml` for package security issues. |
-| `scripts/clean.sh` | Remove caches/artifacts; supports soft mode, `--all`, and `--hard`. |
-| `scripts/dev.sh` | Start the Compose stack; supports `--detach`, `--no-frontend`, and `--local`. |
-| `scripts/format.sh` | Apply Ruff formatting/check fixes and Prettier. |
-| `scripts/generate.sh` | Regenerate backend models and frontend Orval client; supports `--dry-run`. |
-| `scripts/lint.sh` | Run Ruff, mypy when installed, ESLint, Prettier, and yamllint; supports `--fix`. |
-| `scripts/migrate.sh` | Run Alembic commands: default/`upgrade`, `new "msg"`, `down`, `history`, and `current`. |
-| `scripts/new-domain.sh` | Scaffold a snake_case backend domain and its tests. |
-| `scripts/security-scan.sh` | Run the repository security scan, including gitleaks and dependency checks. |
-| `scripts/setup-hooks.sh` | Configure Git to use the repository `.githooks` directory. |
-| `scripts/test-validation-hooks.py` | Test the repository validation hooks in an isolated temporary setup. |
-| `scripts/test.sh` | Run backend/frontend tests; supports `backend`, `frontend`, and `--watch`. |
-| `scripts/validate-commit-msg.py` | Validate commit messages against the project commit-type rules. |
-
-`scripts/README.md` contains the maintained human-facing script reference and
-use-case guidance. `check-package-security.sh`, `security-scan.sh`, and the
-Python validation utilities are direct script entry points and do not currently
-have dedicated Justfile recipes.
+*(Note: Preserved skills for the archived `reference/` webapp stack — `alembic-usage`, `auth-integration`, `code-generation`, `local-stack-management`, `terraform-usage` — remain in `.agents/skills/` for working inside `reference/`.)*
 
 ---
 
-## 💡 What We Learned (Dev Notes & Troubleshooting)
+## Development Workflow & Engineering Rules
 
-### Frontend & ESLint Integration
-- **Canonical frontend validation**: Use `just format` to apply Prettier formatting and `just lint` to verify Prettier, ESLint, and the remaining repository checks. Use `just typecheck-frontend` for a focused TypeScript check.
-- **Generated OpenAPI Artifacts in CI & Linting**: Generated code in `frontend/src/api/generated/` and `backend/app/models/_generated/` is gitignored. In clean CI checkouts or fresh clones, TypeScript-based linting (`eslint .`, `tsc`) will fail with unresolved type errors unless OpenAPI code generation runs first. `ci-support`'s `.lint-ts` job and `scripts/lint.sh` automatically trigger code generation when missing.
-- **ESLint Version Compatibility**: The project is using **ESLint v9.x** (`9.21.0`) with Flat Config (`eslint.config.js`). Avoid installing ESLint v10.x directly, as key plugins (e.g. `eslint-plugin-react`) currently rely on APIs removed in v10 (such as `context.getFilename()`), triggering errors like `TypeError: contextOrFilename.getFilename is not a function`.
-- **React Compiler Rules**: The linter checks for React Compiler rules (e.g., component purity and React state safety). Side-effects like calling `Math.random()` in rendering/memoization are flagged as impure and should be bypassed or set to `'off'` in `eslint.config.js` (`react-hooks/purity`).
-- **Date Range Picker & Outside Days**: When implementing calendar components with `react-day-picker` v9, check `!modifiers.outside` before rendering range styling attributes (`data-selected-single`, `data-range-start`, `data-range-end`, `data-range-middle`). Otherwise, outside days from adjacent months will render overlapping active range selections.
-
-### Backend, Mypy & Unit Testing
-- **Async Database Operations**: To execute backend database integration tests successfully, ensure the **`greenlet`** package is installed in the python virtual environment (`uv add greenlet`). Without `greenlet`, SQLAlchemy async session factories raise `ValueError: the greenlet library is required to use this function`.
-- **Test database**: Backend DB integration tests require the isolated PostgreSQL `test-db` service. SQLite is not supported because the models use PostgreSQL-specific types such as `JSONB`; set `TEST_DATABASE_URL` when running tests outside the provided service.
-- **Mypy Strict Overrides**: The backend code uses dynamic DI and OAuth containers which trigger lint errors in strict mode. Overrides for rules like `PLC0415` (local imports inside functions), `PLW0603` (global statement updates), `PLR0912`/`PLR0915` (high branch count in routing), and `S106` (mock credentials) are configured inside `pyproject.toml` to keep checks passing cleanly.
-
-### GitLab CI, YAML & OpenTofu Validation
-- **Single pipeline entrypoint**: Use `.gitlab-ci.yml` for all scopes (`application`, `infrastructure`, `bootstrap`). Infrastructure-specific inputs (`layer`, `image_tag`, `taint_resources`, `tofu_command`, `az_command`) use `spec.inputs.rules` and are only presented for the applicable scope or action.
-- **Registry policy**: JFrog Artifactory is the only supported CI container registry. Do not add ACR registry selectors or CI ACR build, push, or deployment jobs. Azure Container Registry OpenTofu modules may remain when they are part of the infrastructure model.
-- **JFrog authentication**: CI jobs authenticate to JFrog with `ARTIFACTORY_USERNAME` + `ARTIFACTORY_TOKEN` (basic auth), matching the deployment jobs. Do not use JFrog OIDC token exchange — the JFrog OIDC integration is not configured for it and returns `400 Invalid audience`.
-- **YAML linting**: Install the missing linter with `uv tool install yamllint`, then run `yamllint -c .yamllint.yaml .`. Existing repository YAML may report line-length warnings; fix syntax and errors in files changed by the task.
-- **OpenTofu layer validation**: Layers (`infrastructure/layers/base`, `networking`, `data`, and `services`) consume versioned OpenTofu modules published to the GitLab Module Registry (`git.eon-cds.de/repos/*`). CI/CD templates are centrally included from `repos/ai-automation-envia/ops/ci-support`.
-- **Multi-container support (`v1.2.0-beta`)**: `ci-support` supports multi-container builds and deployments via `containers` (JSON array) or `containers_file` (e.g. `containers.json`, see `containers.example.json`). Each entry specifies `name`, `image_name`, `dockerfile`, `build_context`, `container_name`, and `containerapp_name`. When empty, the pipeline transparently falls back to single-container mode using `image_name`, `dockerfile`, and `build_context`. Symmetrical `enable_backend` and `enable_frontend` flags allow frontend-only or backend-only projects to exclude irrelevant lint and test jobs.
-
-### 🤖 AI Agent Git Commit Rules
-- **Commit Dry-Run & Warning Report**: Before executing any git commit, AI assistants must dry-run commit validations and report all warnings (like direct commits to `main`/`dev`, or missing ticket numbers in the branch name) to the user.
-- **Explicit Consent**: Commits must be explicitly approved by the user after reviewing the warning report.
-
-### 🤖 AI Agent Subagent / Worktree Rules
-- **In-session subagents only**: When the user asks to "use subagents", run them via the in-session `task` tool. Do NOT use Agent Manager (`agent_manager` tool) or create Agent Manager git worktrees unless the user explicitly asks for Agent Manager sessions.
-- **Worktree base branch**: If Agent Manager worktrees are ever used, they must be created from the current feature branch (e.g. the active `#<n>-...` branch), never from the default base branch (`main`/`dev`). Worktrees based on the wrong base branch miss the branch's commits and produce broken or conflicting work. Verify the base branch before starting any managed session.
+1. **Test-Driven Development (`Red → Green → Iterate`)**:
+   - Follow [`test-driven-development`](.agents/skills/test-driven-development/SKILL.md) and [`docs/guides/style-dlang.md`](docs/guides/style-dlang.md).
+   - Annotate every `unittest` block with a `// Spec:` comment describing the requirement under test and a `/// Example:` Ddoc header where appropriate.
+2. **AST Queries, Linting & Formatting**:
+   - Prefer `dscanner -d <symbol>` (`d_find_declaration`), `dscanner --ctags <file.d>` (`d_lsp_document_symbols`), and `dscanner --imports <file.d>` (`d_module_imports`) over blind regex searches when navigating D code.
+   - Format modified `.d` files with `just d-fmt` and verify zero warnings with `just d-lint` (`dscanner`) and `slint_check` (`slint-lsp`) before completing any task.
+3. **Plan Mode**:
+   - Follow the [`architect`](.agents/skills/architect/SKILL.md) skill for architectural changes: save plans in `.agents/plans/YYYYMMDD-HHMMSS-<topic>.md` with EARS requirements and Gherkin acceptance scenarios.
+4. **AI Agent Git Commit Rules**:
+   - **Commit Dry-Run & Warning Report**: Before executing any `git commit`, dry-run commit validations (`python3 scripts/validate-commit-msg.py` and `./scripts/security-scan.sh`) and report any warnings to the user.
+   - **Explicit Consent**: Never create a git commit without explicit user approval.
+5. **AI Agent Subagent / Worktree Rules**:
+   - **In-session subagents only**: When using subagents, invoke them via the in-session subagent tool (`invoke_subagent`). Do NOT create external git worktrees unless explicitly requested.

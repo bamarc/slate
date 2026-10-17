@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Git hook: sync tfvars and delegate to security-scan.sh
+# Git pre-commit hook: run security scan (and sync reference tfvars if present)
+set -euo pipefail
+
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-echo "🔄 Syncing and filtering Terraform variables..."
-"$ROOT_DIR/infrastructure/layers/sync_tfvars.py"
+if [ -x "$ROOT_DIR/reference/infrastructure/layers/sync_tfvars.py" ]; then
+  "$ROOT_DIR/reference/infrastructure/layers/sync_tfvars.py"
+fi
 
 "$ROOT_DIR/scripts/security-scan.sh"

@@ -47,7 +47,9 @@ Tool getScreenshotSchema() @safe
                         "type": JSONValue("string"),
                         "default": JSONValue("image/png"),
                         "description": JSONValue("Image MIME type (default: image/png)"),
+
                     
+
                 ])
     ])]));
 }
@@ -69,7 +71,9 @@ Tool inspectTreeSchema() @safe
                         "minimum": JSONValue(1),
                         "description": JSONValue("Maximum depth for tree traversal (minimum: 1)")
                     ]),
+
                 
+
     ])]));
 }
 
@@ -120,7 +124,9 @@ Tool clickElementSchema() @safe
                         "description": JSONValue(
                             "Legacy alias for coordinates ({x, y}); prefer top-level 'x'/'y'")
                     ]),
+
                 
+
     ])]));
 }
 
@@ -145,7 +151,9 @@ Tool sendKeysSchema() @safe
                         "description": JSONValue(
                             "Whether to clear existing text before typing (requires 'element_id')")
                     ]),
+
                 
+
     ]), "required" : JSONValue([JSONValue("text")])]));
 }
 
@@ -165,7 +173,9 @@ Tool getStateSchema() @safe
                         "description": JSONValue(
                             "Deprecated: single property key filter. Prefer `keys`. Mutually exclusive with `keys`.")
                     ]),
+
                 
+
     ])]));
 }
 

@@ -1,54 +1,60 @@
-# Contributing
+# Contributing to Slate
 
-Thanks for your interest. This template values **small, reviewable changes**
-that respect the contract-first workflow.
+Thanks for your interest in contributing to **Slate** (`slate-dlang`, `slint-d`, `ui`, and `slate:solid`). We value **small, test-driven, reviewable changes** with zero linter warnings.
 
-## Setup
+## 1. Environment Setup
 
-```bash
-scripts/bootstrap.sh   # installs backend + frontend deps, sets up git hooks
-```
-
-## Before you push
+Install the portable Dlang (`dmd`, `dub`, `serve-d`, `dcd`, `dscanner`, `dfmt`) and Slint (`slint-lsp`, `slint-viewer`) toolchain and build the Rust C-ABI bridge:
 
 ```bash
-scripts/test.sh        # backend pytest + frontend vitest
-scripts/lint.sh        # ruff + eslint + yamllint
-scripts/audit.sh       # pip-audit + pnpm audit + gitleaks
+just d-setup
+just d-check
+just d-bridge
 ```
 
-Pre-commit will also run the above on staged files.
+## 2. Before You Commit or Push
 
-## Workflow
+Run the workspace lint, formatting, test, and security gates from the repository root:
 
-1. **Discuss first** for non-trivial changes — open an issue or invoke the
-   `human-gate` agent.
-2. **Spec first** — any API change starts in `api/openapi.yaml`, then run
-   `scripts/generate.sh`.
-3. **Branch naming**: `type/short-description` (e.g. `feat/item-tags`).
-4. **Commits**: Conventional Commits + DCO sign-off (`git commit -s`).
-5. **PRs**: small, focused, with the diff explained in the description. Tests
-   and docs land in the same PR as the code.
+```bash
+just d-fmt                # Format all .d files with dfmt
+just lint                 # dscanner syntax/style + Rust bridge clippy/fmt + dub build
+just d-test               # slint-d pure-D unit tests
+just slate-test           # slate-dlang (:core, :net, :mcp, :ui, :solid) unit tests
+just slate-test-solid     # slint2solid compiler + Node/esbuild runtime verification
+./scripts/security-scan.sh
+```
 
-## Style
+When touching native Slint bindings or UI rendering, also run the headless software-rendered suites:
 
-- Python — see `docs/guides/style-python.md` and
-  `.github/instructions/python.instructions.md`.
-- TypeScript — see `docs/guides/style-typescript.md` and
-  `.github/instructions/typescript.instructions.md`.
-- YAML — see `docs/guides/style-yaml.md`.
-- General (commits, file names, secrets) — see `docs/guides/style-general.md`.
+```bash
+just d-test-native
+just slate-test-native
+```
 
-## Adding dependencies
+## 3. Development Workflow
 
-This template gates dependency additions:
+1. **Test-Driven Development (`Red → Green → Iterate`)**:
+   - Every behavioral change starts with a focused `unittest` annotated with a `// Spec:` requirement header and `/// Example:` Ddoc block (see [`docs/guides/style-dlang.md`](docs/guides/style-dlang.md)).
+2. **Architecture & Planning**:
+   - Non-trivial features or architectural changes begin with an EARS/Gherkin specification plan in `.agents/plans/YYYYMMDD-HHMMSS-<topic>.md`.
+3. **Branch Naming & Commits**:
+   - Branch names: `type/short-description` (e.g., `feat/rework-mcp`, `fix/quic-flow-control`).
+   - Commits: Conventional Commits + DCO sign-off (`git commit -s`), validated via `python3 scripts/validate-commit-msg.py`.
 
-1. Invoke the `human-gate` agent. Explain what, why, and what alternatives exist.
-2. After approval, the `security-auditor` agent vets the package.
-3. Only then run `uv add <pkg>` (backend) or `pnpm add <pkg>` (frontend).
+## 4. Style Guides & Scoped Rules
 
-See `docs/guides/tool-selection.md` for the decision criteria.
+- **Dlang**: [`docs/guides/style-dlang.md`](docs/guides/style-dlang.md), [`slate-dlang/AGENTS.md`](slate-dlang/AGENTS.md), [`slint-d/AGENTS.md`](slint-d/AGENTS.md)
+- **Slint UI**: [`docs/guides/style-slint.md`](docs/guides/style-slint.md), [`ui/AGENTS.md`](ui/AGENTS.md)
+- **SolidJS Cross-Compiler**: [`slate-dlang/packages/solid/AGENTS.md`](slate-dlang/packages/solid/AGENTS.md)
+- **General & Git**: [`docs/guides/style-general.md`](docs/guides/style-general.md)
 
-## Reporting security issues
+## 5. Adding Dependencies
 
-Do **not** open a public issue. See `SECURITY.md`.
+Slate keeps its dependency footprint minimal (`slate:core` and `slate:mcp` have zero external dependencies). Before adding any DUB, Cargo, or npm dependency:
+1. Review [`docs/guides/tool-selection.md`](docs/guides/tool-selection.md).
+2. Obtain explicit maintainer approval and run `./scripts/security-scan.sh`.
+
+## 6. Reporting Security Issues
+
+Do **not** open a public issue for security vulnerabilities. See [`SECURITY.md`](SECURITY.md).

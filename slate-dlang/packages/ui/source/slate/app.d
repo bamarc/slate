@@ -55,32 +55,28 @@ struct AppBuilder
         }
     }
 
-    /// Initialize logging (idempotent) and log the resolved theme.
+    /// Initialize logging (idempotent) and log the resolved theme via `slog`.
     void init() const
     {
-        import std.logger : infof;
+        import slate.log : slog;
 
         slateInit();
-        infof("Initializing Slate UI framework: '%s' (dark theme: %s)", _title, isDark());
+        slog.configure(_title.length > 0 ? _title : "slate");
+        slog.info("Initializing Slate UI framework", "title", _title, "dark_theme", isDark());
     }
 }
 
 private shared bool _inited;
 
-/// Idempotent logging initialization (info level, like Rust's
-/// `default_filter_or("info")`).
+/// Idempotent logging initialization routing `std.logger` into `slate.log.slog`.
 void slateInit() @trusted nothrow
 {
     import core.atomic : cas;
-    import std.logger : globalLogLevel, LogLevel;
+    import slate.log : installOtelStdLoggerBridge;
 
     if (cas(&_inited, false, true))
     {
-        try
-            globalLogLevel(LogLevel.info);
-        catch (Throwable)
-        {
-        }
+        installOtelStdLoggerBridge("slate");
     }
 }
 

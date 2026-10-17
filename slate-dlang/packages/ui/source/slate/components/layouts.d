@@ -13,7 +13,8 @@ import slint.instance : ComponentInstance;
 import slate.agent.bridge : SlintUiBridge;
 import slate.agent.error : AgentError;
 import slate.agent.slint_backend : McpBindable;
-import slate.agent.traits : McpAction, McpControllable, McpControllableMixin, McpIgnore;
+import slate.agent.traits : McpAction, McpControllable, McpControllableMixin,
+    McpIgnore, McpState, McpWritable;
 import slate.traits;
 
 /// Controller for `SlateDockLayout` managing left, right, and bottom tool docks.
@@ -21,12 +22,12 @@ class WorkspaceDockController : McpControllable, McpBindable
 {
     mixin McpControllableMixin!"workspace";
 
-    bool leftOpen = true;
-    bool rightOpen = true;
-    bool bottomOpen = true;
-    double leftWidth = 220.0;
-    double rightWidth = 240.0;
-    double bottomHeight = 160.0;
+    @McpState("left_open") @McpWritable("left_open") bool leftOpen = true;
+    @McpState("right_open") @McpWritable("right_open") bool rightOpen = true;
+    @McpState("bottom_open") @McpWritable("bottom_open") bool bottomOpen = true;
+    @McpState("left_width") @McpWritable("left_width") double leftWidth = 220.0;
+    @McpState("right_width") @McpWritable("right_width") double rightWidth = 240.0;
+    @McpState("bottom_height") @McpWritable("bottom_height") double bottomHeight = 160.0;
 
     private ComponentInstance _instance;
 

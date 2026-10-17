@@ -1,39 +1,33 @@
 # Style Guide — General Conventions
 
-## Git conventions
-- **Commit messages**: Conventional Commits format
+## Git Conventions
+- **Commit messages**: Conventional Commits format (`type(scope): description`), validated by `python3 scripts/validate-commit-msg.py`:
   ```
-  feat(backend): add item CRUD endpoints
-  fix(frontend): resolve race condition in health check
-  docs(api): update OpenAPI spec for items
-  chore: bump dependencies
+  feat(solid): add D controller to TypeScript transpiler
+  fix(mcp): preserve rollback snapshot on validation error
+  docs(ui): add README and AGENTS.md for Slint component library
+  chore: update gitignore for generated Ddoc HTML
   ```
-- **DCO**: All commits must be signed off (`git commit -s`)
-- **Branch names**: `type/description` (e.g., `feat/item-crud`, `fix/health-race`)
+- **DCO**: Sign off commits (`git commit -s`).
+- **Branch names**: `type/description` (e.g., `feat/rework-mcp`, `fix/quic-ack-ranges`).
+- **Pre-commit validation**: Run `just lint`, `just d-test`, `just slate-test`, and `./scripts/security-scan.sh` before committing.
 
-## Documentation
-- Every module has a docstring explaining its purpose
-- Functions with non-obvious logic have a brief "why" comment (not "what")
-- ADRs (Architecture Decision Records) live in `docs/adr/` as `NNNN-title.md`
-- Keep `README.md` files up to date with structural changes
+## Documentation & Specifications
+- Every DUB package/subpackage and top-level directory (`slate-dlang/`, `slint-d/`, `ui/`, `slate-dev/`, `examples/`) maintains an up-to-date `README.md` and `AGENTS.md`.
+- Architectural plans live in `.agents/plans/YYYYMMDD-HHMMSS-<topic>.md` and use EARS requirements + Gherkin acceptance scenarios.
+- Architecture Decision Records (ADRs) live in `docs/adr/` as `NNNN-title.md`.
+- Generated documentation (`slate-dlang/docs/`, `slint-d/docs/`) and generated cross-compiled output (`target/solid-ui/`) are gitignored and rebuilt via `just d-docs` and `just solid-codegen`.
 
-## Project files
-- `.env` files are never committed (listed in `.gitignore`)
-- Secrets and API keys go through environment variables, never hardcoded
-- Configuration has typed defaults in `app/core/config.py` (backend) or `.env.example`
-- Dependency changes must be reflected in both pyproject.toml/package.json AND the lockfile
-
-## File naming
+## File Naming
 | Context | Convention | Example |
 |---------|-----------|---------|
-| Python modules | `snake_case.py` | `health_service.py` |
-| TypeScript/React | `kebab-case.tsx` | `user-profile.tsx` |
-| YAML configs | `kebab-case.yaml` | `openapi.yaml` |
-| Shell scripts | `kebab-case.sh` | `check-package-security.sh` |
-| Documentation | `kebab-case.md` | `style-python.md` |
+| Dlang modules | `snake_case.d` | `file_dialog.d`, `codegen_tsx.d` |
+| Slint components | `snake_case.slint` | `media_player.slint`, `dock_layout.slint` |
+| Rust bridge modules | `snake_case.rs` | `accessibility.rs`, `instance.rs` |
+| Shell scripts | `kebab-case.sh` | `security-scan.sh` |
+| Documentation | `kebab-case.md` or `README.md` / `AGENTS.md` | `style-dlang.md`, `style-slint.md` |
 
-## AI agent coordination
-- Before adding a new tool, framework, or dependency, read `docs/guides/tool-selection.md`
-- For elevated-risk dependencies, run `.goose/recipes/security-auditor.yaml`
-- After committing, `.githooks/post-commit` triggers doc updates
-- Never make project-wide decisions without user approval
+## AI Agent Coordination
+- Follow the scoped `AGENTS.md` in the target package (`slate-dlang/AGENTS.md`, `slate-dlang/packages/solid/AGENTS.md`, `slint-d/AGENTS.md`, `ui/AGENTS.md`).
+- Before adding any external dependency (`dub.json`, `Cargo.toml`, `package.json`), consult `docs/guides/tool-selection.md` and obtain explicit user approval.
+- Never execute `git commit` without first running commit/security validations and receiving explicit user approval.

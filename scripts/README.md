@@ -1,38 +1,20 @@
-# Utility scripts
+# Utility Scripts (`scripts/`)
 
-One-shot scripts for humans **and** agents. All scripts are POSIX-bash, idempotent, and safe to re-run.
+One-shot scripts for humans and AI agents. Prefer invoking the matching `just <recipe>` from the repository root.
 
-| Script | What it does |
-|--------|--------------|
-| [bootstrap.sh](bootstrap.sh) | Install backend (uv) + frontend (pnpm) deps and set up git hooks. Run once after cloning. |
-| [dev.sh](dev.sh) | Start the stack via docker compose. `--local` runs backend/frontend on host with the db in compose. |
-| [test.sh](test.sh) | Run backend pytest + frontend vitest. `backend` / `frontend` / `--watch` flags supported. |
-| [lint.sh](lint.sh) | ruff + mypy (if installed) + eslint + yamllint. `--fix` to apply ruff fixes. |
-| [format.sh](format.sh) | ruff format + prettier. |
-| [audit.sh](audit.sh) | pip-audit + pnpm audit + gitleaks + trivy (when installed). `--strict` fails on any finding. |
-| [generate.sh](generate.sh) | Regenerate backend Pydantic models + frontend Orval client from `api/openapi.yaml`. `--dry-run` shows what would change. |
-| [migrate.sh](migrate.sh) | Alembic wrapper: `upgrade`, `new "msg"`, `down`, `history`, `current`. |
-| [new-domain.sh](new-domain.sh) | Scaffold a new backend domain (`<name>/{models,schemas,repository,service,router}.py` + a test file). |
-| [clean.sh](clean.sh) | Wipe caches and generated artifacts. `--hard` also removes `node_modules` and `.venv`. |
-| [setup-hooks.sh](setup-hooks.sh) | Point git at `.githooks/` (pre-commit + post-commit). Called by `bootstrap.sh`. |
-| [agent-context.sh](agent-context.sh) | Print a one-screen project snapshot for AI agents (`--json` for machine-readable). |
-| [test-scaffold-webapp.sh](test-scaffold-webapp.sh) | End-to-end scaffolding test: bootstraps clone via `scaffold.py`, configures port (10000+), runs `docker compose up`, verifies HTTP 200, pulls down, and prints timing breakdown. |
+## Core Workspace Scripts (Dlang + Slint + SolidJS)
 
-## Agent vs human use cases
+| Script | `just` Recipe | What it does |
+|--------|---------------|--------------|
+| [`new-project.sh`](new-project.sh) | `just new-project <dir> [name]` | Provision a new Slate project with a Slint window, button, counter, live MCP toggle switch, and `mcp_config.json`. |
+| [`../slate-dev/install.sh`](../slate-dev/install.sh) | `just d-setup` / `just d-check` | Install or verify the portable Dlang & Slint toolchain (`dmd`, `dub`, `serve-d`, `dcd`, `dscanner`, `dfmt`, `slint-lsp`) and Antigravity plugin. |
+| [`dlang-lsp-mcp.py`](dlang-lsp-mcp.py) | *(MCP Server)* | JSON-RPC 2.0 MCP server bridging `dscanner`, `dfmt`, `serve-d`, and `slint-lsp` (`d_lint`, `d_format`, `d_find_declaration`, `d_lsp_document_symbols`, `d_module_imports`, `slint_check`). |
+| [`clean.sh`](clean.sh) | `just clean` | Wipe DUB/Dlang build artifacts (`*.a`, `*-test-*`, `.dub`, `slate-dlang/docs`). Pass `--hard` to also remove `target/solid-ui` and `slint-d/bridge/target`. |
+| [`agent-context.sh`](agent-context.sh) | `just ctx` | Print a compact workspace snapshot (`slate-dlang` subpackages, `slint-d` modules, `.slint` count, git status) in text or `--json` format. |
+| [`security-scan.sh`](security-scan.sh) | *(Pre-commit)* | Run `gitleaks` secret detection and check staged dependency manifests (`dub.json`, `Cargo.toml`, `package.json`, `pyproject.toml`). |
+| [`validate-commit-msg.py`](validate-commit-msg.py) | *(Commit-msg)* | Validate commit messages against Conventional Commits rules. |
+| [`setup-hooks.sh`](setup-hooks.sh) | — | Configure Git to use `.githooks/`. |
 
-| Use case | Recommended script |
-|----------|--------------------|
-| First-time setup (human) | `bootstrap.sh` |
-| Daily development (human) | `dev.sh` / `test.sh --watch` |
-| CI run (machine) | `lint.sh && test.sh && audit.sh --strict` |
-| Agent orienting at session start | `agent-context.sh` |
-| Agent regenerating client after spec change | `generate.sh` |
-| Agent adding a new domain | `new-domain.sh <name>` |
-| Agent verifying before commit | `test.sh && lint.sh && audit.sh` |
+## Preserved Reference Scripts (`reference/`)
 
-## Conventions
-
-- All scripts use `set -euo pipefail`.
-- All scripts derive `ROOT_DIR` from their own location, so they work from any cwd.
-- Scripts exit non-zero on failure and return the worst exit code observed.
-- Optional dependencies (mypy, gitleaks, trivy, prettier, pre-commit) are detected at runtime — missing tools log a hint and skip, never crash.
+The remaining scripts (`bootstrap.sh`, `dev.sh`, `test.sh`, `lint.sh`, `format.sh`, `audit.sh`, `generate.sh`, `migrate.sh`, `new-domain.sh`) support the archived fullstack reference template under `reference/`.

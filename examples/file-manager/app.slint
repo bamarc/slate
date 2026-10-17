@@ -1,0 +1,332 @@
+// File Manager example — single-window tabbed dual-pane browser.
+//
+// Layout mirrors the Slate library primitives without hard-depending on
+// `ui/` includes, so the example compiles against stock Slint:
+//   left   ~ SlateTreeView      (directory tree)
+//   middle ~ SlateDropTarget    (location 1)
+//   right  ~ SlateDropTarget    (location 2)
+//   top    ~ SlateTabs          (multiple tabs)
+// Drag-and-drop is pointer based: pressing a file row stores its payload in
+// `draggedPayload`; releasing / clicking on the opposite pane fires
+// `dropOnPane(pane, payload)`. Buttons provide the same move for
+// keyboard / automation (`moveRequested(from-pane)`).
+export struct FileRow {
+    name: string,
+    path: string,
+    isDir: bool,
+}
+
+export struct TreeRow {
+    id: string,
+    label: string,
+    depth: int,
+}
+
+export component MainWindow inherits Window {
+    // Tabs (SlateTabs equivalent).
+    in-out property <[string]> tabs: ["Tab 1"];
+    in-out property <int> currentTab: 0;
+    callback tabSelected(int);
+    callback addTab();
+    callback closeTab();
+
+    // Left directory tree (SlateTreeView equivalent, flattened rows).
+    in-out property <[TreeRow]> treeNodes: [];
+    in-out property <string> treeSelected: "";
+    callback treeSelectedChanged(string);
+
+    // Dual panes (SlateDropTarget equivalents).
+    in-out property <string> middleTitle: "/left";
+    in-out property <string> rightTitle: "/right";
+    in-out property <[FileRow]> middleFiles: [];
+    in-out property <[FileRow]> rightFiles: [];
+    in-out property <int> selectedMiddle: -1;
+    in-out property <int> selectedRight: -1;
+
+    // Drag state shared across panes.
+    in-out property <string> draggedPayload: "";
+    in-out property <string> status: "Ready";
+
+    callback paneNavigate(int, string);
+    callback fileActivated(int, int);
+    callback filePressed(int, int);
+    callback dropOnPane(int, string);
+    callback moveRequested(int);
+
+    width: 1100px;
+    height: 680px;
+    title: "Slate File Manager (example)";
+
+    VerticalLayout {
+        spacing: 0px;
+
+        // ── Tab bar ──────────────────────────────────────────
+        HorizontalLayout {
+            spacing: 4px;
+            padding: 6px;
+            for tabTitle[idx] in root.tabs : Rectangle {
+                width: 140px;
+                height: 30px;
+                border-radius: 6px;
+                border-width: 1px;
+                border-color: idx == root.currentTab ? #4f8cff : #3a3f4a;
+                background: idx == root.currentTab ? #2b3a55 : #22252d;
+                accessible-role: tab;
+                accessible-id: "fm-tab-" + idx;
+                accessible-label: tabTitle;
+                accessible-action-default => { root.tabSelected(idx); }
+                TouchArea {
+                    clicked => { root.tabSelected(idx); }
+                }
+                Text {
+                    text: tabTitle;
+                    font-size: 13px;
+                    color: white;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Rectangle {
+                width: 34px;
+                height: 30px;
+                accessible-role: button;
+                accessible-id: "fm-add-tab";
+                accessible-label: "Add tab";
+                accessible-action-default => { root.addTab(); }
+                Text {
+                    text: "+";
+                    font-size: 18px;
+                    color: white;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea { clicked => { root.addTab(); } }
+            }
+            Rectangle {
+                width: 34px;
+                height: 30px;
+                accessible-role: button;
+                accessible-id: "fm-close-tab";
+                accessible-label: "Close tab";
+                accessible-action-default => { root.closeTab(); }
+                Text {
+                    text: "x";
+                    font-size: 14px;
+                    color: #ff8888;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea { clicked => { root.closeTab(); } }
+            }
+        }
+
+        // ── 3-column body: tree | location 1 | location 2 ────
+        HorizontalLayout {
+            spacing: 6px;
+            padding: 6px;
+            vertical-stretch: 1;
+
+            // Left sidebar: directory tree.
+            Rectangle {
+                width: 230px;
+                vertical-stretch: 1;
+                border-width: 1px;
+                border-color: #3a3f4a;
+                border-radius: 8px;
+                background: #1e2128;
+                VerticalLayout {
+                    padding: 6px;
+                    spacing: 2px;
+                    Text { text: "Folders"; font-size: 12px; color: #9aa3b2; }
+                    Flickable {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            spacing: 2px;
+                            for node[idx] in root.treeNodes : Rectangle {
+                                height: 28px;
+                                border-radius: 5px;
+                                background: node.id == root.treeSelected ? #2f3c55 : transparent;
+                                accessible-role: list-item;
+                                accessible-id: "fm-tree-row-" + idx;
+                                accessible-label: node.label;
+                                accessible-action-default => { root.treeSelectedChanged(node.id); }
+                                HorizontalLayout {
+                                    padding-left: 8px + (node.depth * 14px);
+                                    Text {
+                                        text: node.label;
+                                        font-size: 13px;
+                                        color: white;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                }
+                                TouchArea {
+                                    clicked => { root.treeSelectedChanged(node.id); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Middle: location 1.
+            Rectangle {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                border-width: root.draggedPayload != "" ? 2px : 1px;
+                border-color: root.draggedPayload != "" ? #4f8cff : #3a3f4a;
+                border-radius: 8px;
+                background: #1e2128;
+                accessible-role: region;
+                accessible-id: "fm-pane-0";
+                accessible-label: "Location 1";
+                accessible-action-default => {
+                    if (root.draggedPayload != "") {
+                        root.dropOnPane(0, root.draggedPayload);
+                    }
+                }
+                VerticalLayout {
+                    padding: 6px;
+                    spacing: 4px;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Text { text: root.middleTitle; font-size: 13px; color: white; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
+                        Text {
+                            text: "Send »";
+                            font-size: 12px; color: #8fb4ff; width: 60px;
+                            horizontal-alignment: center; vertical-alignment: center;
+                            accessible-role: button;
+                            accessible-id: "fm-send-right";
+                            accessible-label: "Send selected to location 2";
+                            accessible-action-default => { root.moveRequested(0); }
+                            TouchArea { clicked => { root.moveRequested(0); } }
+                        }
+                    }
+                    Flickable {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            spacing: 2px;
+                            for f[idx] in root.middleFiles : Rectangle {
+                                height: 30px;
+                                border-radius: 5px;
+                                background: idx == root.selectedMiddle ? #2f3c55 : transparent;
+                                accessible-role: list-item;
+                                accessible-id: "fm-mid-file-" + idx;
+                                accessible-label: f.name;
+                                accessible-action-default => { root.filePressed(0, idx); }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    padding-left: 8px;
+                                    Text { text: f.isDir ? "📁" : "📄"; font-size: 13px; vertical-alignment: center; }
+                                    Text { text: f.name; font-size: 13px; color: white; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                                }
+                                TouchArea {
+                                    pointer-event(ev) => {
+                                        if (ev.kind == PointerEventKind.down) {
+                                            root.filePressed(0, idx);
+                                        }
+                                    }
+                                    clicked => { root.fileActivated(0, idx); }
+                                }
+                            }
+                        }
+                    }
+                    // Drop catcher: clicking empty pane space with a payload drops it here.
+                    TouchArea {
+                        clicked => {
+                            if (root.draggedPayload != "") {
+                                root.dropOnPane(0, root.draggedPayload);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Right: location 2.
+            Rectangle {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                border-width: root.draggedPayload != "" ? 2px : 1px;
+                border-color: root.draggedPayload != "" ? #4f8cff : #3a3f4a;
+                border-radius: 8px;
+                background: #1e2128;
+                accessible-role: region;
+                accessible-id: "fm-pane-1";
+                accessible-label: "Location 2";
+                accessible-action-default => {
+                    if (root.draggedPayload != "") {
+                        root.dropOnPane(1, root.draggedPayload);
+                    }
+                }
+                VerticalLayout {
+                    padding: 6px;
+                    spacing: 4px;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Text {
+                            text: "« Send";
+                            font-size: 12px; color: #8fb4ff; width: 60px;
+                            horizontal-alignment: center; vertical-alignment: center;
+                            accessible-role: button;
+                            accessible-id: "fm-send-left";
+                            accessible-label: "Send selected to location 1";
+                            accessible-action-default => { root.moveRequested(1); }
+                            TouchArea { clicked => { root.moveRequested(1); } }
+                        }
+                        Text { text: root.rightTitle; font-size: 13px; color: white; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; horizontal-alignment: right; }
+                    }
+                    Flickable {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            spacing: 2px;
+                            for f[idx] in root.rightFiles : Rectangle {
+                                height: 30px;
+                                border-radius: 5px;
+                                background: idx == root.selectedRight ? #2f3c55 : transparent;
+                                accessible-role: list-item;
+                                accessible-id: "fm-right-file-" + idx;
+                                accessible-label: f.name;
+                                accessible-action-default => { root.filePressed(1, idx); }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    padding-left: 8px;
+                                    Text { text: f.isDir ? "📁" : "📄"; font-size: 13px; vertical-alignment: center; }
+                                    Text { text: f.name; font-size: 13px; color: white; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                                }
+                                TouchArea {
+                                    pointer-event(ev) => {
+                                        if (ev.kind == PointerEventKind.down) {
+                                            root.filePressed(1, idx);
+                                        }
+                                    }
+                                    clicked => { root.fileActivated(1, idx); }
+                                }
+                            }
+                        }
+                    }
+                    TouchArea {
+                        clicked => {
+                            if (root.draggedPayload != "") {
+                                root.dropOnPane(1, root.draggedPayload);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Status bar ───────────────────────────────────────
+        Rectangle {
+            height: 26px;
+            background: #15171c;
+            Text {
+                x: 10px;
+                text: root.status;
+                font-size: 12px;
+                color: #9aa3b2;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

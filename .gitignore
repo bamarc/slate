@@ -74,19 +74,27 @@ slate-carbon/**/bin/
 dub.selections.json
 *.o
 *.obj
+libslate-workspace.a
+slate-workspace-test-*
 slint-d/*.a
 slint-d/*-test-*
 slint-d/examples/hello/hello
 slint-d/examples/menushow/menushow
 slint-d/examples/gallery/gallery
+examples/file-manager/file-manager
+examples/file-manager/file-manager-test-application
 slate-dlang/*.a
 slate-dlang/**/*.a
 slate-dlang/*-test-*
 slate-dlang/**/*-test-*
+slate-encoding/*.a
+slate-encoding/*-test-*
 slate-dlang/bin/
 !slate-dlang/source/slate/bin/
 slate-dlang/packages/*/bin/
 !slate-dlang/packages/*/source/slate/bin/
+slate-dlang/docs/
+slint-d/docs/
 lib/
 
 # Local, user-owned material

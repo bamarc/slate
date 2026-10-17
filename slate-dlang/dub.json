@@ -12,13 +12,15 @@
         "./packages/core",
         "./packages/net",
         "./packages/mcp",
-        "./packages/ui"
+        "./packages/ui",
+        "./packages/solid"
     ],
     "dependencies": {
         "slate:core": "*",
         "slate:net": "*",
         "slate:mcp": "*",
         "slate:ui": "*",
+        "slate:solid": "*",
         "slint-d": {"path": "../slint-d"}
     },
     "libs": ["curl", "ssl", "crypto"],

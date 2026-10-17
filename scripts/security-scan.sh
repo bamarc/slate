@@ -22,52 +22,59 @@ if command -v gitleaks >/dev/null 2>&1; then
   fi
 else
   echo "⚠️  Gitleaks not installed on host. Skipping local secret detection."
-  echo "    Install with: brew install gitleaks (macOS) or download from GitHub releases."
 fi
 
-# 2. Dependency Audit Scanning
+# 2. Dependency Manifest Checks (DUB, Cargo, Reference Python/Node)
 echo ""
-echo "🔍 Checking dependency changes..."
+echo "🔍 Checking staged dependency manifest changes..."
 
-# Find staged changes in pyproject.toml or package.json
-CHANGED_DEPS=$(git diff --cached --name-only -- 'backend/pyproject.toml' 'frontend/package.json' 2>/dev/null || true)
+CHANGED_DEPS=$(git diff --cached --name-only -- \
+  'slint-d/bridge/Cargo.toml' \
+  'slint-d/dub.json' \
+  'slate-dlang/dub.json' \
+  'slate-dlang/packages/*/dub.json' \
+  'reference/backend/pyproject.toml' \
+  'reference/frontend/package.json' 2>/dev/null || true)
 
 if [ -n "$CHANGED_DEPS" ]; then
   for dep_file in $CHANGED_DEPS; do
     if [ ! -f "$dep_file" ]; then
       continue
     fi
-    if [[ "$dep_file" == *"frontend/package.json"* ]]; then
+    echo "📦 Staged dependency file modified: $dep_file"
+    if [[ "$dep_file" == *"Cargo.toml"* ]] && [ -x "$ROOT_DIR/scripts/check-package-security.sh" ]; then
+      "$ROOT_DIR/scripts/check-package-security.sh" "$dep_file" || BLOCK_COMMIT=1
+    fi
+    if [[ "$dep_file" == *"package.json"* ]]; then
       echo "📦 Scanning Frontend (pnpm audit)..."
       (cd "$(dirname "$dep_file")" && pnpm audit --prod --audit-level=high) || {
         echo "❌ Frontend has high/critical vulnerability dependencies."
         BLOCK_COMMIT=1
       }
     fi
-    if [[ "$dep_file" == *"backend/pyproject.toml"* ]]; then
+    if [[ "$dep_file" == *"pyproject.toml"* ]]; then
       echo "📦 Scanning Backend (pip-audit)..."
       if command -v uv >/dev/null 2>&1; then
         (cd "$(dirname "$dep_file")" && uv pip compile pyproject.toml -o requirements.txt && uv run pip-audit --no-deps --disable-pip -r requirements.txt && rm requirements.txt) || {
           echo "❌ Backend has vulnerability dependencies."
           BLOCK_COMMIT=1
         }
-      else
-        echo "⚠️  uv not found. Skipping backend dependency audit."
       fi
     fi
   done
 else
-  echo "✅ No dependency files changed. Skipping audit."
+  echo "✅ No dependency manifests changed in staging."
 fi
 
 # 3. OSV Scanner (Open Source Vulnerability scanner)
 if command -v osv-scanner >/dev/null 2>&1; then
   echo ""
   echo "🔍 Running OSV Scanner..."
-  
-  # Check if lockfiles changed
-  CHANGED_LOCKS=$(git diff --cached --name-only -- 'backend/uv.lock' 'frontend/pnpm-lock.yaml' 2>/dev/null || true)
-  
+  CHANGED_LOCKS=$(git diff --cached --name-only -- \
+    'slint-d/bridge/Cargo.lock' \
+    'reference/backend/uv.lock' \
+    'reference/frontend/pnpm-lock.yaml' 2>/dev/null || true)
+
   if [ -n "$CHANGED_LOCKS" ]; then
     for lock_file in $CHANGED_LOCKS; do
       if [ -f "$ROOT_DIR/$lock_file" ]; then

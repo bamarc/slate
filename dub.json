@@ -1,0 +1,65 @@
+{
+    "name": "slate-workspace",
+    "description": "Slate workspace umbrella: Dlang + Slint desktop UI framework, SolidJS cross-compiler, and MCP automation",
+    "authors": ["Slate Contributors"],
+    "license": "MIT",
+    "homepage": "https://github.com/slate-framework/slate",
+    "targetType": "library",
+    "targetName": "slate-workspace",
+    "sourcePaths": ["slate-dlang/source"],
+    "importPaths": ["slate-dlang/source"],
+    "dependencies": {
+        "slint-d": {"path": "./slint-d"},
+        "slate": {"path": "./slate-dlang"}
+    },
+    "libs": ["curl", "ssl", "crypto"],
+    "lflags-posix": ["-L/home/developer/.local/lib", "-Lslate-dlang/lib", "-L/usr/local/lib"],
+    "configurations": [
+        {
+            "name": "library",
+            "targetType": "library"
+        },
+        {
+            "name": "native",
+            "targetType": "library",
+            "versions": ["SlintNative"],
+            "subConfigurations": {
+                "slate": "native",
+                "slint-d": "native"
+            }
+        },
+        {
+            "name": "slint2solid",
+            "targetType": "executable",
+            "targetName": "slint2solid",
+            "targetPath": "target/bin",
+            "sourcePaths": ["slate-dlang/packages/solid/source"],
+            "importPaths": ["slate-dlang/packages/solid/source"],
+            "mainSourceFile": "slate-dlang/packages/solid/source/slate/bin/slint2solid.d"
+        },
+        {
+            "name": "durl",
+            "targetType": "executable",
+            "targetName": "durl",
+            "targetPath": "target/bin",
+            "sourcePaths": ["slate-dlang/packages/net/source"],
+            "importPaths": ["slate-dlang/packages/net/source"],
+            "mainSourceFile": "slate-dlang/packages/net/source/slate/bin/durl.d",
+            "versions": ["SlateHttpDebug"]
+        },
+        {
+            "name": "file-manager",
+            "targetType": "executable",
+            "targetName": "file-manager",
+            "targetPath": "target/bin",
+            "sourcePaths": ["examples/file-manager/source"],
+            "importPaths": ["examples/file-manager/source"],
+            "mainSourceFile": "examples/file-manager/source/main.d"
+        }
+    ],
+    "buildTypes": {
+        "unittest": {
+            "buildOptions": ["unittests", "debugMode", "debugInfo"]
+        }
+    }
+}

@@ -1008,7 +1008,7 @@ unittest
 
     // 2-arg action via JSON array
     adapted.mcpInvokeAction("sort_by_column", JSONValue([
-            JSONValue(3), JSONValue("desc")
+        JSONValue(3), JSONValue("desc")
     ]));
     assert(grid.sortColumn() == 3);
     assert(grid.sortDirection() == "desc");

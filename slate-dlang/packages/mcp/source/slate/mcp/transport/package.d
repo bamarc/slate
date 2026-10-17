@@ -12,3 +12,4 @@ module slate.mcp.transport;
 public import slate.mcp.transport.io;
 public import slate.mcp.transport.stdio;
 public import slate.mcp.transport.memory;
+public import slate.mcp.transport.unix_socket;

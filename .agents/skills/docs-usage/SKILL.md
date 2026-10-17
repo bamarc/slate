@@ -5,24 +5,28 @@ description: 'Guidelines for using and maintaining project documentation. Use th
 
 # Documentation Usage Skill
 
-This project maintains comprehensive documentation. Follow these rules when working with docs.
+This project maintains structured documentation across the workspace and `docs/`. Follow these rules when reading or updating docs.
 
-## Documentation structure
-- `docs/guides/` — Style guides by language: `style-python.md`, `style-typescript.md`, `style-yaml.md`, `style-general.md`, `tool-selection.md`
-- `docs/agents/` — Agent descriptions: `human-gate.md`, `security-auditor.md`, `docs-bot.md`
-- `docs/README.md` — Index of all docs
+## Documentation Structure
+- **Workspace & Package Docs**:
+  - [`README.md`](../../../README.md) — Top-level Slate overview
+  - [`AGENTS.md`](../../../AGENTS.md) — Master agent instructions and index of scoped `AGENTS.md` files
+  - [`slate-dlang/README.md`](../../../slate-dlang/README.md) & [`slate-dlang/AGENTS.md`](../../../slate-dlang/AGENTS.md) — Core Dlang framework & 5 DUB subpackages (`:core`, `:net`, `:mcp`, `:ui`, `:solid`)
+  - [`slint-d/README.md`](../../../slint-d/README.md) & [`slint-d/AGENTS.md`](../../../slint-d/AGENTS.md) — Slint Dlang bindings & Rust C-ABI bridge
+  - [`ui/README.md`](../../../ui/README.md) & [`ui/AGENTS.md`](../../../ui/AGENTS.md) — Shared `.slint` component library
+  - [`slate-dev/README.md`](../../../slate-dev/README.md) — Portable Dlang + Slint toolchain installer & MCP plugin
+  - [`examples/README.md`](../../../examples/README.md) — Standalone example applications
+- **Style Guides (`docs/guides/`)**:
+  - [`docs/guides/style-dlang.md`](../../../docs/guides/style-dlang.md) — Dlang conventions (`dfmt`, `dscanner`, `@safe`, DbC, MCP traits, `// Spec:` unittests)
+  - [`docs/guides/style-slint.md`](../../../docs/guides/style-slint.md) — Slint conventions (`SlateTheme` tokens, `Slate*` naming, accessibility roles, `slint2solid` compatibility)
+  - [`docs/guides/style-general.md`](../../../docs/guides/style-general.md) — Git conventions, file naming, and agent rules
+  - [`docs/guides/tool-selection.md`](../../../docs/guides/tool-selection.md) — Dependency and tool selection rules
+- **Documentation Index**: [`docs/README.md`](../../../docs/README.md)
 
 ## Rules
-- **Do NOT duplicate information** that exists in docs — reference the doc file instead
-- **Do NOT make assumptions** about project conventions — check `docs/guides/style-*.md` first
-- **When adding new code**, check if existing docs need updating
-- **When adding a new feature**, update relevant README and docs
-- **README.md** files should always reflect the current state of the project
-
-## Reading docs
-Before implementing anything, check:
-1. `docs/guides/style-python.md` for Python conventions
-2. `docs/guides/style-typescript.md` for TypeScript conventions
-3. `docs/guides/style-yaml.md` for OpenAPI conventions
-4. `docs/guides/style-general.md` for git and general conventions
-5. `docs/guides/tool-selection.md` before adding any new dependency
+- **Do NOT duplicate information** unnecessarily — link to the authoritative `README.md`, `AGENTS.md`, or `docs/guides/style-*.md` file.
+- **Check language style guides first**:
+  1. `docs/guides/style-dlang.md` and `slate-dlang/AGENTS.md` / `slint-d/AGENTS.md` before editing `.d` files.
+  2. `docs/guides/style-slint.md` and `ui/AGENTS.md` before editing `.slint` files.
+  3. `docs/guides/style-general.md` for git and file-naming conventions.
+- **Keep `README.md` and `AGENTS.md` synchronized** whenever adding new subpackages, components, controllers, or `just` recipes.

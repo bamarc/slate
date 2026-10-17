@@ -103,6 +103,25 @@ class RingBufferLogModel : McpControllable, Filterable, Selectable
         syncModel();
     }
 
+    /// Subscribe this `RingBufferLogModel` to the central OpenTelemetry logger (`slog`).
+    @McpIgnore void attachToCentralLogger()
+    {
+        import slate.log : OtelLogRecord, slog, uiLevelTag;
+
+        slog.addSink("ui:" ~ mcpNamespace(), (OtelLogRecord rec) {
+            string src = rec.codeFunction.length > 0 ? rec.codeFunction : rec.serviceName;
+            this.append(uiLevelTag(rec.severity), src, rec.toCompactLine());
+        });
+    }
+
+    /// Unsubscribe this `RingBufferLogModel` from `slog`.
+    @McpIgnore void detachFromCentralLogger()
+    {
+        import slate.log : slog;
+
+        slog.removeSink("ui:" ~ mcpNamespace());
+    }
+
     /// Set the active severity filter ("all", "info", "warn", "error", "debug").
     void setSeverityFilter(string severity)
     {

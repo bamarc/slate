@@ -8,6 +8,7 @@
 /// layer; see the repository README for the layer map.
 module slate;
 
+public import slate.log;
 public import slate.theme;
 public import slate.tasks;
 public import slate.utils;

@@ -1,0 +1,35 @@
+{
+    "name": "solid",
+    "description": "Slate Solid: Slint + Dlang to SolidJS cross-compiler and runtime generator",
+    "authors": ["Slate Contributors"],
+    "license": "MIT",
+    "homepage": "https://github.com/slate-framework/slate",
+    "targetType": "library",
+    "sourcePaths": ["source"],
+    "importPaths": ["source"],
+    "targetName": "slate-solid",
+    "dependencies": {
+        "slate:core": "*",
+        "slate:mcp": "*",
+        "slate:ui": "*",
+        "slint-d": {"path": "../../../slint-d"}
+    },
+    "configurations": [
+        {
+            "name": "library",
+            "targetType": "library"
+        },
+        {
+            "name": "slint2solid",
+            "targetType": "executable",
+            "targetName": "slint2solid",
+            "targetPath": "bin",
+            "mainSourceFile": "source/slate/bin/slint2solid.d"
+        }
+    ],
+    "buildTypes": {
+        "unittest": {
+            "buildOptions": ["unittests", "debugMode", "debugInfo"]
+        }
+    }
+}

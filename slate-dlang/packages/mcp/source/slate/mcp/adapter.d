@@ -13,8 +13,9 @@ import slate.agent.builder : AgentBuilder, AgentHandle, ServerLifecycleHandle;
 import slate.agent.engine : AutomationEngine;
 import slate.agent.error : AgentError;
 import slate.mcp.server : McpServer;
-import slate.mcp.transport : InMemoryTransportHandle, StdioTransportHandle,
-    spawnInMemoryTransport, spawnStdioTransport;
+import slate.mcp.transport : InMemoryTransportHandle, StdioTransportHandle, UnixSocketConfig,
+    UnixSocketTransportHandle, spawnInMemoryTransport, spawnStdioTransport,
+    spawnUnixSocketTransport;
 import std.typecons : Nullable;
 
 /// Transport selection for `McpAdapter`.
@@ -23,11 +24,13 @@ struct McpTransportMode
     enum Kind
     {
         stdio,
-        inMemory
+        inMemory,
+        unixSocket
     }
 
     Kind kind = Kind.stdio;
     Socket socket;
+    UnixSocketConfig unixConfig;
 
     static McpTransportMode stdio() @safe pure nothrow
     {
@@ -37,6 +40,11 @@ struct McpTransportMode
     static McpTransportMode inMemory(Socket socket) @safe pure nothrow
     {
         return McpTransportMode(Kind.inMemory, socket);
+    }
+
+    static McpTransportMode unixSocket(string socketPath = "", string authToken = "") @safe pure nothrow
+    {
+        return McpTransportMode(Kind.unixSocket, null, UnixSocketConfig(socketPath, authToken));
     }
 }
 
@@ -61,6 +69,13 @@ struct McpAdapterConfig
         return c;
     }
 
+    static McpAdapterConfig unixSocket(string socketPath = "", string authToken = "")
+    {
+        McpAdapterConfig c;
+        c.mode = McpTransportMode.unixSocket(socketPath, authToken);
+        return c;
+    }
+
     McpAdapterConfig withInfo(string name, string version_)
     {
         auto c = this;
@@ -70,18 +85,20 @@ struct McpAdapterConfig
     }
 }
 
-/// Unified server handle (stdio or in-memory leg) directly implementing `ServerLifecycleHandle`.
+/// Unified server handle (stdio, in-memory, or secure Unix socket leg) directly implementing `ServerLifecycleHandle`.
 final class McpServerHandle : ServerLifecycleHandle
 {
     enum Kind
     {
         stdio,
-        inMemory
+        inMemory,
+        unixSocket
     }
 
     Kind kind;
     StdioTransportHandle stdioHandle;
     InMemoryTransportHandle memoryHandle;
+    UnixSocketTransportHandle unixHandle;
 
     this(Kind kind)
     {
@@ -96,6 +113,8 @@ final class McpServerHandle : ServerLifecycleHandle
             return stdioHandle.isRunning();
         case Kind.inMemory:
             return memoryHandle.isRunning();
+        case Kind.unixSocket:
+            return unixHandle.isRunning();
         }
     }
 
@@ -109,16 +128,29 @@ final class McpServerHandle : ServerLifecycleHandle
         case Kind.inMemory:
             memoryHandle.stop();
             break;
+        case Kind.unixSocket:
+            unixHandle.stop();
+            break;
         }
     }
 
     override Nullable!string localAddr()
     {
+        if (kind == Kind.unixSocket && unixHandle !is null)
+            return Nullable!string(unixHandle.socketPath());
         return Nullable!string.init;
+    }
+
+    /// When running in `Kind.unixSocket` mode, returns the 256-bit capability token.
+    string authToken()
+    {
+        if (kind == Kind.unixSocket && unixHandle !is null)
+            return unixHandle.authToken();
+        return "";
     }
 }
 
-/// Attaches MCP (stdio or in-memory) to an automation engine.
+/// Attaches MCP (stdio, in-memory, or secure Unix socket) to an automation engine.
 class McpAdapter
 {
     ServerLifecycleHandle attach(AutomationEngine engine, McpAdapterConfig config)
@@ -140,11 +172,17 @@ class McpAdapter
                 h.memoryHandle = spawnInMemoryTransport(server, config.mode.socket);
                 return h;
             }
+        case McpTransportMode.Kind.unixSocket:
+            {
+                auto h = new McpServerHandle(McpServerHandle.Kind.unixSocket);
+                h.unixHandle = spawnUnixSocketTransport(server, config.mode.unixConfig);
+                return h;
+            }
         }
     }
 }
 
-/// Attach an in-memory MCP session to the builder (UFCS: `builder.withMcp(...)`).
+/// Attach an MCP session to the builder (UFCS: `builder.withMcp(...)`).
 AgentBuilder withMcp(AgentBuilder builder, McpAdapterConfig config)
 {
     auto adapter = new McpAdapter();
@@ -159,6 +197,12 @@ AgentBuilder withMcpStdio(AgentBuilder builder)
     return builder.withMcp(McpAdapterConfig.stdio());
 }
 
+/// Attach the secure Unix Domain Socket MCP server to the builder.
+AgentBuilder withMcpUnixSocket(AgentBuilder builder, string socketPath = "", string authToken = "")
+{
+    return builder.withMcp(McpAdapterConfig.unixSocket(socketPath, authToken));
+}
+
 /// Start an MCP agent directly with configuration (UFCS: `builder.startMcp(...)`).
 AgentHandle startMcp(AgentBuilder builder, McpAdapterConfig config)
 {
@@ -169,6 +213,12 @@ AgentHandle startMcp(AgentBuilder builder, McpAdapterConfig config)
 AgentHandle startMcpStdio(AgentBuilder builder)
 {
     return withMcpStdio(builder).start();
+}
+
+/// Start an opt-in, capability-authenticated Unix Domain Socket MCP agent directly.
+AgentHandle startMcpUnixSocket(AgentBuilder builder, string socketPath = "", string authToken = "")
+{
+    return withMcpUnixSocket(builder, socketPath, authToken).start();
 }
 
 // Spec: Scenario T5: McpServer Lifecycle & AgentBuilder integration

@@ -42,6 +42,7 @@ the **`slint-interpreter`** Rust crate:
 ```
 slint-d/
 ├── dub.json                 # dub package; configs: library (default), native
+├── AGENTS.md                # AI agent & FFI safety rules
 ├── source/slint/
 │   ├── package.d            # public root (mirrors TS index.ts / __init__.py)
 │   ├── value.d              # Value/ValueType + FFI conversions
@@ -50,47 +51,55 @@ slint-d/
 │   ├── compiler.d           # Compiler, CompilationResult
 │   ├── definition.d         # ComponentDefinition + metadata + validateSpec
 │   ├── instance.d           # ComponentInstance (props, callbacks, globals)
+│   ├── window.d             # WindowHandle, offscreen snapshots, input injection
+│   ├── png.d                # Pure-D RGBA PNG encoder/decoder
 │   ├── callback.d           # handler registry, FFI shim, scoped lifetimes
 │   ├── codegen.d            # SlintProps/SlintCallbacks compile-time mixins
-│   ├── model.d              # Model!T, ArrayModel!T, adapters, GeneratorModel
+│   ├── model.d              # Model!T, ArrayModel!T, StructModel!T, TreeModel!T, adapters, GeneratorModel
 │   ├── fiber.d              # UiTask cooperative tasks on D fibers
 │   ├── eventloop.d          # run/quit/invokeFromEventLoop/setXdgAppId
 │   ├── timer.d              # Timer / TimerMode (native-scheduled)
 │   └── loader.d             # loadFile + LoadOptions
-├── bridge/                  # Rust cdylib/staticlib over slint-interpreter
+├── bridge/                  # Modular Rust cdylib/staticlib over slint-interpreter
 │   ├── Cargo.toml           # slint-interpreter + i-slint-core 1.18.1
-│   └── src/lib.rs
-└── examples/hello/          # dub app: counter window (app.slint + main.d)
-    └── examples/menushow/       # Slate menubar gallery; `--shot out.png`
-                                # renders offscreen (no display needed)
-    └── examples/gallery/        # Full showcase gallery: wires the Rust
-                                # showcase markup from D, renders all tabs
-                                # offscreen into renders/dlang-gallery/
+│   └── src/
+│       ├── lib.rs           # C-ABI module exports & shared utilities
+│       ├── error.rs         # FFI error codes & reporting
+│       ├── compiler.rs      # Slint compiler FFI
+│       ├── value.rs         # Value <-> C-ABI conversions
+│       ├── model.rs         # ModelNotify & ModelRc FFI adapters
+│       ├── instance.rs      # ComponentDefinition & ComponentInstance FFI
+│       ├── window.rs        # Software window rendering & input dispatch
+│       └── accessibility.rs # Accessibility tree inspection for MCP automation
+└── examples/
+    ├── hello/               # dub app: counter window (app.slint + main.d)
+    ├── menushow/            # Slate menubar gallery; `--shot out.png` renders offscreen
+    └── gallery/             # Full showcase gallery: renders all tabs offscreen into renders/dlang-gallery/
 ```
 
 ## Prerequisites
 
-- **DMD 2.113+ + DUB 1.42+** via the user-local installer (no root needed):
+- **Portable `slate-dev` Toolchain** (installs DMD 2.113.0, DUB 1.42.0, `serve-d`, `dcd`, `dscanner`, `dfmt`, `slint-lsp`):
   ```sh
-  curl -fsS https://dlang.org/install.sh | bash -s install dmd
-  source ~/dlang/dmd-*/activate
+  just d-setup
+  just d-check
   ```
-  (If `xz` is missing, a Python-`lzma` shim on `PATH` named `xz` suffices.)
-- **Rust toolchain** (only for the native bridge): `cargo build` in `bridge/`.
+- **Rust toolchain** (for the native C-ABI bridge): `just d-bridge` (or `cargo build` in `bridge/`).
 
 ## Build & test
 
 ```sh
+# From repository root:
+just d-test          # pure-D unit tests, no Slint runtime needed (15 modules)
+just d-test-native   # native unit tests with SLINT_BACKEND=software
+just d-build         # build library (pure-D configuration)
+
+# Or directly in slint-d/:
 source ~/dlang/dmd-*/activate
-
 cd slint-d
-dub test          # pure-D unit tests, no Slint runtime needed (9 modules)
-dub build         # library, pure-D configuration
-
-# Native runtime (run from slint-d/ after `cargo build` in bridge/):
+dub test
 export LD_LIBRARY_PATH=$PWD/bridge/target/debug:$LD_LIBRARY_PATH
-dub build --config=native                      # library, native config
-cd examples/hello && dub run --config=native  # needs a display server
+SLINT_BACKEND=software dub test --config=native
 ```
 
 Consumers opt into the native config with
@@ -121,7 +130,7 @@ Two configurations, matching how Node ships lean vs. dev binaries
 | global classes | global classes | `get/setGlobal*`, `invokeGlobal`, `setGlobalCallback` |
 | `show / hide / run` | `show / hide / run` | `show / hide / run` |
 | Slate `render` tool (`take_snapshot`, offscreen) | — (no equivalent) | `snapshot()` + `slint.png.encodePngRgba` |
-| `Model<T>` / `ArrayModel<T>` | `Model` / `ListModel` (+ adapters) | `Model!T` / `ArrayModel!T` + `Map/Filter/Sorted/ReverseModel`, fiber-fed `GeneratorModel` |
+| `Model<T>` / `ArrayModel<T>` | `Model` / `ListModel` (+ adapters) | `Model!T` / `ArrayModel!T` / `StructModel!T` / `TreeModel!T` + `Map/Filter/Sorted/ReverseModel`, fiber-fed `GeneratorModel` |
 | `RgbaColor` / `Brush` | `Color` / `Brush` | `Color` (+ `RgbaColor` alias) / `Brush` |
 | `ImageData` | `Image` | `ImageData` |
 | `Timer` | `Timer` / `TimerMode` | `Timer` / `TimerMode` (native-scheduled) |
@@ -169,18 +178,11 @@ See `examples/hello/` (counter window, same shape as the Node README example).
   captured errors, plus pull-based models fed by a producer fiber —
   D's answer to Python's asyncio integration, without the loop dependency.
 
-## Roadmap (later phases)
+## Completed Milestones
 
-1. ~~Variadic `invoke` / `setCallback` with a D-delegate trampoline~~ done.
-2. ~~Globals accessors~~ done. ~~Timers~~ done (native). ~~`invokeFromEventLoop`
-   + `setXdgAppId`~~ done.
-3. `Value` ↔ interpreter conversion for structs/models/brushes/images
-   (scalars cross today; complex payloads are stub shapes).
-4. `ModelRc` hand-off: live D models behind Slint array properties
-   (adapters compose pure-D today; the bridge half needs a Rust `Model`
-   impl calling into D).
-5. `Window` handle API, `language` module (input events, list items),
-   gettext `initTranslations`, custom file loaders.
-6. Code-generated specs from compiler metadata (introspection is live;
-   closing the loop into `mixin` input is open).
-7. Slate bindings (`AppBuilder`, theme tokens) on top of `slint-d`.
+1. Variadic `invoke` / `setCallback` with a D-delegate trampoline.
+2. Globals accessors, native `Timer`s, `invokeFromEventLoop`, and `setXdgAppId`.
+3. Full `Value` ↔ interpreter conversion for structs, arrays/models, brushes, colors, and images.
+4. Reactive `StructModel!T` and `TreeModel!T` with bounded recursion (`maxTreeDepth = 128`).
+5. `WindowHandle` API, offscreen software rendering (`snapshot()`), input event injection, and accessibility tree traversal.
+6. Slate framework bindings (`slate:ui` `AppBuilder`, controllers, and native MCP backend) built on top of `slint-d`.

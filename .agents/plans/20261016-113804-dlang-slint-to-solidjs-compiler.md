@@ -1,8 +1,8 @@
 # Plan: Slate `.slint` + Dlang to SolidJS Cross-Compiler (`slate:solid`)
 
 - **Owning Project**: `slate-dlang` (`packages/solid/`) & `ui/`
-- **Status**: `in-review`
-- **Revision**: `2` *(Updated: Full 100% standalone feature completeness by compiling Dlang controllers, models, chart utilities, and MCP runtime directly to TypeScript/JS alongside `.slint` → SolidJS `.tsx`)*
+- **Status**: `completed`
+- **Revision**: `3` *(Completed: Round 3 adversarial remediation with 100% test pass rate, esbuild bundle verification, and full MCP JSON-RPC 2.0 Node execution)*
 - **Date**: `2026-10-16`
 
 ---
@@ -234,7 +234,14 @@ Scenario: T6 - Structured syntax error reporting on malformed Slint or D input (
 
 ---
 
-## 6. Verification
+## 6. Verification & Gates (`G1`–`G5`)
+
+### Verification Gates
+- **`G1` (Zero Hardcoding & Full 64-File AST Lowering)**: Neither the `.slint` compiler nor the D-to-TypeScript compiler may hardcode component names, file-specific string replacements, or canned TypeScript blobs for `button.slint`, `data_grid.slint`, or individual controllers. Every `.slint` file (all 64 in `ui/`) and every D controller/utility module (`chart.d`, `datagrid.d`, `media.d`, `file_dialog.d`, `dropzone.d`, `log_viewer.d`, `layouts.d`) must be genuinely lexed, parsed into an AST, and lowered through general compiler rules.
+- **`G2` (Memory & Parser Safety — `@safe` & Bounded Recursion)**: All lexer, parser, semantic analysis, and codegen modules in `slate:solid` must be `@safe`, enforce bounded recursion depth (`maxParseDepth = 128`) to prevent stack-overflow DoS on deeply nested expressions/elements, and sanitize all emitted string literals/identifiers against code-injection or XSS escapes.
+- **`G3` (Real Runtime Execution of Generated TypeScript)**: Unit/integration tests (`T4`, `T5`) must not merely check `indexOf` substrings on generated `.ts` code — they must execute the compiled TypeScript controllers, `chart.ts` SVG path builders, `InMemoryFileSystem`, and `McpStateRegistry` / `McpServer` JSON-RPC 2.0 handler using the local Node/TypeScript runtime (`node` / `npx tsx` or `esbuild`) and assert identical runtime outputs to the Dlang unit tests.
+- **`G4` (Mandatory Test Headers)**: 100% of `unittest` blocks in `slate:solid` must include a `// Spec:` (or `// Best practice:`) comment header and a `/// Example:` doc comment block.
+- **`G5` (Linter & Formatter Compliance)**: All new `.d` files must pass `just d-lint` (`dscanner --syntaxCheck` and `dscanner --styleCheck --config dscanner.ini`), `dfmt` formatting, and `just lint` with zero warnings or errors.
 
 ### Planned Verification Commands
 ```bash
@@ -271,4 +278,4 @@ just slate-test-native
   - `A1`: The generated SolidJS `.tsx` and `.ts` files target SolidJS (`solid-js` `^1.8.0` / `^1.9.0`) and standard ES2022 TypeScript.
   - `A2`: Host-only classes (`LocalFileSystem` using `std.file`) are omitted from the browser bundle in favor of `InMemoryFileSystem` (and pluggable `FileSystemProvider` implementations).
 - **Open Questions / Blockers**: None.
-- **Review Status**: Ready for user review (`in-review`, `Revision: 2`). Approve to begin TDD implementation of `slate:solid`.
+- **Review Status**: `approved` (User approved Revision 2 and initiated `/adversarial-tdd-workflow`).

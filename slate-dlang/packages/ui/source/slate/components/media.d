@@ -327,6 +327,7 @@ class MediaPlayerController : McpControllable, Seekable, Selectable, McpBindable
         syncSlintProperties();
     }
 
+    @McpState("volume") @McpWritable("volume") @McpAction("set_volume")
     double volume() const @safe pure nothrow
     {
         return _volume;
@@ -361,6 +362,7 @@ class MediaPlayerController : McpControllable, Seekable, Selectable, McpBindable
         return _muted;
     }
 
+    @McpState("playback_rate") @McpWritable("playback_rate") @McpAction("set_playback_rate")
     double playbackRate() const @safe pure nothrow
     {
         return _playbackRate;
@@ -391,6 +393,7 @@ class MediaPlayerController : McpControllable, Seekable, Selectable, McpBindable
         return _playbackRate;
     }
 
+    @McpState("repeat_mode") @McpWritable("repeat_mode") @McpAction("set_repeat_mode")
     string repeatMode() const @safe pure nothrow
     {
         return _repeatMode;

@@ -218,6 +218,7 @@ class FileDialogController : McpControllable, Filterable, Selectable
         return _errorMessage;
     }
 
+    @McpState("mode")
     string mode() const @safe pure nothrow
     {
         return _mode;
@@ -230,11 +231,13 @@ class FileDialogController : McpControllable, Filterable, Selectable
         _mode = m;
     }
 
+    @McpState("current_path")
     string currentPath() const @safe pure nothrow
     {
         return _currentPath;
     }
 
+    @McpState("filename_input")
     string filenameInput() const @safe pure nothrow
     {
         return _filenameInput;
@@ -255,6 +258,7 @@ class FileDialogController : McpControllable, Filterable, Selectable
         _filenameInput = name.strip();
     }
 
+    @McpState("extension_filter")
     string extensionFilter() const @safe pure nothrow
     {
         return _extensionFilter;

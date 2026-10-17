@@ -61,6 +61,9 @@ final class SocketLines : LineReader, LineWriter
                     return null;
                 throw McpTransportError.io("socket receive failed");
             }
+            enum size_t maxLineBufferBytes = 16 * 1024 * 1024;
+            if (_pending.length + got > maxLineBufferBytes)
+                throw McpTransportError.io("socket line exceeds maximum frame length");
             _pending ~= buf[0 .. got];
         }
     }
