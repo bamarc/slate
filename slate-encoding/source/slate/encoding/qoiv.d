@@ -389,6 +389,127 @@ QoivDecodeResult decodeQoivFrame(const(ubyte)[] baseBytes,
     return res;
 }
 
+/// Measured QOIV compression ratios comparing synthetic flat graphics against noisy natural imagery (`U3`, `E6`).
+public struct QoivBenchmarkSummary
+{
+    double syntheticKeyframeRatio = 0.0;
+    double syntheticDeltaRatio = 0.0;
+    double naturalNoisyKeyframeRatio = 0.0;
+    double naturalNoisyDeltaRatio = 0.0;
+    bool losslessVerified = false;
+}
+
+/// Evaluate QOIV lossless compression on both a synthetic flat-graphics frame pair and a noisy natural-imagery frame pair.
+public QoivBenchmarkSummary benchmarkQoivProfiles(uint width = 64, uint height = 64) @trusted pure nothrow
+{
+    QoivBenchmarkSummary summary;
+    if (width == 0 || height == 0 || cast(ulong) width * cast(ulong) height > MAX_QOI_PIXELS)
+        return summary;
+
+    const size_t frameBytes = cast(size_t) width * cast(size_t) height * 4;
+
+    // 1. Synthetic flat graphics (SMPTE-style bars + 6x6 moving cursor)
+    ubyte[] syn0 = new ubyte[frameBytes];
+    ubyte[] syn1 = new ubyte[frameBytes];
+    foreach (y; 0 .. height)
+    {
+        foreach (x; 0 .. width)
+        {
+            const size_t idx = (cast(size_t) y * width + x) * 4;
+            const uint bar = (x * 8) / width;
+            syn0[idx + 0] = (bar & 1) ? 220 : 20;
+            syn0[idx + 1] = (bar & 2) ? 220 : 20;
+            syn0[idx + 2] = (bar & 4) ? 220 : 20;
+            syn0[idx + 3] = 255;
+
+            syn1[idx .. idx + 4] = syn0[idx .. idx + 4];
+            if (x >= 10 && x < 16 && y >= 10 && y < 16)
+            {
+                syn0[idx + 0] = 255;
+                syn0[idx + 1] = 180;
+                syn0[idx + 2] = 40;
+            }
+            if (x >= 14 && x < 20 && y >= 14 && y < 20)
+            {
+                syn1[idx + 0] = 255;
+                syn1[idx + 1] = 180;
+                syn1[idx + 2] = 40;
+            }
+        }
+    }
+
+    auto synEnc0 = encodeQoivFrame(syn0, null, width, height, true);
+    auto synDec0 = decodeQoivFrame(synEnc0.baseLayerBytes, null, null, width, height);
+    auto synEnc1 = encodeQoivFrame(syn1, synDec0.rgba, width, height, false);
+    auto synDec1 = decodeQoivFrame(synEnc1.baseLayerBytes,
+            synEnc1.deltaLayerBytes, synDec0.rgba, width, height);
+
+    summary.syntheticKeyframeRatio = synEnc0.compressionRatio;
+    summary.syntheticDeltaRatio = synEnc1.deltaLayerBytes.length > 0
+        ? (cast(double) frameBytes / cast(double) synEnc1.deltaLayerBytes.length) : 0.0;
+
+    // 2. Noisy natural imagery (2D continuous spatial gradient + xorshift32 sensor noise + moving object)
+    ubyte[] nat0 = new ubyte[frameBytes];
+    ubyte[] nat1 = new ubyte[frameBytes];
+    uint rng = 0x9E37_79B9u;
+    auto nextRng = () pure nothrow @safe @nogc {
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        return rng;
+    };
+
+    foreach (y; 0 .. height)
+    {
+        foreach (x; 0 .. width)
+        {
+            const size_t idx = (cast(size_t) y * width + x) * 4;
+            const uint baseR = (x * 255) / (width > 1 ? width - 1 : 1);
+            const uint baseG = (y * 255) / (height > 1 ? height - 1 : 1);
+            const uint baseB = ((x + y) * 127) / (width + height > 2 ? width + height - 2 : 1);
+
+            const uint n0 = nextRng();
+            nat0[idx + 0] = cast(ubyte)((baseR + (n0 & 0x1F)) & 0xFF);
+            nat0[idx + 1] = cast(ubyte)((baseG + ((n0 >> 8) & 0x1F)) & 0xFF);
+            nat0[idx + 2] = cast(ubyte)((baseB + ((n0 >> 16) & 0x1F)) & 0xFF);
+            nat0[idx + 3] = 255;
+
+            const uint n1 = nextRng();
+            nat1[idx + 0] = cast(ubyte)((baseR + (n1 & 0x07)) & 0xFF);
+            nat1[idx + 1] = cast(ubyte)((baseG + ((n1 >> 8) & 0x07)) & 0xFF);
+            nat1[idx + 2] = cast(ubyte)((baseB + ((n1 >> 16) & 0x07)) & 0xFF);
+            nat1[idx + 3] = 255;
+
+            if (x >= 18 && x < 30 && y >= 18 && y < 30)
+            {
+                nat0[idx + 0] = cast(ubyte)(200 + (n0 & 0x0F));
+                nat0[idx + 1] = cast(ubyte)(90 + ((n0 >> 4) & 0x0F));
+                nat0[idx + 2] = cast(ubyte)(40 + ((n0 >> 8) & 0x0F));
+            }
+            if (x >= 22 && x < 34 && y >= 20 && y < 32)
+            {
+                nat1[idx + 0] = cast(ubyte)(200 + (n1 & 0x0F));
+                nat1[idx + 1] = cast(ubyte)(90 + ((n1 >> 4) & 0x0F));
+                nat1[idx + 2] = cast(ubyte)(40 + ((n1 >> 8) & 0x0F));
+            }
+        }
+    }
+
+    auto natEnc0 = encodeQoivFrame(nat0, null, width, height, true);
+    auto natDec0 = decodeQoivFrame(natEnc0.baseLayerBytes, null, null, width, height);
+    auto natEnc1 = encodeQoivFrame(nat1, natDec0.rgba, width, height, false);
+    auto natDec1 = decodeQoivFrame(natEnc1.baseLayerBytes,
+            natEnc1.deltaLayerBytes, natDec0.rgba, width, height);
+
+    summary.naturalNoisyKeyframeRatio = natEnc0.compressionRatio;
+    summary.naturalNoisyDeltaRatio = natEnc1.compressionRatio;
+    summary.losslessVerified = synDec0.ok && (synDec0.rgba == syn0) && synDec1.ok
+        && (synDec1.rgba == syn1) && natDec0.ok && (natDec0.rgba == nat0)
+        && natDec1.ok && (natDec1.rgba == nat1);
+
+    return summary;
+}
+
 // Spec: Scenario T2 - Layered Delta-QOI (QOIV) Keyframe + Temporal Delta P-Frame round-trip (covers U2, W1, G1-G5)
 /// Example:
 unittest
@@ -522,4 +643,19 @@ unittest
     // Invalid baseKind in base bytes (e.g. passing Delta chunk as base)
     assert(!decodeQoivFrame(enc1.deltaLayerBytes, null, dec0.rgba, width,
             height).ok, "Must reject delta chunk passed as base layer");
+}
+
+// Spec: Scenario T4 - Honest QOIV Compression Benchmark: Noisy Natural Imagery (< 3.0x) vs Synthetic Flat Graphics (> 10.0x) with Lossless Round-Trip (covers U3, E6, G4)
+/// Example:
+unittest
+{
+    const auto bench = benchmarkQoivProfiles(64, 64);
+    assert(bench.losslessVerified,
+            "Both synthetic and noisy natural QOIV sequences must round-trip losslessly");
+    assert(bench.syntheticDeltaRatio > 10.0,
+            "Synthetic flat graphics delta frame must achieve > 10.0x compression");
+    assert(bench.naturalNoisyKeyframeRatio > 0.8 && bench.naturalNoisyKeyframeRatio < 3.0,
+            "Noisy natural imagery keyframe must exhibit realistic < 3.0x compression");
+    assert(bench.naturalNoisyKeyframeRatio < bench.syntheticKeyframeRatio,
+            "Noisy natural imagery must compress less than synthetic flat graphics");
 }

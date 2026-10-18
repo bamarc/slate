@@ -124,12 +124,12 @@ ubyte[] encodeQoi(const(ubyte)[] pixels, uint width, uint height,
 
                 if (cur.a == prevPixel.a)
                 {
-                    int vr = cast(int) cur.r - cast(int) prevPixel.r;
-                    int vg = cast(int) cur.g - cast(int) prevPixel.g;
-                    int vb = cast(int) cur.b - cast(int) prevPixel.b;
+                    const byte vr = cast(byte)(cur.r - prevPixel.r);
+                    const byte vg = cast(byte)(cur.g - prevPixel.g);
+                    const byte vb = cast(byte)(cur.b - prevPixel.b);
 
-                    int drDg = vr - vg;
-                    int dbDg = vb - vg;
+                    const byte drDg = cast(byte)(vr - vg);
+                    const byte dbDg = cast(byte)(vb - vg);
 
                     if (vr >= -2 && vr <= 1 && vg >= -2 && vg <= 1 && vb >= -2 && vb <= 1)
                     {
@@ -436,4 +436,60 @@ unittest
         assert(entry.r == 0 && entry.g == 0 && entry.b == 0 && entry.a == 0,
                 "Fresh index table entries must initialize to 0,0,0,0");
     }
+}
+
+// Spec: QOI 1.0 Specification & Scenario T4 - Byte-exact canonical QOI opcode reference vectors (QOI_OP_RUN, QOI_OP_DIFF with 8-bit wraparound, QOI_OP_LUMA, QOI_OP_INDEX, QOI_OP_RGB, QOI_OP_RGBA, and >62 run split) (covers U3, G4)
+/// Example:
+unittest
+{
+    // 1. 7x1 RGBA8 vector exercising all 6 QOI opcodes in canonical order
+    const ubyte[28] pixels7x1 = [
+        0, 0, 0, 255, // Pixel 0: matches initial prevPixel {0,0,0,255} (run=1)
+        0, 0, 0, 255, // Pixel 1: matches prevPixel {0,0,0,255} (run=2 -> 0xc1)
+        1, 0, 255, 255, // Pixel 2: QOI_OP_DIFF (dr=+1, dg=0, db=-1 wraparound -> 0x79), hash=49
+        17, 20, 14, 255, // Pixel 3: QOI_OP_LUMA (vg=+20, dr_dg=-4, db_dg=-5 -> 0xb4, 0x43)
+        1, 0, 255, 255, // Pixel 4: QOI_OP_INDEX (index 49 -> 0x31)
+        100, 200, 50, 255, // Pixel 5: QOI_OP_RGB (0xfe, 100, 200, 50)
+        10, 20, 30, 128, // Pixel 6: QOI_OP_RGBA (0xff, 10, 20, 30, 128)
+    ];
+
+    static immutable ubyte[36] expectedQoi7x1 = [
+        // 14-byte header ("qoif", width=7, height=1, channels=4, colorspace=0)
+        0x71, 0x6f, 0x69, 0x66, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x01,
+        0x04, 0x00,
+        // 14-byte canonical opcode stream
+        0xc1, // QOI_OP_RUN (run = 2)
+        0x79, // QOI_OP_DIFF (dr=+1, dg=0, db=-1)
+        0xb4, 0x43, // QOI_OP_LUMA (vg=+20, dr_dg=-4, db_dg=-5)
+        0x31, // QOI_OP_INDEX (hash index 49)
+        0xfe, 100, 200, 50, // QOI_OP_RGB
+        0xff, 10, 20, 30, 128, // QOI_OP_RGBA
+        // 8-byte end marker
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    ];
+
+    const ubyte[] encoded7x1 = encodeQoi(pixels7x1[], 7, 1, 4, 0);
+    assert(encoded7x1 == expectedQoi7x1[],
+            "encodeQoi must produce byte-exact canonical QOI 1.0 opcodes");
+
+    const auto decoded7x1 = decodeQoi(expectedQoi7x1[]);
+    assert(decoded7x1.ok);
+    assert(decoded7x1.rgba == pixels7x1[],
+            "decodeQoi must reconstruct exact RGBA8 pixels from canonical QOI vector");
+
+    // 2. 65x1 solid {0,0,0,255} vector verifying QOI_OP_RUN > 62 splits into 62 (0xfd) + 3 (0xc2)
+    ubyte[65 * 4] runPixels;
+    foreach (i; 0 .. 65)
+    {
+        runPixels[i * 4 + 0] = 0;
+        runPixels[i * 4 + 1] = 0;
+        runPixels[i * 4 + 2] = 0;
+        runPixels[i * 4 + 3] = 255;
+    }
+    const ubyte[] encodedRun = encodeQoi(runPixels[], 65, 1, 4, 0);
+    assert(encodedRun.length == 14 + 2 + 8);
+    assert(encodedRun[14] == 0xfd, "First run chunk must encode max run length 62 (0xfd)");
+    assert(encodedRun[15] == 0xc2, "Second run chunk must encode remaining run length 3 (0xc2)");
+    const auto decodedRun = decodeQoi(encodedRun);
+    assert(decodedRun.ok && decodedRun.rgba == runPixels[]);
 }
