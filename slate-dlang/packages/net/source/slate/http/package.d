@@ -42,6 +42,8 @@ struct CurlGlobal
         synchronized (_mutex)
         {
             _initCount++;
+            scope (failure)
+                _initCount--;
             if (_initCount == 1)
             {
                 auto res = curl_global_init(flags);
@@ -112,7 +114,7 @@ struct CurlGlobalGuard
 /// ---
 unittest
 {
-    // Best practice: manage global initialization with RAII guard
+    // Spec: manage global initialization with RAII guard
     auto guard = CurlGlobalGuard.create();
     assert(CurlGlobal.isInitialized());
 

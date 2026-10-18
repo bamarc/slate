@@ -29,7 +29,7 @@ public struct AckRangeSet
 
     @property bool hasPendingAck() const @safe pure @nogc nothrow
     {
-        return numRanges > 0;
+        return numRanges > 0 && (ackElicitingSinceLastAck > 0 || ackNeeded);
     }
 
     @property bool empty() const @safe pure @nogc nothrow
@@ -170,9 +170,33 @@ public struct AckRangeSet
         frame.ect1 = 0;
         frame.ecnCe = 0;
 
+        return true;
+    }
+
+    /**
+     * Called when an ACK frame is successfully packed and transmitted.
+     * Clears pending ACK state (RFC 9000 Section 13.2.1).
+     */
+    void onAckSent() @safe pure @nogc nothrow
+    {
         ackElicitingSinceLastAck = 0;
         ackNeeded = false;
-        return true;
+    }
+
+    /**
+     * Checks if a packet number is already recorded in the ACK ranges.
+     */
+    bool contains(ulong pn) const @safe pure @nogc nothrow
+    {
+        if (pn > VARINT_MAX)
+            return false;
+
+        foreach (i; 0 .. numRanges)
+        {
+            if (pn >= ranges[i].smallest && pn <= ranges[i].largest)
+                return true;
+        }
+        return false;
     }
 
     void clear() @safe pure @nogc nothrow
@@ -217,6 +241,17 @@ public struct AckRangeSet
     assert(!set.insert(5, false, 15_500));
     assert(!set.insert(1, false, 15_500));
 
+    // Verify contains
+    assert(set.contains(0));
+    assert(set.contains(1));
+    assert(set.contains(2));
+    assert(set.contains(5));
+    assert(set.contains(6));
+    assert(set.contains(7));
+    assert(!set.contains(3));
+    assert(!set.contains(4));
+    assert(!set.contains(8));
+
     // Build ACK frame at t = 16_000 with ackDelayExponent = 3
     // rawDelay = 16_000 - 14_000 = 2_000 microseconds
     // encoded ackDelay = 2000 >> 3 = 250
@@ -231,6 +266,14 @@ public struct AckRangeSet
     assert(frame.ranges[1].largest == 2);
     assert(frame.largestAcknowledged == 7);
     assert(frame.ackDelay == 250);
+
+    // buildAckFrame does not clear ackNeeded until onAckSent is called
+    assert(set.ackNeeded);
+    assert(set.ackElicitingSinceLastAck > 0);
+    assert(set.hasPendingAck);
+
+    set.onAckSent();
     assert(!set.ackNeeded);
     assert(set.ackElicitingSinceLastAck == 0);
+    assert(!set.hasPendingAck);
 }

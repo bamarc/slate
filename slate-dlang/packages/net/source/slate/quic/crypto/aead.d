@@ -43,9 +43,13 @@ public:
     /**
      * Re-initializes or initializes in-place.
      */
-    void init(CipherSuite suite, const(ubyte)[] key, const(ubyte)[] iv) @trusted @nogc nothrow
+    bool init(CipherSuite suite, const(ubyte)[] key, const(ubyte)[] iv) @trusted @nogc nothrow
     {
         cleanup();
+
+        const size_t reqKeyLen = keyLength(suite);
+        if (key.length < reqKeyLen || iv.length < 12)
+            return false;
 
         m_suite = suite;
         m_iv[0 .. 12] = iv[0 .. 12];
@@ -70,10 +74,15 @@ public:
 
         if (m_encCtx !is null && m_decCtx !is null && cipher !is null)
         {
-            EVP_EncryptInit_ex(m_encCtx, cipher, null, key.ptr, null);
-            EVP_DecryptInit_ex(m_decCtx, cipher, null, key.ptr, null);
-            m_initialized = true;
+            if (EVP_EncryptInit_ex(m_encCtx, cipher, null, key.ptr, null) > 0
+                    && EVP_DecryptInit_ex(m_decCtx, cipher, null, key.ptr, null) > 0)
+            {
+                m_initialized = true;
+                return true;
+            }
         }
+        cleanup();
+        return false;
     }
 
     ~this() @trusted @nogc nothrow
@@ -101,6 +110,8 @@ public:
      */
     void moveFrom(ref AeadKey other) @trusted @nogc nothrow
     {
+        if (&this == &other)
+            return;
         cleanup();
         m_encCtx = other.m_encCtx;
         m_decCtx = other.m_decCtx;
@@ -268,39 +279,51 @@ public:
 /**
  * Computes the 16-byte Retry Packet Integrity Tag (RFC 9001 Section 5.8).
  */
-void computeRetryIntegrityTag(const(ubyte)[] originalDcid,
+bool computeRetryIntegrityTag(const(ubyte)[] originalDcid,
         const(ubyte)[] retryPacketWithoutTag, ref ubyte[16] tagOut) @trusted @nogc nothrow
 {
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     if (ctx is null)
-        return;
+        return false;
     scope (exit)
         EVP_CIPHER_CTX_free(ctx);
 
     if (EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), null, RETRY_KEY_V1.ptr, RETRY_NONCE_V1.ptr) <= 0)
-        return;
+        return false;
 
     // Retry pseudo-packet:
     // ODCIL (1 byte) || Original DCID || retryPacketWithoutTag
     const ubyte odcil = cast(ubyte) originalDcid.length;
     int outl = 0;
 
-    EVP_EncryptUpdate(ctx, null, &outl, &odcil, 1);
+    if (EVP_EncryptUpdate(ctx, null, &outl, &odcil, 1) <= 0)
+        return false;
     if (originalDcid.length > 0)
-        EVP_EncryptUpdate(ctx, null, &outl, originalDcid.ptr, cast(int) originalDcid.length);
+    {
+        if (EVP_EncryptUpdate(ctx, null, &outl, originalDcid.ptr,
+                cast(int) originalDcid.length) <= 0)
+            return false;
+    }
     if (retryPacketWithoutTag.length > 0)
-        EVP_EncryptUpdate(ctx, null, &outl, retryPacketWithoutTag.ptr,
-                cast(int) retryPacketWithoutTag.length);
+    {
+        if (EVP_EncryptUpdate(ctx, null, &outl, retryPacketWithoutTag.ptr,
+                cast(int) retryPacketWithoutTag.length) <= 0)
+            return false;
+    }
 
     int finl = 0;
     ubyte dummy = 0;
-    EVP_EncryptFinal_ex(ctx, &dummy, &finl);
+    if (EVP_EncryptFinal_ex(ctx, &dummy, &finl) <= 0)
+        return false;
 
-    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, 16, tagOut.ptr);
+    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, 16, tagOut.ptr) <= 0)
+        return false;
+
+    return true;
 }
 
 /**
- * Verifies the 16-byte Retry Packet Integrity Tag (RFC 9001 Section 5.8).
+ * Verifies the 16-byte Retry Packet Integrity Tag (RFC 9001 Section 5.8) using constant-time comparison.
  */
 bool verifyRetryIntegrityTag(const(ubyte)[] originalDcid, const(ubyte)[] retryPacketWithTag) @trusted @nogc nothrow
 {
@@ -309,9 +332,10 @@ bool verifyRetryIntegrityTag(const(ubyte)[] originalDcid, const(ubyte)[] retryPa
 
     const size_t pktLenNoTag = retryPacketWithTag.length - 16;
     ubyte[16] computedTag;
-    computeRetryIntegrityTag(originalDcid, retryPacketWithTag[0 .. pktLenNoTag], computedTag);
+    if (!computeRetryIntegrityTag(originalDcid, retryPacketWithTag[0 .. pktLenNoTag], computedTag))
+        return false;
 
-    return computedTag[] == retryPacketWithTag[pktLenNoTag .. $];
+    return CRYPTO_memcmp(computedTag.ptr, retryPacketWithTag.ptr + pktLenNoTag, 16) == 0;
 }
 
 /// Example:
@@ -412,4 +436,27 @@ bool verifyRetryIntegrityTag(const(ubyte)[] originalDcid, const(ubyte)[] retryPa
     const decErr = aead.decryptInPlace(1, aad, payloadBuf, decLen);
     assert(decErr == QuicCryptoError.none, "Zero-length payload decryption failed");
     assert(decLen == 0, "Decrypted length must be 0");
+}
+
+/// Example:
+// Spec: RFC 9001 Section 5.3 & Scenario T5 - Key/IV Length Validation and Self-Move Safety (covers W2, F-32, F-33)
+@nogc unittest
+{
+    AeadKey aead;
+    const ubyte[15] shortKey = 0xAA; // 15 bytes < 16 bytes required for AES-128
+    const ubyte[12] validIv = 0x55;
+    assert(!aead.init(CipherSuite.TLS_AES_128_GCM_SHA256, shortKey, validIv));
+    assert(!aead.isInitialized, "Short key must fail initialization");
+
+    const ubyte[16] validKey = 0xAA;
+    const ubyte[11] shortIv = 0x55; // 11 bytes < 12 bytes required
+    assert(!aead.init(CipherSuite.TLS_AES_128_GCM_SHA256, validKey, shortIv));
+    assert(!aead.isInitialized, "Short IV must fail initialization");
+
+    assert(aead.init(CipherSuite.TLS_AES_128_GCM_SHA256, validKey, validIv));
+    assert(aead.isInitialized);
+
+    // Self-move guard verification
+    aead.moveFrom(aead);
+    assert(aead.isInitialized, "Self-move must preserve initialized state");
 }

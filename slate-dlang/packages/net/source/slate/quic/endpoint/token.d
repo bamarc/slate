@@ -60,6 +60,7 @@ public struct RetryTokenPayload
     ConnectionId origDcid;
     ConnectionId retryScid;
     ulong issuedMicros;
+    ulong nonceCounter;
 }
 
 public enum size_t MAX_RETRY_TOKEN_LEN = 128;
@@ -111,7 +112,7 @@ public:
      * Output format: [8 bytes nonceCounter] [AES-256-GCM ciphertext + 16 bytes tag]
      */
     bool sealToken(ref const RetryTokenPayload payload, ulong nonceCounter,
-            ubyte[] outBuf, out size_t tokenLen) @trusted @nogc nothrow
+            ubyte[] outBuf, out size_t tokenLen) @safe @nogc nothrow
     {
         tokenLen = 0;
         if (!m_initialized)
@@ -192,7 +193,7 @@ public:
      */
     TransportErrorCode verifyToken(const(ubyte)[] token, ref const SocketAddr clientAddr,
             ref const ConnectionId packetDcid, ulong nowMicros,
-            ulong maxLifetimeMicros, out RetryTokenPayload payloadOut) @trusted @nogc nothrow
+            ulong maxLifetimeMicros, out RetryTokenPayload payloadOut) @safe @nogc nothrow
     {
         payloadOut = RetryTokenPayload.init;
         if (!m_initialized || token.length < 8 + 1 + 4 + 2 + 1 + 1 + 8 + 16)
@@ -224,6 +225,10 @@ public:
 
         size_t off = 0;
         const ubyte hdrByte = workBuf[off++];
+        // RFC 9000 version check (F-29): check version 1
+        if ((hdrByte & ~0x02) != 0x01)
+            return TransportErrorCode.invalidToken;
+
         const bool isIpv6 = (hdrByte & 0x02) != 0;
         const size_t ipLen = isIpv6 ? 16 : 4;
 
@@ -268,6 +273,7 @@ public:
             issued = (issued << 8) | workBuf[off++];
         }
         payloadOut.issuedMicros = issued;
+        payloadOut.nonceCounter = nonceCounter;
         payloadOut.clientAddr = decodedAddr;
 
         // 1. Verify Client Address
@@ -341,6 +347,12 @@ public:
     assert(codec.verifyToken(tamperedBuf[0 .. tokenLen], clientAddr, retryScid,
             1_500_000, 10_000_000, decoded) == TransportErrorCode.invalidToken);
 
+    // Verify header byte version tamper rejection (F-29, D-12)
+    ubyte[128] versionTamperedBuf = tokenBuf;
+    versionTamperedBuf[0] = 0x88;
+    assert(codec.verifyToken(versionTamperedBuf[0 .. tokenLen], clientAddr,
+            retryScid, 1_500_000, 10_000_000, decoded) == TransportErrorCode.invalidToken);
+
     // Verify address mismatch rejection (W3)
     const SocketAddr wrongAddr = SocketAddr.ipv4(192, 168, 1, 101, 4433);
     assert(codec.verifyToken(tokenBuf[0 .. tokenLen], wrongAddr, retryScid,
@@ -357,7 +369,7 @@ public:
 }
 
 /// Example:
-// Best practice: Retry Token Codec RAII Movement (covers U2, G4)
+// Spec: Retry Token Codec RAII Movement (covers U2, G4)
 @nogc unittest
 {
     const ubyte[32] key = [

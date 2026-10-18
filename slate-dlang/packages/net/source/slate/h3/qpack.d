@@ -194,6 +194,7 @@ public bool encodePrefixedInt(ulong value, ubyte prefixBits, ubyte prefixPattern
     if (offset >= outBuf.length)
         return false;
 
+    const size_t startOffset = offset;
     const ulong maxPrefix = (1UL << prefixBits) - 1UL;
     if (value < maxPrefix)
     {
@@ -206,12 +207,18 @@ public bool encodePrefixedInt(ulong value, ubyte prefixBits, ubyte prefixPattern
     while (rem >= 128)
     {
         if (offset >= outBuf.length)
+        {
+            offset = startOffset;
             return false;
+        }
         outBuf[offset++] = cast(ubyte)((rem & 0x7F) | 0x80);
         rem >>= 7;
     }
     if (offset >= outBuf.length)
+    {
+        offset = startOffset;
         return false;
+    }
     outBuf[offset++] = cast(ubyte) rem;
     return true;
 }

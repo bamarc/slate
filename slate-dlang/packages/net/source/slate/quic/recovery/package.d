@@ -15,13 +15,16 @@ public import slate.quic.recovery.rtt;
 public import slate.quic.recovery.congestion;
 public import slate.quic.recovery.loss_detection;
 
-import slate.quic.stream.send_buffer;
-import slate.quic.stream.recv_buffer;
-import slate.quic.stream.stream_map : StreamMap;
-import slate.quic.stream.id : StreamId, StreamDirection;
-import slate.quic.crypto.kdf : Side;
-import slate.quic.wire.cid : TransportErrorCode;
-import slate.quic.wire.frame : AckFrame;
+version (unittest)
+{
+    import slate.quic.stream.send_buffer;
+    import slate.quic.stream.recv_buffer;
+    import slate.quic.stream.stream_map : StreamMap;
+    import slate.quic.stream.id : StreamId, StreamDirection;
+    import slate.quic.crypto.kdf : Side;
+    import slate.quic.wire.cid : TransportErrorCode;
+    import slate.quic.wire.frame : AckFrame;
+}
 
 /// Example:
 // Spec: RFC 9000 Section 13.3 & RFC 9002 Section 6 - End-to-End Stream Retransmission and Loss Recovery Loop (covers U1, U2, U3, E1, E2, E4, E5, Scenario T1-T6)
@@ -130,7 +133,7 @@ import slate.quic.wire.frame : AckFrame;
 }
 
 /// Example:
-// Best practice: High-Iteration Creation/Destruction and Memory Cleanup (covers U2, G4)
+// Spec: High-Iteration Creation/Destruction and Memory Cleanup (covers U2, G4)
 @nogc unittest
 {
     foreach (iter; 0 .. 1000)

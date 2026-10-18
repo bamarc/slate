@@ -18,8 +18,32 @@ import slate.quic.wire.cid : TransportErrorCode;
 import slate.quic.crypto.kdf : Side;
 import slate.quic.wire.varint : decodeVarInt, encodeVarInt, WireError, varIntLen;
 
-import core.stdc.stdlib : calloc, realloc, free;
+import core.stdc.stdlib : calloc, realloc, free, malloc;
 import core.stdc.string : memmove;
+
+private struct HeapBuffer
+{
+    ubyte[] slice;
+
+    static HeapBuffer allocate(size_t cap) @trusted @nogc nothrow
+    {
+        if (cap == 0)
+            return HeapBuffer(null);
+        void* p = malloc(cap);
+        if (p is null)
+            return HeapBuffer(null);
+        return HeapBuffer((cast(ubyte*) p)[0 .. cap]);
+    }
+
+    void free() @trusted @nogc nothrow
+    {
+        if (slice.ptr !is null)
+        {
+            .free(slice.ptr);
+            slice = null;
+        }
+    }
+}
 
 public enum H3EventType : ubyte
 {
@@ -53,7 +77,7 @@ public enum size_t MAX_STREAM_BUFFER_SIZE = 1024 * 1024; // 1 MiB
 public enum size_t MAX_CONTROL_FRAME_SIZE = 16 * 1024; // 16 KiB
 public enum size_t MAX_TRACKED_STREAMS = 256;
 
-private enum size_t EVENT_QUEUE_CAPACITY = 64;
+private enum size_t EVENT_QUEUE_CAPACITY = 256;
 
 private struct H3EventQueue
 {
@@ -126,9 +150,11 @@ private struct H3StreamTracker
     bool hasContentLength = false;
     ulong expectedContentLength = 0;
     ulong receivedDataBytes = 0;
+    ushort responseStatus = 0;
 
     ubyte* recvBuf = null;
     size_t recvBufLen = 0;
+    size_t recvReadOffset = 0;
     size_t recvBufCapacity = 0;
 
     char* strBuf = null;
@@ -138,6 +164,16 @@ private struct H3StreamTracker
     size_t dataBufLen = 0;
     size_t dataBufCapacity = 0;
 
+    @property size_t readableBytes() const @safe pure nothrow @nogc
+    {
+        return recvBufLen > recvReadOffset ? recvBufLen - recvReadOffset : 0;
+    }
+
+    @property inout(ubyte)[] readableSlice() inout @trusted pure nothrow @nogc
+    {
+        return recvBufLen > recvReadOffset ? recvBuf[recvReadOffset .. recvBufLen] : null;
+    }
+
     void cleanup() @trusted @nogc nothrow
     {
         if (recvBuf !is null)
@@ -146,6 +182,7 @@ private struct H3StreamTracker
             recvBuf = null;
         }
         recvBufLen = 0;
+        recvReadOffset = 0;
         recvBufCapacity = 0;
 
         if (strBuf !is null)
@@ -162,14 +199,28 @@ private struct H3StreamTracker
         }
         dataBufLen = 0;
         dataBufCapacity = 0;
+        responseStatus = 0;
     }
 
     bool appendRecv(const(ubyte)[] data) @trusted @nogc nothrow
     {
         if (data.length == 0)
             return true;
-        if (data.length > MAX_STREAM_BUFFER_SIZE || recvBufLen > MAX_STREAM_BUFFER_SIZE
-                - data.length)
+        if (recvReadOffset > 0 && recvReadOffset >= recvBufLen)
+        {
+            recvReadOffset = 0;
+            recvBufLen = 0;
+        }
+        else if (recvReadOffset > 4096)
+        {
+            const size_t rem = recvBufLen - recvReadOffset;
+            memmove(recvBuf, recvBuf + recvReadOffset, rem);
+            recvBufLen = rem;
+            recvReadOffset = 0;
+        }
+        const size_t availableLen = recvBufLen - recvReadOffset;
+        if (data.length > MAX_STREAM_BUFFER_SIZE
+                || availableLen > MAX_STREAM_BUFFER_SIZE - data.length)
             return false;
         if (recvBufLen + data.length > recvBufCapacity)
         {
@@ -189,15 +240,14 @@ private struct H3StreamTracker
         return true;
     }
 
-    void consumeRecv(size_t bytes) @trusted @nogc nothrow
+    void consumeRecv(size_t bytes) @safe pure nothrow @nogc
     {
-        if (bytes >= recvBufLen)
+        recvReadOffset += bytes;
+        if (recvReadOffset >= recvBufLen)
         {
+            recvReadOffset = 0;
             recvBufLen = 0;
-            return;
         }
-        memmove(recvBuf, recvBuf + bytes, recvBufLen - bytes);
-        recvBufLen -= bytes;
     }
 
     bool ensureStrBufCapacity(size_t cap) @trusted @nogc nothrow
@@ -303,6 +353,11 @@ public H3ErrorCode validateHeaders(const(H3HeaderField)[] headers,
     bool hasStatus = false;
     bool isConnect = false;
 
+    const(char)[] schemeVal = null;
+    const(char)[] authorityVal = null;
+    const(char)[] hostVal = null;
+    size_t hostCount = 0;
+
     foreach (const ref h; headers)
     {
         if (h.name.length == 0)
@@ -366,6 +421,7 @@ public H3ErrorCode validateHeaders(const(H3HeaderField)[] headers,
                     if (hasScheme)
                         return H3ErrorCode.messageError;
                     hasScheme = true;
+                    schemeVal = h.value;
                 }
                 else if (h.name == ":path")
                 {
@@ -378,6 +434,7 @@ public H3ErrorCode validateHeaders(const(H3HeaderField)[] headers,
                     if (hasAuthority)
                         return H3ErrorCode.messageError;
                     hasAuthority = true;
+                    authorityVal = h.value;
                 }
                 else
                 {
@@ -406,6 +463,15 @@ public H3ErrorCode validateHeaders(const(H3HeaderField)[] headers,
             // TE header check (RFC 9114 Section 4.2)
             if (h.name == "te" && h.value != "trailers")
                 return H3ErrorCode.messageError;
+
+            // Host header tracking (RFC 9114 §4.3.1)
+            if (h.name == "host")
+            {
+                hostCount++;
+                if (h.value.length == 0)
+                    return H3ErrorCode.messageError;
+                hostVal = h.value;
+            }
 
             // Content-length validation (RFC 9114 Section 4.1.2)
             if (h.name == "content-length")
@@ -448,6 +514,19 @@ public H3ErrorCode validateHeaders(const(H3HeaderField)[] headers,
         {
             if (!hasMethod || !hasScheme || !hasPath)
                 return H3ErrorCode.messageError;
+
+            // RFC 9114 §4.3.1: :authority and Host validation
+            if (schemeVal == "http" || schemeVal == "https")
+            {
+                if (hostCount > 1)
+                    return H3ErrorCode.messageError; // Duplicate host
+                if (!hasAuthority && hostCount == 0)
+                    return H3ErrorCode.messageError; // Neither :authority nor host
+                if (hasAuthority && authorityVal.length == 0)
+                    return H3ErrorCode.messageError; // Empty :authority
+                if (hasAuthority && hostCount > 0 && authorityVal != hostVal)
+                    return H3ErrorCode.messageError; // Mismatched :authority and host
+            }
         }
     }
 
@@ -542,8 +621,12 @@ public struct H3Connection
     bool localGoawaySent = false;
     ulong localGoawayStreamId = 0;
 
+    bool hasMaxPushId = false;
+    ulong maxPushId = 0;
+
     bool connectionClosed = false;
     ulong closeErrorCode = 0;
+    H3ErrorCode lastError = H3ErrorCode.noError;
 
     private H3StreamTracker* streams = null;
     private size_t streamCount = 0;
@@ -602,8 +685,11 @@ public struct H3Connection
         this.peerGoawayStreamId = other.peerGoawayStreamId;
         this.localGoawaySent = other.localGoawaySent;
         this.localGoawayStreamId = other.localGoawayStreamId;
+        this.hasMaxPushId = other.hasMaxPushId;
+        this.maxPushId = other.maxPushId;
         this.connectionClosed = other.connectionClosed;
         this.closeErrorCode = other.closeErrorCode;
+        this.lastError = other.lastError;
         this.streams = other.streams;
         this.streamCount = other.streamCount;
         this.streamCapacity = other.streamCapacity;
@@ -694,7 +780,7 @@ public struct H3Connection
     bool sendRequest(ref QuicConnection quicConn, const(H3HeaderField)[] headers,
             const(ubyte)[] body, bool fin, out StreamId streamId) @safe @nogc nothrow
     {
-        if (connectionClosed)
+        if (connectionClosed || peerGoawayReceived || side != Side.client)
             return false;
 
         H3ErrorCode err = validateHeaders(headers, false);
@@ -705,10 +791,20 @@ public struct H3Connection
                 streamId) != TransportErrorCode.noError)
             return false;
 
-        // Encode HEADERS frame
-        ubyte[4096] qpackBuf;
-        const size_t qpackLen = encodeQpackFieldSection(headers, qpackBuf[], true);
-        if (qpackLen == 0)
+        // Encode HEADERS frame (D-11: dynamic buffer up to 64 KiB respecting peerSettings)
+        const size_t maxBufCap = peerSettings.maxFieldSectionSize < 65536
+            ? cast(size_t) peerSettings.maxFieldSectionSize : 65536;
+        if (maxBufCap == 0)
+            return false;
+        HeapBuffer buf = HeapBuffer.allocate(maxBufCap);
+        if (buf.slice is null)
+            return false;
+        scope (exit)
+            buf.free();
+        ubyte[] qpackBuf = buf.slice;
+
+        const size_t qpackLen = encodeQpackFieldSection(headers, qpackBuf, true);
+        if (qpackLen == 0 || qpackLen > peerSettings.maxFieldSectionSize)
             return false;
 
         ubyte[16] hdrFrameBuf;
@@ -767,10 +863,20 @@ public struct H3Connection
         if (err != H3ErrorCode.noError)
             return false;
 
-        ubyte[4096] qpackBuf;
-        const size_t qpackLen = encodeQpackFieldSection(allHeaders[0 .. totalCount],
-                qpackBuf[], true);
-        if (qpackLen == 0)
+        // Encode HEADERS frame (D-11: dynamic buffer up to 64 KiB respecting peerSettings)
+        const size_t maxBufCap = peerSettings.maxFieldSectionSize < 65536
+            ? cast(size_t) peerSettings.maxFieldSectionSize : 65536;
+        if (maxBufCap == 0)
+            return false;
+        HeapBuffer buf = HeapBuffer.allocate(maxBufCap);
+        if (buf.slice is null)
+            return false;
+        scope (exit)
+            buf.free();
+        ubyte[] qpackBuf = buf.slice;
+
+        const size_t qpackLen = encodeQpackFieldSection(allHeaders[0 .. totalCount], qpackBuf, true);
+        if (qpackLen == 0 || qpackLen > peerSettings.maxFieldSectionSize)
             return false;
 
         ubyte[16] hdrFrameBuf;
@@ -805,7 +911,9 @@ public struct H3Connection
      */
     bool sendGoaway(ref QuicConnection quicConn, ulong streamId) @safe @nogc nothrow
     {
-        if (localGoawaySent || !localStreamsInitialized || connectionClosed)
+        if (!localStreamsInitialized || connectionClosed)
+            return false;
+        if (localGoawaySent && streamId > localGoawayStreamId)
             return false;
 
         ubyte[16] goawayPayload;
@@ -838,9 +946,20 @@ public struct H3Connection
             return false;
         if (validateTrailers(trailers) != H3ErrorCode.noError)
             return false;
-        ubyte[4096] qpackBuf;
-        const size_t qpackLen = encodeQpackFieldSection(trailers, qpackBuf[], true);
-        if (qpackLen == 0)
+        // Encode HEADERS frame (D-11: dynamic buffer up to 64 KiB respecting peerSettings)
+        const size_t maxBufCap = peerSettings.maxFieldSectionSize < 65536
+            ? cast(size_t) peerSettings.maxFieldSectionSize : 65536;
+        if (maxBufCap == 0)
+            return false;
+        HeapBuffer buf = HeapBuffer.allocate(maxBufCap);
+        if (buf.slice is null)
+            return false;
+        scope (exit)
+            buf.free();
+        ubyte[] qpackBuf = buf.slice;
+
+        const size_t qpackLen = encodeQpackFieldSection(trailers, qpackBuf, true);
+        if (qpackLen == 0 || qpackLen > peerSettings.maxFieldSectionSize)
             return false;
         ubyte[16] hdrFrameBuf;
         size_t hdrFrameLen = 0;
@@ -862,6 +981,7 @@ public struct H3Connection
             return;
         connectionClosed = true;
         closeErrorCode = cast(ulong) err;
+        lastError = err;
         quicConn.close(cast(ulong) err, true);
         events.forcePush(H3Event(H3EventType.connectionClosed, StreamId.init, cast(ulong) err));
     }
@@ -900,12 +1020,21 @@ public struct H3Connection
                     return events.poll(event);
                 }
                 H3StreamTracker* tr = findStream(sid);
-                if (tr !is null && (tr.kind == H3StreamKind.control
-                        || tr.kind == H3StreamKind.qpackEncoder
-                        || tr.kind == H3StreamKind.qpackDecoder))
+                if (tr !is null)
                 {
-                    abortConnection(quicConn, H3ErrorCode.closedCriticalStream);
-                    return events.poll(event);
+                    if (tr.kind == H3StreamKind.control || tr.kind == H3StreamKind.qpackEncoder
+                            || tr.kind == H3StreamKind.qpackDecoder)
+                    {
+                        abortConnection(quicConn, H3ErrorCode.closedCriticalStream);
+                        return events.poll(event);
+                    }
+                    if (tr.kind == H3StreamKind.request)
+                    {
+                        tr.finReceived = true;
+                        tr.requestFinishedEmitted = true;
+                        tr.cleanup();
+                        reapFinishedStreams();
+                    }
                 }
             }
 
@@ -939,6 +1068,20 @@ public struct H3Connection
                     return events.poll(event);
                 }
 
+                if (side == Side.client && sid.isBidirectional && !sid.isClientInitiated)
+                {
+                    abortConnection(quicConn, H3ErrorCode.streamCreationError);
+                    return events.poll(event);
+                }
+
+                if (side == Side.server && localGoawaySent
+                        && sid.isBidirectional && sid.id >= localGoawayStreamId)
+                {
+                    quicConn.resetStream(sid, cast(ulong) H3ErrorCode.requestRejected);
+                    quicConn.stopSending(sid, cast(ulong) H3ErrorCode.requestRejected);
+                    continue;
+                }
+
                 if (sid.canReceive(side))
                 {
                     H3StreamTracker* tracker = getOrCreateStream(sid);
@@ -948,15 +1091,42 @@ public struct H3Connection
                         return events.poll(event);
                     }
 
+                    if (tracker.typeDecoded && tracker.kind == H3StreamKind.unknown)
+                    {
+                        ubyte[4096] scratch;
+                        bool finReached = false;
+                        ptrdiff_t n = 0;
+                        while ((n = quicConn.streamRead(sid, scratch[], finReached)) > 0)
+                        {
+                            if (finReached)
+                                break;
+                        }
+                        if (finReached)
+                            tracker.finReceived = true;
+                        continue;
+                    }
+
                     ubyte[4096] tmp;
                     bool finReached = false;
                     ptrdiff_t n = 0;
                     while ((n = quicConn.streamRead(sid, tmp[], finReached)) > 0)
                     {
+                        if (tracker.typeDecoded && tracker.kind == H3StreamKind.unknown)
+                        {
+                            if (finReached)
+                                break;
+                            continue;
+                        }
                         if (!tracker.appendRecv(tmp[0 .. cast(size_t) n]))
                         {
                             abortConnection(quicConn, H3ErrorCode.excessiveLoad);
                             return events.poll(event);
+                        }
+                        if (!tracker.typeDecoded && sid.isUnidirectional)
+                        {
+                            processStream(tracker, quicConn);
+                            if (connectionClosed)
+                                return events.poll(event);
                         }
                         if (finReached)
                             break;
@@ -973,6 +1143,20 @@ public struct H3Connection
             if (qev.type == ConnectionEventType.streamReadable)
             {
                 const StreamId sid = StreamId(qev.streamId);
+                if (side == Side.client && sid.isBidirectional && !sid.isClientInitiated)
+                {
+                    abortConnection(quicConn, H3ErrorCode.streamCreationError);
+                    return events.poll(event);
+                }
+
+                if (side == Side.server && localGoawaySent
+                        && sid.isBidirectional && sid.id >= localGoawayStreamId)
+                {
+                    quicConn.resetStream(sid, cast(ulong) H3ErrorCode.requestRejected);
+                    quicConn.stopSending(sid, cast(ulong) H3ErrorCode.requestRejected);
+                    continue;
+                }
+
                 H3StreamTracker* tracker = getOrCreateStream(sid);
                 if (tracker is null)
                 {
@@ -980,15 +1164,42 @@ public struct H3Connection
                     return events.poll(event);
                 }
 
+                if (tracker.typeDecoded && tracker.kind == H3StreamKind.unknown)
+                {
+                    ubyte[4096] scratch;
+                    bool finReached = false;
+                    ptrdiff_t n = 0;
+                    while ((n = quicConn.streamRead(sid, scratch[], finReached)) > 0)
+                    {
+                        if (finReached)
+                            break;
+                    }
+                    if (finReached)
+                        tracker.finReceived = true;
+                    continue;
+                }
+
                 ubyte[4096] tmp;
                 bool finReached = false;
                 ptrdiff_t n = 0;
                 while ((n = quicConn.streamRead(sid, tmp[], finReached)) > 0)
                 {
+                    if (tracker.typeDecoded && tracker.kind == H3StreamKind.unknown)
+                    {
+                        if (finReached)
+                            break;
+                        continue;
+                    }
                     if (!tracker.appendRecv(tmp[0 .. cast(size_t) n]))
                     {
                         abortConnection(quicConn, H3ErrorCode.excessiveLoad);
                         return events.poll(event);
+                    }
+                    if (!tracker.typeDecoded && sid.isUnidirectional)
+                    {
+                        processStream(tracker, quicConn);
+                        if (connectionClosed)
+                            return events.poll(event);
                     }
                     if (finReached)
                         break;
@@ -1005,7 +1216,7 @@ public struct H3Connection
         // Process any remaining buffered stream data
         foreach (i; 0 .. streamCount)
         {
-            if (streams[i].recvBufLen > 0 || (streams[i].kind == H3StreamKind.request
+            if (streams[i].readableBytes > 0 || (streams[i].kind == H3StreamKind.request
                     && streams[i].finReceived && !streams[i].requestFinishedEmitted))
             {
                 processStream(&streams[i], quicConn);
@@ -1015,6 +1226,29 @@ public struct H3Connection
         }
 
         return false;
+    }
+
+    private void reapFinishedStreams() @trusted @nogc nothrow
+    {
+        for (size_t i = 0; i < streamCount;)
+        {
+            H3StreamTracker* tr = &streams[i];
+            const bool canReap = (tr.kind == H3StreamKind.request
+                    && tr.requestFinishedEmitted && tr.finReceived && tr.readableBytes == 0)
+                || (tr.kind == H3StreamKind.unknown && tr.finReceived && tr.readableBytes == 0);
+            if (canReap)
+            {
+                tr.cleanup();
+                if (i + 1 < streamCount)
+                    streams[i] = streams[streamCount - 1];
+                streams[streamCount - 1] = H3StreamTracker.init;
+                streamCount--;
+            }
+            else
+            {
+                i++;
+            }
+        }
     }
 
     private H3StreamTracker* findStream(StreamId sid) @trusted @nogc nothrow
@@ -1032,6 +1266,14 @@ public struct H3Connection
         H3StreamTracker* existing = findStream(sid);
         if (existing !is null)
             return existing;
+
+        if (side == Side.client && sid.isBidirectional && !sid.isClientInitiated)
+            return null;
+
+        if (streamCount >= MAX_TRACKED_STREAMS)
+        {
+            reapFinishedStreams();
+        }
 
         if (streamCount >= MAX_TRACKED_STREAMS)
             return null;
@@ -1065,7 +1307,7 @@ public struct H3Connection
         // Handle unidirectional stream type byte
         if (tracker.id.isUnidirectional && !tracker.typeDecoded)
         {
-            if (tracker.recvBufLen == 0)
+            if (tracker.readableBytes == 0)
             {
                 if (tracker.finReceived)
                 {
@@ -1076,8 +1318,7 @@ public struct H3Connection
 
             ulong uniType = 0;
             size_t consumed = 0;
-            if (decodeVarInt(tracker.recvBuf[0 .. tracker.recvBufLen], uniType,
-                    consumed) != WireError.none)
+            if (decodeVarInt(tracker.readableSlice, uniType, consumed) != WireError.none)
             {
                 if (tracker.finReceived)
                 {
@@ -1140,38 +1381,59 @@ public struct H3Connection
             {
                 // GREASE or unknown unidirectional stream type (RFC 9114 Section 6.2)
                 tracker.kind = H3StreamKind.unknown;
-                tracker.recvBufLen = 0; // Discard immediately
-            }
-        }
-
-        // Check if critical unidirectional stream closed
-        if (tracker.id.isUnidirectional && tracker.finReceived)
-        {
-            if (tracker.kind == H3StreamKind.control || tracker.kind == H3StreamKind.qpackEncoder
-                    || tracker.kind == H3StreamKind.qpackDecoder)
-            {
-                abortConnection(quicConn, H3ErrorCode.closedCriticalStream);
+                tracker.consumeRecv(tracker.readableBytes);
                 return;
             }
         }
 
-        // Non-control unidirectional streams discard unneeded bytes
+        // F-49 & F-50: Unidirectional streams other than control
         if (tracker.id.isUnidirectional && tracker.kind != H3StreamKind.control)
         {
-            tracker.recvBufLen = 0;
+            if (tracker.kind == H3StreamKind.qpackEncoder)
+            {
+                if (localSettings.qpackMaxTableCapacity == 0 && tracker.readableBytes > 0)
+                {
+                    abortConnection(quicConn, H3ErrorCode.qpackEncoderStreamError);
+                    return;
+                }
+                tracker.consumeRecv(tracker.readableBytes);
+            }
+            else if (tracker.kind == H3StreamKind.qpackDecoder)
+            {
+                if (tracker.readableBytes > 0)
+                {
+                    abortConnection(quicConn, H3ErrorCode.qpackDecoderStreamError);
+                    return;
+                }
+                tracker.consumeRecv(tracker.readableBytes);
+            }
+            else if (tracker.kind == H3StreamKind.unknown)
+            {
+                tracker.consumeRecv(tracker.readableBytes);
+            }
+
+            if (tracker.finReceived)
+            {
+                if (tracker.kind == H3StreamKind.qpackEncoder
+                        || tracker.kind == H3StreamKind.qpackDecoder)
+                {
+                    abortConnection(quicConn, H3ErrorCode.closedCriticalStream);
+                    return;
+                }
+            }
             return;
         }
 
-        // Process Control Stream frames
+        // F-51: Process Control Stream frames
         if (tracker.kind == H3StreamKind.control)
         {
-            while (tracker.recvBufLen > 0)
+            while (tracker.readableBytes > 0)
             {
+                const(ubyte)[] slice = tracker.readableSlice;
                 // First frame precedence check on Control Stream (D6.3):
                 ulong peekType = 0;
                 size_t peekConsumed = 0;
-                if (decodeVarInt(tracker.recvBuf[0 .. tracker.recvBufLen],
-                        peekType, peekConsumed) == WireError.none)
+                if (decodeVarInt(slice, peekType, peekConsumed) == WireError.none)
                 {
                     if (!peerControlSettingsReceived && peekType != H3FrameType.settings)
                     {
@@ -1182,8 +1444,7 @@ public struct H3Connection
 
                 size_t offset = 0;
                 H3FrameHeader hdr;
-                H3ErrorCode ferr = decodeH3FrameHeader(tracker.recvBuf[0 .. tracker.recvBufLen],
-                        offset, hdr);
+                H3ErrorCode ferr = decodeH3FrameHeader(slice, offset, hdr);
                 if (ferr == H3ErrorCode.frameUnexpected)
                 {
                     abortConnection(quicConn, H3ErrorCode.frameUnexpected);
@@ -1198,11 +1459,11 @@ public struct H3Connection
                     return;
                 }
 
-                if (tracker.recvBufLen - offset < cast(size_t) hdr.length)
+                if (slice.length - offset < cast(size_t) hdr.length)
                     break;
 
                 const size_t frameTotalBytes = offset + cast(size_t) hdr.length;
-                const(ubyte)[] payload = tracker.recvBuf[offset .. offset + cast(size_t) hdr.length];
+                const(ubyte)[] payload = slice[offset .. offset + cast(size_t) hdr.length];
 
                 if (!peerControlSettingsReceived)
                 {
@@ -1224,7 +1485,11 @@ public struct H3Connection
                     peerControlSettingsReceived = true;
                     peerSettingsReceived = true;
                     peerSettings = s;
-                    events.push(H3Event(H3EventType.peerSettingsReceived, tracker.id, 0, s));
+                    if (!events.push(H3Event(H3EventType.peerSettingsReceived, tracker.id, 0, s)))
+                    {
+                        abortConnection(quicConn, H3ErrorCode.excessiveLoad);
+                        return;
+                    }
                 }
                 else
                 {
@@ -1259,6 +1524,16 @@ public struct H3Connection
                             abortConnection(quicConn, H3ErrorCode.frameError);
                             return;
                         }
+                        if (hdr.type == H3FrameType.maxPushId)
+                        {
+                            if (hasMaxPushId && pushId < maxPushId)
+                            {
+                                abortConnection(quicConn, H3ErrorCode.idError);
+                                return;
+                            }
+                            hasMaxPushId = true;
+                            maxPushId = pushId;
+                        }
                     }
                     if (hdr.type == H3FrameType.goaway)
                     {
@@ -1281,16 +1556,26 @@ public struct H3Connection
                         }
                         peerGoawayReceived = true;
                         peerGoawayStreamId = lastId;
-                        events.push(H3Event(H3EventType.goawayReceived, StreamId(lastId)));
+                        if (!events.push(H3Event(H3EventType.goawayReceived, StreamId(lastId))))
+                        {
+                            abortConnection(quicConn, H3ErrorCode.excessiveLoad);
+                            return;
+                        }
                     }
                     tracker.consumeRecv(frameTotalBytes);
                     // GREASE and unknown frames are cleanly ignored
                 }
             }
 
-            if (tracker.finReceived && tracker.recvBufLen > 0)
+            // After parsing all complete frames: check FIN (F-51)
+            if (tracker.finReceived)
             {
-                abortConnection(quicConn, H3ErrorCode.frameError);
+                if (tracker.readableBytes > 0)
+                {
+                    abortConnection(quicConn, H3ErrorCode.frameError);
+                    return;
+                }
+                abortConnection(quicConn, H3ErrorCode.closedCriticalStream);
                 return;
             }
             return;
@@ -1299,12 +1584,12 @@ public struct H3Connection
         // Process Bidirectional Request Stream frames
         if (tracker.kind == H3StreamKind.request)
         {
-            while (tracker.recvBufLen > 0)
+            while (tracker.readableBytes > 0)
             {
+                const(ubyte)[] slice = tracker.readableSlice;
                 size_t offset = 0;
                 H3FrameHeader hdr;
-                H3ErrorCode ferr = decodeH3FrameHeader(tracker.recvBuf[0 .. tracker.recvBufLen],
-                        offset, hdr);
+                H3ErrorCode ferr = decodeH3FrameHeader(slice, offset, hdr);
                 if (ferr == H3ErrorCode.frameUnexpected)
                 {
                     abortConnection(quicConn, H3ErrorCode.frameUnexpected);
@@ -1327,11 +1612,11 @@ public struct H3Connection
                     return;
                 }
 
-                if (tracker.recvBufLen - offset < cast(size_t) hdr.length)
+                if (slice.length - offset < cast(size_t) hdr.length)
                     break;
 
                 const size_t frameTotalBytes = offset + cast(size_t) hdr.length;
-                const(ubyte)[] payload = tracker.recvBuf[offset .. offset + cast(size_t) hdr.length];
+                const(ubyte)[] payload = slice[offset .. offset + cast(size_t) hdr.length];
 
                 // Forbidden frames on request stream (RFC 9114 Section 7.2)
                 if (hdr.type == H3FrameType.settings || hdr.type == H3FrameType.goaway
@@ -1381,6 +1666,20 @@ public struct H3Connection
                             return;
                         }
 
+                        if (isResponse)
+                        {
+                            foreach (ref h; decHdrs[0 .. hCount])
+                            {
+                                if (h.name == ":status" && h.value.length == 3)
+                                {
+                                    tracker.responseStatus = cast(ushort)(
+                                            (h.value[0] - '0') * 100 + (
+                                            h.value[1] - '0') * 10 + (h.value[2] - '0'));
+                                    break;
+                                }
+                            }
+                        }
+
                         // Informational 1xx responses (except 101 which is rejected) allow subsequent final response
                         if (isResponse && decHdrs[0].value.length == 3 && decHdrs[0].value[0] == '1')
                         {
@@ -1394,9 +1693,15 @@ public struct H3Connection
                     else
                     {
                         // Trailing headers
-                        if (tracker.hasContentLength
+                        const bool isNoBody = (side == Side.client
+                                && (tracker.responseStatus == 204 || tracker.responseStatus == 304
+                                    || (tracker.responseStatus >= 100 && tracker.responseStatus
+                                    < 200)));
+                        if (!isNoBody && tracker.hasContentLength
                                 && tracker.receivedDataBytes != tracker.expectedContentLength)
                         {
+                            quicConn.resetStream(tracker.id, cast(ulong) H3ErrorCode.messageError);
+                            quicConn.stopSending(tracker.id, cast(ulong) H3ErrorCode.messageError);
                             abortConnection(quicConn, H3ErrorCode.messageError);
                             return;
                         }
@@ -1412,11 +1717,28 @@ public struct H3Connection
 
                     tracker.consumeRecv(frameTotalBytes);
 
-                    if (tracker.finReceived && tracker.recvBufLen == 0)
+                    const bool isNoBody = (side == Side.client
+                            && (tracker.responseStatus == 204 || tracker.responseStatus == 304
+                                || (tracker.responseStatus >= 100 && tracker.responseStatus < 200)));
+                    if (tracker.finReceived && tracker.readableBytes == 0)
                     {
-                        if (tracker.hasContentLength
+                        if (isNoBody)
+                        {
+                            if (tracker.receivedDataBytes != 0)
+                            {
+                                quicConn.resetStream(tracker.id,
+                                        cast(ulong) H3ErrorCode.messageError);
+                                quicConn.stopSending(tracker.id,
+                                        cast(ulong) H3ErrorCode.messageError);
+                                abortConnection(quicConn, H3ErrorCode.messageError);
+                                return;
+                            }
+                        }
+                        else if (tracker.hasContentLength
                                 && tracker.receivedDataBytes != tracker.expectedContentLength)
                         {
+                            quicConn.resetStream(tracker.id, cast(ulong) H3ErrorCode.messageError);
+                            quicConn.stopSending(tracker.id, cast(ulong) H3ErrorCode.messageError);
                             abortConnection(quicConn, H3ErrorCode.messageError);
                             return;
                         }
@@ -1427,14 +1749,22 @@ public struct H3Connection
                     ev.streamId = tracker.id;
                     ev.headers[0 .. hCount] = decHdrs[0 .. hCount];
                     ev.headerCount = hCount;
-                    ev.fin = tracker.finReceived && (tracker.recvBufLen == 0);
-                    events.push(ev);
+                    ev.fin = tracker.finReceived && (tracker.readableBytes == 0);
+                    if (!events.push(ev))
+                    {
+                        abortConnection(quicConn, H3ErrorCode.excessiveLoad);
+                        return;
+                    }
 
-                    if (tracker.finReceived && tracker.recvBufLen == 0
+                    if (tracker.finReceived && tracker.readableBytes == 0
                             && !tracker.requestFinishedEmitted)
                     {
                         tracker.requestFinishedEmitted = true;
-                        events.push(H3Event(H3EventType.requestFinished, tracker.id));
+                        if (!events.push(H3Event(H3EventType.requestFinished, tracker.id)))
+                        {
+                            abortConnection(quicConn, H3ErrorCode.excessiveLoad);
+                            return;
+                        }
                     }
                     return;
                 }
@@ -1446,8 +1776,21 @@ public struct H3Connection
                         return;
                     }
 
+                    const bool isNoBody = (side == Side.client
+                            && (tracker.responseStatus == 204 || tracker.responseStatus == 304
+                                || (tracker.responseStatus >= 100 && tracker.responseStatus < 200)));
+                    if (isNoBody)
+                    {
+                        quicConn.resetStream(tracker.id, cast(ulong) H3ErrorCode.messageError);
+                        quicConn.stopSending(tracker.id, cast(ulong) H3ErrorCode.messageError);
+                        abortConnection(quicConn, H3ErrorCode.messageError);
+                        return;
+                    }
+
                     if (ulong.max - tracker.receivedDataBytes < payload.length)
                     {
+                        quicConn.resetStream(tracker.id, cast(ulong) H3ErrorCode.messageError);
+                        quicConn.stopSending(tracker.id, cast(ulong) H3ErrorCode.messageError);
                         abortConnection(quicConn, H3ErrorCode.messageError);
                         return;
                     }
@@ -1456,6 +1799,8 @@ public struct H3Connection
                     if (tracker.hasContentLength
                             && tracker.receivedDataBytes > tracker.expectedContentLength)
                     {
+                        quicConn.resetStream(tracker.id, cast(ulong) H3ErrorCode.messageError);
+                        quicConn.stopSending(tracker.id, cast(ulong) H3ErrorCode.messageError);
                         abortConnection(quicConn, H3ErrorCode.messageError);
                         return;
                     }
@@ -1472,11 +1817,13 @@ public struct H3Connection
 
                     tracker.consumeRecv(frameTotalBytes);
 
-                    if (tracker.finReceived && tracker.recvBufLen == 0)
+                    if (tracker.finReceived && tracker.readableBytes == 0)
                     {
                         if (tracker.hasContentLength
                                 && tracker.receivedDataBytes != tracker.expectedContentLength)
                         {
+                            quicConn.resetStream(tracker.id, cast(ulong) H3ErrorCode.messageError);
+                            quicConn.stopSending(tracker.id, cast(ulong) H3ErrorCode.messageError);
                             abortConnection(quicConn, H3ErrorCode.messageError);
                             return;
                         }
@@ -1486,14 +1833,22 @@ public struct H3Connection
                     ev.type = H3EventType.dataReceived;
                     ev.streamId = tracker.id;
                     ev.data = dataSlice;
-                    ev.fin = tracker.finReceived && (tracker.recvBufLen == 0);
-                    events.push(ev);
+                    ev.fin = tracker.finReceived && (tracker.readableBytes == 0);
+                    if (!events.push(ev))
+                    {
+                        abortConnection(quicConn, H3ErrorCode.excessiveLoad);
+                        return;
+                    }
 
-                    if (tracker.finReceived && tracker.recvBufLen == 0
+                    if (tracker.finReceived && tracker.readableBytes == 0
                             && !tracker.requestFinishedEmitted)
                     {
                         tracker.requestFinishedEmitted = true;
-                        events.push(H3Event(H3EventType.requestFinished, tracker.id));
+                        if (!events.push(H3Event(H3EventType.requestFinished, tracker.id)))
+                        {
+                            abortConnection(quicConn, H3ErrorCode.excessiveLoad);
+                            return;
+                        }
                     }
                     return;
                 }
@@ -1504,27 +1859,47 @@ public struct H3Connection
                 }
             }
 
-            if (tracker.finReceived && tracker.recvBufLen > 0)
+            if (tracker.finReceived && tracker.readableBytes > 0)
             {
                 abortConnection(quicConn, H3ErrorCode.frameError);
                 return;
             }
 
-            if (tracker.finReceived && tracker.recvBufLen == 0 && !tracker.requestFinishedEmitted)
+            if (tracker.finReceived && tracker.readableBytes == 0
+                    && !tracker.requestFinishedEmitted)
             {
                 if (!tracker.initialHeadersReceived)
                 {
                     abortConnection(quicConn, H3ErrorCode.requestIncomplete);
                     return;
                 }
-                if (tracker.hasContentLength
+                const bool isNoBody = (side == Side.client && (tracker.responseStatus == 204
+                        || tracker.responseStatus == 304
+                        || (tracker.responseStatus >= 100 && tracker.responseStatus < 200)));
+                if (isNoBody)
+                {
+                    if (tracker.receivedDataBytes != 0)
+                    {
+                        quicConn.resetStream(tracker.id, cast(ulong) H3ErrorCode.messageError);
+                        quicConn.stopSending(tracker.id, cast(ulong) H3ErrorCode.messageError);
+                        abortConnection(quicConn, H3ErrorCode.messageError);
+                        return;
+                    }
+                }
+                else if (tracker.hasContentLength
                         && tracker.receivedDataBytes != tracker.expectedContentLength)
                 {
+                    quicConn.resetStream(tracker.id, cast(ulong) H3ErrorCode.messageError);
+                    quicConn.stopSending(tracker.id, cast(ulong) H3ErrorCode.messageError);
                     abortConnection(quicConn, H3ErrorCode.messageError);
                     return;
                 }
                 tracker.requestFinishedEmitted = true;
-                events.push(H3Event(H3EventType.requestFinished, tracker.id));
+                if (!events.push(H3Event(H3EventType.requestFinished, tracker.id)))
+                {
+                    abortConnection(quicConn, H3ErrorCode.excessiveLoad);
+                    return;
+                }
             }
         }
     }
@@ -1535,9 +1910,10 @@ public struct H3Connection
 @nogc unittest
 {
     // 1. Valid request headers
-    const H3HeaderField[4] validReq = [
+    const H3HeaderField[5] validReq = [
         H3HeaderField(":method", "GET"), H3HeaderField(":scheme", "https"),
-        H3HeaderField(":path", "/"), H3HeaderField("accept", "text/html")
+        H3HeaderField(":authority", "example.com"), H3HeaderField(":path",
+                "/"), H3HeaderField("accept", "text/html")
     ];
     bool hasCl = false;
     ulong cl = 0;
@@ -1592,8 +1968,9 @@ public struct H3Connection
     assert(validateHeaders(forbiddenConn[], false) == H3ErrorCode.messageError);
 
     // 8. Content-Length parsing and validation
-    const H3HeaderField[5] validCl = [
+    const H3HeaderField[6] validCl = [
         H3HeaderField(":method", "POST"), H3HeaderField(":scheme", "https"),
+        H3HeaderField(":authority", "example.com"),
         H3HeaderField(":path", "/upload"), H3HeaderField("content-length",
                 "1024"), H3HeaderField("content-type", "application/octet-stream")
     ];
@@ -1654,9 +2031,10 @@ public struct H3Connection
     ];
     assert(validateHeaders(badTe[], false) == H3ErrorCode.messageError);
 
-    const H3HeaderField[4] goodTe = [
+    const H3HeaderField[5] goodTe = [
         H3HeaderField(":method", "GET"), H3HeaderField(":scheme", "https"),
-        H3HeaderField(":path", "/"), H3HeaderField("te", "trailers")
+        H3HeaderField(":authority", "example.com"), H3HeaderField(":path",
+                "/"), H3HeaderField("te", "trailers")
     ];
     assert(validateHeaders(goodTe[], false) == H3ErrorCode.noError);
 

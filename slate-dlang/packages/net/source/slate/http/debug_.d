@@ -32,16 +32,120 @@ struct DebugContext
     void* userdata;
 }
 
+private bool startsWithCaseInsensitive(const(char)[] s, const(char)[] prefix) @nogc nothrow pure
+{
+    if (s.length < prefix.length)
+        return false;
+    foreach (i; 0 .. prefix.length)
+    {
+        char c1 = s[i];
+        char c2 = prefix[i];
+        if (c1 >= 'A' && c1 <= 'Z')
+            c1 += ('a' - 'A');
+        if (c2 >= 'A' && c2 <= 'Z')
+            c2 += ('a' - 'A');
+        if (c1 != c2)
+            return false;
+    }
+    return true;
+}
+
+private bool containsAuthHeader(const(char)[] s) @nogc nothrow pure
+{
+    const auth = "authorization:";
+    if (s.length < auth.length)
+        return false;
+    foreach (i; 0 .. s.length - auth.length + 1)
+    {
+        if (startsWithCaseInsensitive(s[i .. $], auth))
+            return true;
+    }
+    return false;
+}
+
 /// Native C debug callback invoked by libcurl when `CURLOPT_DEBUGFUNCTION` is set.
 extern (C) int curlDebugCb(CURL* handle, int type, char* data, size_t size, void* userptr) @nogc nothrow
 {
     if (userptr is null)
         return 0;
     auto ctx = cast(DebugContext*) userptr;
-    if (ctx.sink !is null && data !is null && size > 0)
+    if (ctx.sink is null || data is null || size == 0)
+        return 0;
+
+    const(char)[] raw = data[0 .. size];
+    if ((type == CurlInfoType.headerIn || type == CurlInfoType.headerOut) && containsAuthHeader(raw))
     {
-        ctx.sink(cast(CurlInfoType) type, data[0 .. size], ctx.userdata);
+        // Redact Authorization and Proxy-Authorization headers (F-68)
+        char[2048] stackBuf;
+        char* outBuf = stackBuf.ptr;
+        size_t outCap = stackBuf.length;
+        char* heapBuf = null;
+
+        if (size + 128 > outCap)
+        {
+            import core.stdc.stdlib : malloc;
+
+            heapBuf = cast(char*) malloc(size + 128);
+            if (heapBuf !is null)
+            {
+                outBuf = heapBuf;
+                outCap = size + 128;
+            }
+        }
+        scope (exit)
+        {
+            if (heapBuf !is null)
+            {
+                import core.stdc.stdlib : free;
+
+                free(heapBuf);
+            }
+        }
+
+        size_t outLen = 0;
+        size_t i = 0;
+        while (i < raw.length)
+        {
+            size_t lineEnd = i;
+            while (lineEnd < raw.length && raw[lineEnd] != '\n')
+                lineEnd++;
+            if (lineEnd < raw.length && raw[lineEnd] == '\n')
+                lineEnd++;
+
+            const(char)[] line = raw[i .. lineEnd];
+            i = lineEnd;
+
+            size_t start = 0;
+            while (start < line.length && (line[start] == ' ' || line[start] == '\t'))
+                start++;
+
+            const(char)[] effective = line[start .. $];
+            const(char)[] toAppend = line;
+
+            if (startsWithCaseInsensitive(effective, "proxy-authorization:"))
+            {
+                toAppend = (line.length >= 2 && line[$ - 2 .. $] == "\r\n") ? "Proxy-Authorization: [REDACTED]\r\n"
+                    : "Proxy-Authorization: [REDACTED]\n";
+            }
+            else if (startsWithCaseInsensitive(effective, "authorization:"))
+            {
+                toAppend = (line.length >= 2 && line[$ - 2 .. $] == "\r\n") ? "Authorization: [REDACTED]\r\n"
+                    : "Authorization: [REDACTED]\n";
+            }
+
+            if (outLen + toAppend.length <= outCap)
+            {
+                outBuf[outLen .. outLen + toAppend.length] = toAppend[];
+                outLen += toAppend.length;
+            }
+        }
+
+        if (outLen > 0)
+            ctx.sink(cast(CurlInfoType) type, outBuf[0 .. outLen], ctx.userdata);
+        return 0;
     }
+
+    ctx.sink(cast(CurlInfoType) type, raw, ctx.userdata);
     return 0;
 }
 
@@ -64,7 +168,7 @@ extern (C) int curlDebugCb(CURL* handle, int type, char* data, size_t size, void
 /// ---
 unittest
 {
-    // Best practice: verify curlDebugCb forwards data slice and info type to @nogc DebugSink
+    // Spec: verify curlDebugCb forwards data slice and info type to @nogc DebugSink
     static __gshared size_t textCount = 0;
     static __gshared size_t headerCount = 0;
 
@@ -92,6 +196,53 @@ unittest
     // Null checks must not crash
     curlDebugCb(null, CurlInfoType.text, null, 0, &ctx);
     curlDebugCb(null, CurlInfoType.text, cast(char*) sampleText.ptr, sampleText.length, null);
+}
+
+// Spec: Authorization and Proxy-Authorization headers redacted in curlDebugCb (F-68)
+// Scenario: Sensitive credentials in request or response headers are replaced with [REDACTED]
+/// Example:
+/// ---
+/// import slate.http.debug_;
+/// static void sink(CurlInfoType type, const(char)[] data, void* userdata) @nogc nothrow {}
+/// DebugContext ctx = DebugContext(&sink, null);
+/// ---
+unittest
+{
+    // Spec: verify Authorization and Proxy-Authorization lines are redacted
+    static __gshared char[256] captured;
+    static __gshared size_t capturedLen = 0;
+
+    static void authSink(CurlInfoType type, const(char)[] data, void* userdata) @nogc nothrow
+    {
+        if (data.length <= captured.length)
+        {
+            captured[0 .. data.length] = data[];
+            capturedLen = data.length;
+        }
+    }
+
+    DebugContext ctx = DebugContext(&authSink, null);
+
+    // 1. Authorization header redaction
+    string authHdr = "Authorization: Bearer secret-token-12345\r\n";
+    capturedLen = 0;
+    curlDebugCb(null, CurlInfoType.headerOut, cast(char*) authHdr.ptr, authHdr.length, &ctx);
+    assert(captured[0 .. capturedLen] == "Authorization: [REDACTED]\r\n",
+            "Authorization header must be redacted");
+
+    // 2. Proxy-Authorization header redaction
+    string proxyHdr = "Proxy-Authorization: Basic dXNlcjpwYXNz\r\n";
+    capturedLen = 0;
+    curlDebugCb(null, CurlInfoType.headerOut, cast(char*) proxyHdr.ptr, proxyHdr.length, &ctx);
+    assert(captured[0 .. capturedLen] == "Proxy-Authorization: [REDACTED]\r\n",
+            "Proxy-Authorization header must be redacted");
+
+    // 3. Unrelated headers preserved
+    string normalHdr = "Content-Type: application/json\r\n";
+    capturedLen = 0;
+    curlDebugCb(null, CurlInfoType.headerIn, cast(char*) normalHdr.ptr, normalHdr.length, &ctx);
+    assert(captured[0 .. capturedLen] == "Content-Type: application/json\r\n",
+            "Non-sensitive headers must not be modified");
 }
 
 // Spec: End-to-end Client verbose observability via DebugSink under SlateHttpDebug (OPT-1)

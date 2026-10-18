@@ -382,11 +382,14 @@ public struct SendBuffer
         {
             const size_t shift = cast(size_t)(newStart - bufferStartOffset);
             const size_t remaining = cast(size_t)(m_writeOffset - newStart);
-            if (remaining > 0)
+            if (shift >= 4096 || remaining == 0)
             {
-                memmove(data, data + shift, remaining);
+                if (remaining > 0)
+                {
+                    memmove(data, data + shift, remaining);
+                }
+                bufferStartOffset = newStart;
             }
-            bufferStartOffset = newStart;
         }
     }
 
@@ -724,7 +727,7 @@ public struct SendBuffer
 }
 
 /// Example:
-// Best practice: SendBuffer Move Semantics and Memory Management (covers U2, G4)
+// Spec: SendBuffer Move Semantics and Memory Management (covers U2, G4)
 @nogc unittest
 {
     SendBuffer b1;

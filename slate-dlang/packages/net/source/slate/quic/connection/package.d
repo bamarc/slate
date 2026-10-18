@@ -13,20 +13,19 @@ public import slate.quic.connection.events;
 public import slate.quic.connection.sent_frames;
 public import slate.quic.connection.connection;
 
-import slate.quic.crypto.kdf : Side;
-import slate.quic.crypto.tls_session : TlsContext;
-import slate.quic.wire.cid : ConnectionId;
-import slate.quic.wire.transport_params : TransportParameters;
+version (unittest)
+{
+    import slate.quic.crypto.kdf : Side;
+    import slate.quic.crypto.tls_session : TlsContext;
+    import slate.quic.wire.cid : ConnectionId;
+    import slate.quic.wire.transport_params : TransportParameters;
+}
 
 /// Example:
-// Best practice: High-Iteration Creation/Destruction and Zero-Leak Lifecycle (covers U2, G4)
+// Spec: High-Iteration Creation/Destruction and Zero-Leak Lifecycle (covers U2, G4)
 @nogc unittest
 {
-    auto makeClientCtx = () @trusted @nogc nothrow{
-        alias ClientFn = TlsContext function() @nogc nothrow;
-        return (cast(ClientFn)&TlsContext.createClient)();
-    };
-    TlsContext clientCtx = makeClientCtx();
+    TlsContext clientCtx = TlsContext.createClientInsecure();
     const ubyte[8] dcidBytes = [1, 2, 3, 4, 5, 6, 7, 8];
     const ubyte[8] scidBytes = [9, 10, 11, 12, 13, 14, 15, 16];
     ConnectionId dcid = ConnectionId(dcidBytes[]);

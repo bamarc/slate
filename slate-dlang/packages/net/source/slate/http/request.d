@@ -64,6 +64,17 @@ pure @safe @nogc nothrow long toCurlHttpVersion(HttpVersion v)
     }
 }
 
+/// Returns true if a string contains CR, LF, or NUL characters (F-62).
+private bool containsCrlfOrNul(const(char)[] s) @safe pure @nogc nothrow
+{
+    foreach (c; s)
+    {
+        if (c == '\r' || c == '\n' || c == '\0')
+            return true;
+    }
+    return false;
+}
+
 /// An HTTP header name-value pair.
 struct Header
 {
@@ -88,11 +99,13 @@ struct Request
     invariant
     {
         assert(url.length > 0, "Request URL cannot be empty");
+        assert(!containsCrlfOrNul(url), "Request URL cannot contain CR, LF, or NUL");
     }
 
     /// Primary constructor enforcing non-empty URL.
     this(string url, Method method = Method.GET, HttpVersion httpVersion = HttpVersion.auto_) @safe pure @nogc nothrow
     in (url.length > 0, "Request URL must not be empty")
+    in (!containsCrlfOrNul(url), "Request URL must not contain CR, LF, or NUL")
     {
         this.url = url;
         this.method = method;
@@ -102,6 +115,7 @@ struct Request
     /// Factory for a GET request.
     static Request get(string url) @safe pure @nogc nothrow
     in (url.length > 0, "Request URL must not be empty")
+    in (!containsCrlfOrNul(url), "Request URL must not contain CR, LF, or NUL")
     {
         return Request(url, Method.GET);
     }
@@ -109,6 +123,7 @@ struct Request
     /// Factory for a POST request.
     static Request post(string url, const(ubyte)[] bodyData = null) @safe pure @nogc nothrow
     in (url.length > 0, "Request URL must not be empty")
+    in (!containsCrlfOrNul(url), "Request URL must not contain CR, LF, or NUL")
     {
         Request req = Request(url, Method.POST);
         req.bodyData = bodyData;
@@ -118,6 +133,7 @@ struct Request
     /// Factory for a PUT request.
     static Request put(string url, const(ubyte)[] bodyData = null) @safe pure @nogc nothrow
     in (url.length > 0, "Request URL must not be empty")
+    in (!containsCrlfOrNul(url), "Request URL must not contain CR, LF, or NUL")
     {
         Request req = Request(url, Method.PUT);
         req.bodyData = bodyData;
@@ -127,6 +143,7 @@ struct Request
     /// Factory for a DELETE request.
     static Request delete_(string url) @safe pure @nogc nothrow
     in (url.length > 0, "Request URL must not be empty")
+    in (!containsCrlfOrNul(url), "Request URL must not contain CR, LF, or NUL")
     {
         return Request(url, Method.DELETE);
     }
@@ -134,6 +151,7 @@ struct Request
     /// Factory for a HEAD request.
     static Request head(string url) @safe pure @nogc nothrow
     in (url.length > 0, "Request URL must not be empty")
+    in (!containsCrlfOrNul(url), "Request URL must not contain CR, LF, or NUL")
     {
         return Request(url, Method.HEAD);
     }
@@ -141,6 +159,7 @@ struct Request
     /// Factory for a PATCH request.
     static Request patch(string url, const(ubyte)[] bodyData = null) @safe pure @nogc nothrow
     in (url.length > 0, "Request URL must not be empty")
+    in (!containsCrlfOrNul(url), "Request URL must not contain CR, LF, or NUL")
     {
         Request req = Request(url, Method.PATCH);
         req.bodyData = bodyData;
@@ -160,6 +179,8 @@ struct Request
     /// Appends an HTTP header to the request (cold builder path, allocates header array).
     Request withHeader(string name, string value) @safe pure const
     in (name.length > 0, "Header name must not be empty")
+    in (!containsCrlfOrNul(name), "Header name must not contain CR, LF, or NUL")
+    in (!containsCrlfOrNul(value), "Header value must not contain CR, LF, or NUL")
     {
         Request copy = clone();
         copy.headers ~= Header(name, value);
@@ -169,6 +190,12 @@ struct Request
     /// Sets multiple HTTP headers (cold builder path).
     Request withHeaders(Header[] hdrs) @safe pure const
     {
+        foreach (ref h; hdrs)
+        {
+            assert(h.name.length > 0, "Header name must not be empty");
+            assert(!containsCrlfOrNul(h.name), "Header name must not contain CR, LF, or NUL");
+            assert(!containsCrlfOrNul(h.value), "Header value must not contain CR, LF, or NUL");
+        }
         Request copy = clone();
         copy.headers = hdrs.dup;
         return copy;
@@ -239,7 +266,7 @@ struct Request
 /// ---
 unittest
 {
-    // Best practice: verify builder methods maintain immutability and valid state
+    // Spec: verify builder methods maintain immutability and valid state
     auto req1 = Request.get("https://api.example.com/items");
     assert(req1.url == "https://api.example.com/items");
     assert(req1.method == Method.GET);
@@ -309,7 +336,7 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify Request timeout overrides maintain value semantics
+    // Spec: verify Request timeout overrides maintain value semantics
     auto r1 = Request.get("http://example.com");
     assert(r1.connectTimeoutMs == 0);
     assert(r1.timeoutMs == 0);

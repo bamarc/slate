@@ -109,11 +109,40 @@ WireError parsePacketPrefix(const(ubyte)[] datagram, size_t shortDcidLen, out Pa
                 return WireError.unexpectedEof;
 
             prefix.scid = ConnectionId(datagram[scidOffset + 1 .. scidOffset + 1 + scidLen]);
+            const size_t versionsOffset = scidOffset + 1 + scidLen;
+            const size_t versionsLen = datagram.length - versionsOffset;
+            if (versionsLen == 0 || (versionsLen % 4) != 0)
+                return WireError.invalidPacketHeader;
+
             prefix.totalPacketLen = datagram.length;
             prefix.pnOffset = 0;
             prefix.payloadAndPnLength = 0;
             return WireError.none;
         }
+
+        // For all other long header packets, parse DCID and SCID first (RFC 9000 Section 17.2 & Section 5.2)
+        size_t offset = 5;
+        if (datagram.length <= offset)
+            return WireError.unexpectedEof;
+
+        const ubyte dcidLen = datagram[offset++];
+        if (dcidLen > MAX_CID_LEN)
+            return WireError.invalidPacketHeader;
+        if (datagram.length - offset < dcidLen)
+            return WireError.unexpectedEof;
+        prefix.dcid = ConnectionId(datagram[offset .. offset + dcidLen]);
+        offset += dcidLen;
+
+        if (datagram.length <= offset)
+            return WireError.unexpectedEof;
+
+        const ubyte scidLen = datagram[offset++];
+        if (scidLen > MAX_CID_LEN)
+            return WireError.invalidPacketHeader;
+        if (datagram.length - offset < scidLen)
+            return WireError.unexpectedEof;
+        prefix.scid = ConnectionId(datagram[offset .. offset + scidLen]);
+        offset += scidLen;
 
         // Fixed bit (0x40) check for QUIC v1/v2 long headers (RFC 9000 Section 17.2)
         if ((firstByte & 0x40) == 0)
@@ -137,29 +166,6 @@ WireError parsePacketPrefix(const(ubyte)[] datagram, size_t shortDcidLen, out Pa
         default:
             return WireError.invalidPacketHeader;
         }
-
-        size_t offset = 5;
-        if (datagram.length <= offset)
-            return WireError.unexpectedEof;
-
-        const ubyte dcidLen = datagram[offset++];
-        if (dcidLen > MAX_CID_LEN)
-            return WireError.invalidPacketHeader;
-        if (datagram.length - offset < dcidLen)
-            return WireError.unexpectedEof;
-        prefix.dcid = ConnectionId(datagram[offset .. offset + dcidLen]);
-        offset += dcidLen;
-
-        if (datagram.length <= offset)
-            return WireError.unexpectedEof;
-
-        const ubyte scidLen = datagram[offset++];
-        if (scidLen > MAX_CID_LEN)
-            return WireError.invalidPacketHeader;
-        if (datagram.length - offset < scidLen)
-            return WireError.unexpectedEof;
-        prefix.scid = ConnectionId(datagram[offset .. offset + scidLen]);
-        offset += scidLen;
 
         if (prefix.type == PacketType.retry)
         {
@@ -781,6 +787,38 @@ WireError encodeVersionNegotiationPacket(const ref ConnectionId dcid, const ref 
     const size_t vOffset = 1 + 4 + 1 + dcid.len + 1 + scid.len;
     const(ubyte)[] vSlice = vnBuf[vOffset .. vnWritten];
     assert(vSlice.length == 8);
+
+    // Empty VN supported versions list -> rejected (F-40)
+    ubyte[64] emptyVnBuf;
+    WireWriter vnw = WireWriter(emptyVnBuf[]);
+    vnw.writeU8(0x80);
+    vnw.writeU32(QUIC_VERSION_NEGOTIATION);
+    vnw.writeU8(dcid.len);
+    vnw.writeBytes(dcid.asSlice());
+    vnw.writeU8(scid.len);
+    vnw.writeBytes(scid.asSlice());
+    PacketPrefix badVnPref;
+    assert(parsePacketPrefix(vnw.writtenSlice, 8, badVnPref) == WireError.invalidPacketHeader);
+
+    // Non-multiple of 4 VN supported versions list -> rejected (F-40)
+    vnw.writeU8(0x42); // 1 extra trailing byte (not multiple of 4)
+    assert(parsePacketPrefix(vnw.writtenSlice, 8, badVnPref) == WireError.invalidPacketHeader);
+
+    // Fixed-bit cleared (0x80 instead of 0xc0) -> DCID and SCID populated before rejection (F-40)
+    ubyte[64] badFixedBitBuf;
+    WireWriter bfb = WireWriter(badFixedBitBuf[]);
+    bfb.writeU8(0x80); // Long header with fixed bit cleared
+    bfb.writeU32(QUIC_VERSION_1);
+    bfb.writeU8(dcid.len);
+    bfb.writeBytes(dcid.asSlice());
+    bfb.writeU8(scid.len);
+    bfb.writeBytes(scid.asSlice());
+    bfb.writeVarInt(10);
+    PacketPrefix bfbPref;
+    assert(parsePacketPrefix(bfb.writtenSlice, 8, bfbPref) == WireError.invalidPacketHeader);
+    assert(bfbPref.version_ == QUIC_VERSION_1);
+    assert(bfbPref.dcid == dcid);
+    assert(bfbPref.scid == scid);
 
     // 4. DCID > 20 and SCID > 20 rejection
     ubyte[64] badCidBuf;

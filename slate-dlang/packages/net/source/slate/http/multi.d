@@ -12,6 +12,11 @@ import slate.http.request;
 import slate.http.response;
 import slate.http.version_ : hasHttp3;
 
+version (unittest)
+{
+    import slate.http.test_server : HttpStubServer;
+}
+
 import core.atomic : atomicLoad, atomicStore;
 import core.stdc.stdlib : malloc, free, realloc;
 
@@ -369,7 +374,7 @@ struct MultiClient
         long totalConnects = 0;
         foreach (i, ref s; slots)
         {
-            if (s.result != CURLcode.CURLE_OK)
+            if (!s.done || s.result != CURLcode.CURLE_OK)
             {
                 if (s.result == CURLcode.CURLE_ABORTED_BY_CALLBACK
                         || (cancel !is null && cancel.isCancelled()))
@@ -380,7 +385,7 @@ struct MultiClient
             if (s.writeCtx.overflow)
                 throwCurlErrorNogc(CurlCode.CURLE_WRITE_ERROR);
 
-            long statusCode = 200;
+            long statusCode = 0;
             curl_easy_getinfo(s.handle, CURLINFO.CURLINFO_RESPONSE_CODE, &statusCode);
             long rawVer = 0;
             curl_easy_getinfo(s.handle, CURLINFO.CURLINFO_HTTP_VERSION, &rawVer);
@@ -389,8 +394,6 @@ struct MultiClient
             totalConnects += connects;
 
             int finalStatus = cast(int) statusCode;
-            if (finalStatus < 100 || finalStatus > 599)
-                finalStatus = 200;
 
             responses[i] = Response(finalStatus, null,
                     buffers[i][0 .. s.writeCtx.written], mapCurlHttpVersion(rawVer));
@@ -527,6 +530,8 @@ struct MultiClient
             applyRequestOptions(easy, _config.clientConfig, req, cUrl,
                     slots[i].headerList, altSvcCStr, _config.altSvcCtrl);
 
+            slots[i].bodyCtx.maxAllowed = _config.clientConfig.maxResponseBytes;
+            slots[i].headerCtx.maxAllowed = _config.clientConfig.maxHeaderBytes;
             curl_easy_setopt(easy, CURLoption.CURLOPT_WRITEFUNCTION, &clientDynamicWriteCb);
             curl_easy_setopt(easy, CURLoption.CURLOPT_WRITEDATA, &slots[i].bodyCtx);
             curl_easy_setopt(easy, CURLoption.CURLOPT_HEADERFUNCTION, &clientHeaderCollectCb);
@@ -606,7 +611,7 @@ struct MultiClient
         long totalConnects = 0;
         foreach (i, ref s; slots)
         {
-            if (s.result != CURLcode.CURLE_OK)
+            if (!s.done || s.result != CURLcode.CURLE_OK)
             {
                 if (s.result == CURLcode.CURLE_ABORTED_BY_CALLBACK
                         || (cancel !is null && cancel.isCancelled()))
@@ -616,8 +621,10 @@ struct MultiClient
 
             if (s.bodyCtx.oom || s.headerCtx.oom)
                 enforceCurl(CurlCode.CURLE_OUT_OF_MEMORY);
+            if (s.bodyCtx.overflow || s.headerCtx.overflow)
+                enforceCurl(CurlCode.CURLE_FILESIZE_EXCEEDED);
 
-            long statusCode = 200;
+            long statusCode = 0;
             curl_easy_getinfo(s.handle, CURLINFO.CURLINFO_RESPONSE_CODE, &statusCode);
             long rawVer = 0;
             curl_easy_getinfo(s.handle, CURLINFO.CURLINFO_HTTP_VERSION, &rawVer);
@@ -626,8 +633,6 @@ struct MultiClient
             totalConnects += connects;
 
             int finalStatus = cast(int) statusCode;
-            if (finalStatus < 100 || finalStatus > 599)
-                finalStatus = 200;
 
             Header[] headers;
             if (s.headerCtx.len > 0)
@@ -679,7 +684,7 @@ struct MultiClient
 /// ---
 unittest
 {
-    // Best practice: verify sequential connection reuse preserves keep-alive and numConnects == 0
+    // Spec: verify sequential connection reuse preserves keep-alive and numConnects == 0
     auto stub = new HttpStubServer("KeepAlive OK", true);
     scope (exit)
         stub.close();
@@ -723,7 +728,7 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify h3Only fails fast without H3 support and does not silently fall back
+    // Spec: verify h3Only fails fast without H3 support and does not silently fall back
     if (!hasHttp3())
     {
         auto client = MultiClient.create();
@@ -761,7 +766,7 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify in-flight cancellation terminates transfer promptly and leaves 0 active handles
+    // Spec: verify in-flight cancellation terminates transfer promptly and leaves 0 active handles
     auto stub = new HttpStubServer("Delayed response", false, 500); // 500ms delay
     scope (exit)
         stub.close();
@@ -800,7 +805,7 @@ unittest
             "activeHandleCount must be 0 after cancelled transfer (UN-3)");
 }
 
-// Best practice: zero-allocation batch execution and progress callback under @nogc
+// Spec: zero-allocation batch execution and progress callback under @nogc
 // Scenario: Hot-path @nogc batch execution
 /// Example:
 /// ---
@@ -863,7 +868,7 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify activeHandleCount never underflows and handles are cleaned up if setup fails mid-batch
+    // Spec: verify activeHandleCount never underflows and handles are cleaned up if setup fails mid-batch
     if (!hasHttp3())
     {
         auto client = MultiClient.create();

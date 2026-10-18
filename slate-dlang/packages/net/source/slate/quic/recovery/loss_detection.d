@@ -42,6 +42,7 @@ public struct SentPacketInfo
     bool inFlight = false;
     bool acked = false;
     bool lost = false;
+    PacketNumberSpace space = PacketNumberSpace.initial;
 }
 
 /**
@@ -149,7 +150,7 @@ public struct LossDetector
         }
 
         sentPackets[s][sentCount[s]] = SentPacketInfo(pn, nowMicros, sentBytes,
-                isAckEliciting, inFlight, false, false);
+                isAckEliciting, inFlight, false, false, space);
         sentCount[s]++;
 
         if (!hasSentPn[s] || pn > largestSentPn[s])
@@ -224,24 +225,24 @@ public struct LossDetector
 
             if (isAcked)
             {
+                p.acked = true;
+                if (p.isAckEliciting)
+                    anyAckElicitingNewlyAcked = true;
+
+                if (p.pn == ack.largestAcknowledged)
+                {
+                    largestAckedSentTime = p.timeSentMicros;
+                    largestAckedNewlyAcked = true;
+                }
+
+                if (p.inFlight)
+                {
+                    cc.onPacketAcked(p.sentBytes, p.timeSentMicros);
+                    p.inFlight = false;
+                }
+
                 if (ackedCount < newlyAckedOut.length)
                 {
-                    p.acked = true;
-                    if (p.isAckEliciting)
-                        anyAckElicitingNewlyAcked = true;
-
-                    if (p.pn == ack.largestAcknowledged)
-                    {
-                        largestAckedSentTime = p.timeSentMicros;
-                        largestAckedNewlyAcked = true;
-                    }
-
-                    if (p.inFlight)
-                    {
-                        cc.onPacketAcked(p.sentBytes, p.timeSentMicros);
-                        p.inFlight = false;
-                    }
-
                     newlyAckedOut[ackedCount] = *p;
                     ackedCount++;
                 }
@@ -270,19 +271,34 @@ public struct LossDetector
             rtt.update(rttSample, ackDelayMicros, maxAckDelayMicros, handshakeConfirmed);
         }
 
-        // 4. Reset PTO counter on new ACK
-        ptoCount = 0;
+        // 4. Reset PTO counter on new ACK that acknowledges an ack-eliciting packet (RFC 9002 Section 6.2.1)
+        if (anyAckElicitingNewlyAcked)
+            ptoCount = 0;
 
         // 5. Detect lost packets
         ulong totalLostBytes = 0;
         ulong largestLostTime = 0;
+        ulong earliestLostTime = 0;
         detectLostPackets(space, nowMicros, newlyLostOut, lostCount,
-                totalLostBytes, largestLostTime);
+                totalLostBytes, largestLostTime, earliestLostTime);
 
-        // 6. Notify congestion controller of lost bytes
+        // 6. Notify congestion controller of lost bytes and check persistent congestion (RFC 9002 Section 7.6)
         if (totalLostBytes > 0)
         {
             cc.onPacketsLost(totalLostBytes, largestLostTime, nowMicros);
+
+            if (space == PacketNumberSpace.applicationData && rtt.hasSample)
+            {
+                const ulong maxRttVar = 4 * rtt.rttVar > GRANULARITY_MICROS
+                    ? 4 * rtt.rttVar : GRANULARITY_MICROS;
+                const ulong ptoBase = rtt.smoothedRtt + maxRttVar + maxAckDelayMicros;
+                const ulong persistentCongestionDuration = ptoBase * 3;
+                if (persistentCongestionDuration > 0 && largestLostTime >= earliestLostTime
+                        && (largestLostTime - earliestLostTime) >= persistentCongestionDuration)
+                {
+                    cc.onPersistentCongestion();
+                }
+            }
         }
 
         // 7. Compact acknowledged/lost packets prefix
@@ -294,11 +310,13 @@ public struct LossDetector
     /**
      * Declares packets lost via packet threshold or time threshold (RFC 9002 Section 6.1).
      */
-    void detectLostPackets(PacketNumberSpace space, ulong nowMicros, scope SentPacketInfo[] newlyLostOut,
-            ref size_t lostCount, out ulong totalLostBytes, out ulong largestLostTime) @trusted @nogc nothrow
+    void detectLostPackets(PacketNumberSpace space, ulong nowMicros,
+            scope SentPacketInfo[] newlyLostOut, ref size_t lostCount,
+            out ulong totalLostBytes, out ulong largestLostTime, out ulong earliestLostTime) @trusted @nogc nothrow
     {
         totalLostBytes = 0;
         largestLostTime = 0;
+        earliestLostTime = 0;
 
         const size_t s = cast(size_t) space;
         if (s >= NUM_SPACES || !hasAckedPn[s])
@@ -327,14 +345,16 @@ public struct LossDetector
 
                 if (packetThresholdLost || timeThresholdLost)
                 {
+                    p.lost = true;
+                    p.inFlight = false;
+                    totalLostBytes += p.sentBytes;
+                    if (earliestLostTime == 0 || p.timeSentMicros < earliestLostTime)
+                        earliestLostTime = p.timeSentMicros;
+                    if (p.timeSentMicros > largestLostTime)
+                        largestLostTime = p.timeSentMicros;
+
                     if (lostCount < newlyLostOut.length)
                     {
-                        p.lost = true;
-                        p.inFlight = false;
-                        totalLostBytes += p.sentBytes;
-                        if (p.timeSentMicros > largestLostTime)
-                            largestLostTime = p.timeSentMicros;
-
                         newlyLostOut[lostCount] = *p;
                         lostCount++;
                     }
@@ -411,13 +431,42 @@ public struct LossDetector
             }
         }
 
+        // Handshake anti-deadlock PTO: if unconfirmed and in-flight is 0, arm PTO on the lowest active space (D-06)
+        if (!handshakeConfirmed && earliestPto == 0)
+        {
+            foreach (s; 0 .. 2) // Initial or Handshake space
+            {
+                if (hasSentPn[s] || lastAckElicitingTimeMicros[s] > 0)
+                {
+                    const ulong ptoBase = rtt.ptoBaseMicros(maxAckDelayMicros, false);
+                    const uint shift = ptoCount < 30 ? ptoCount : 30;
+                    ulong backoff = ptoBase;
+                    if (shift > 0 && backoff > (ulong.max >> shift))
+                        backoff = ulong.max;
+                    else
+                        backoff <<= shift;
+
+                    ulong ptoDeadline = lastAckElicitingTimeMicros[s];
+                    if (backoff > ulong.max - ptoDeadline)
+                        ptoDeadline = ulong.max;
+                    else
+                        ptoDeadline += backoff;
+
+                    if (earliestPto == 0 || ptoDeadline < earliestPto)
+                        earliestPto = ptoDeadline;
+                    break;
+                }
+            }
+        }
+
         return earliestPto;
     }
 
     /**
      * Called when the recovery timer expires.
      */
-    void onTimeout(ulong nowMicros, scope SentPacketInfo[] newlyLostOut, out size_t lostCount) @trusted @nogc nothrow
+    void onTimeout(ulong nowMicros, scope SentPacketInfo[] newlyLostOut,
+            out size_t lostCount, ulong maxAckDelayMicros = 25_000) @trusted @nogc nothrow
     {
         lostCount = 0;
 
@@ -430,12 +479,25 @@ public struct LossDetector
                 lossTimerFired = true;
                 ulong spaceLostBytes = 0;
                 ulong spaceLargestLostTime = 0;
-                detectLostPackets(cast(PacketNumberSpace) s, nowMicros,
-                        newlyLostOut, lostCount, spaceLostBytes, spaceLargestLostTime);
+                ulong spaceEarliestLostTime = 0;
+                detectLostPackets(cast(PacketNumberSpace) s, nowMicros, newlyLostOut,
+                        lostCount, spaceLostBytes, spaceLargestLostTime, spaceEarliestLostTime);
 
                 if (spaceLostBytes > 0)
                 {
                     cc.onPacketsLost(spaceLostBytes, spaceLargestLostTime, nowMicros);
+                    if (s == PacketNumberSpace.applicationData && rtt.hasSample)
+                    {
+                        const ulong maxRttVar = 4 * rtt.rttVar > GRANULARITY_MICROS
+                            ? 4 * rtt.rttVar : GRANULARITY_MICROS;
+                        const ulong ptoBase = rtt.smoothedRtt + maxRttVar + maxAckDelayMicros;
+                        const ulong persistentDuration = ptoBase * 3;
+                        if (persistentDuration > 0 && spaceLargestLostTime >= spaceEarliestLostTime
+                                && (spaceLargestLostTime - spaceEarliestLostTime) >= persistentDuration)
+                        {
+                            cc.onPersistentCongestion();
+                        }
+                    }
                 }
                 compactSentPackets(cast(PacketNumberSpace) s);
             }
@@ -640,7 +702,7 @@ public struct LossDetector
 }
 
 /// Example:
-// Best practice: LossDetector Move Semantics and Memory Cleanup (covers U2, G4)
+// Spec: RFC 9002 Section 6 - LossDetector Move Semantics and Memory Cleanup (covers U2, G4)
 @nogc unittest
 {
     LossDetector ld1;
@@ -650,4 +712,88 @@ public struct LossDetector
     ld2.moveFrom(ld1);
     assert(ld1.sentCount[PacketNumberSpace.handshake] == 0);
     assert(ld2.sentCount[PacketNumberSpace.handshake] == 1);
+}
+
+/// Example:
+// Spec: RFC 9002 Section 6 & 7 - Defect F-18: >128 Acked Packets Accounting, PTO Reset Gating, and Persistent Congestion (covers E5, S1)
+@nogc unittest
+{
+    LossDetector ld;
+    ld.rtt.smoothedRtt = 10_000;
+    ld.rtt.rttVar = 2_000;
+    ld.rtt.latestRtt = 10_000;
+    ld.rtt.hasSample = true;
+
+    // Send 150 packets in applicationData space (1000 bytes each)
+    foreach (ulong i; 0 .. 150)
+    {
+        ld.onPacketSent(PacketNumberSpace.applicationData, i, 1000, true, true, 1000 + i * 10);
+    }
+    assert(ld.cc.bytesInFlight == 150_000);
+
+    // Set ptoCount to 3 to verify reset behavior
+    ld.ptoCount = 3;
+
+    // Receive an ACK covering all 150 packets [0..149]
+    AckFrame ack;
+    ack.numRanges = 1;
+    ack.ranges[0] = AckRange(0, 149);
+
+    // newlyAcked buffer size is only 16 (< 150)
+    SentPacketInfo[16] smallAcked;
+    size_t ackedCount = 0;
+    SentPacketInfo[16] smallLost;
+    size_t lostCount = 0;
+
+    TransportErrorCode err = ld.onAckReceived(PacketNumberSpace.applicationData, ack,
+            3, 25_000, true, 20_000, smallAcked[], ackedCount, smallLost[], lostCount);
+    assert(err == TransportErrorCode.noError);
+
+    // Buffer capped at 16
+    assert(ackedCount == 16);
+    // All 150 packets marked acked, bytesInFlight reduced to 0!
+    assert(ld.cc.bytesInFlight == 0);
+    // ptoCount reset because packets were ack-eliciting
+    assert(ld.ptoCount == 0);
+
+    // Now test that non-ack-eliciting packets do NOT reset ptoCount
+    ld.ptoCount = 2;
+    ld.onPacketSent(PacketNumberSpace.applicationData, 150, 50, false, false, 25_000);
+    AckFrame nonAckElicitingAck;
+    nonAckElicitingAck.numRanges = 1;
+    nonAckElicitingAck.ranges[0] = AckRange(150, 150);
+
+    ackedCount = 0;
+    lostCount = 0;
+    err = ld.onAckReceived(PacketNumberSpace.applicationData, nonAckElicitingAck,
+            3, 25_000, true, 30_000, smallAcked[], ackedCount, smallLost[], lostCount);
+    assert(err == TransportErrorCode.noError);
+    assert(ackedCount == 1);
+    // ptoCount must NOT be reset by non-ack-eliciting ACK!
+    assert(ld.ptoCount == 2);
+
+    // Test persistent congestion:
+    // persistentCongestionDuration = (smoothed_rtt (10_000) + max(4*rttvar (8_000), 1000) + maxAckDelay (25_000)) * 3
+    // = (10_000 + 8_000 + 25_000) * 3 = 43_000 * 3 = 129_000 micros.
+    // Send packets at t = 100_000 and t = 250_000 (span = 150_000 > 129_000)
+    ld.onPacketSent(PacketNumberSpace.applicationData, 200, 1000, true, true, 100_000);
+    ld.onPacketSent(PacketNumberSpace.applicationData, 201, 1000, true, true, 250_000);
+    ld.onPacketSent(PacketNumberSpace.applicationData, 202, 1000, true, true, 260_000);
+    ld.onPacketSent(PacketNumberSpace.applicationData, 203, 1000, true, true, 270_000);
+    ld.onPacketSent(PacketNumberSpace.applicationData, 204, 1000, true, true, 280_000);
+    ld.onPacketSent(PacketNumberSpace.applicationData, 205, 1000, true, true, 290_000);
+
+    // Receive ACK for PN 205 at t = 310_000; PN 200..202 will be declared lost (span from 100_000 to 260_000 = 160_000 > 129_000)
+    AckFrame pcAck;
+    pcAck.numRanges = 1;
+    pcAck.ranges[0] = AckRange(205, 205);
+
+    ackedCount = 0;
+    lostCount = 0;
+    err = ld.onAckReceived(PacketNumberSpace.applicationData, pcAck, 3, 25_000,
+            true, 310_000, smallAcked[], ackedCount, smallLost[], lostCount);
+    assert(err == TransportErrorCode.noError);
+    assert(lostCount > 0);
+    // Persistent congestion triggered: cwnd collapsed to 2 * maxDatagramSize = 2400
+    assert(ld.cc.cwnd == 2 * ld.cc.maxDatagramSize);
 }

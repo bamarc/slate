@@ -30,6 +30,14 @@ public struct CongestionController
     }
 
     /**
+     * Checks if new data can be sent within the congestion window (RFC 9002 Section 7).
+     */
+    @property bool canSend() const @safe pure @nogc nothrow
+    {
+        return bytesInFlight < cwnd;
+    }
+
+    /**
      * Checks if a packet sent at timeSentMicros was sent during or before the current recovery period.
      * RFC 9002 Section 7.3.2: Recovery period.
      */

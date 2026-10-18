@@ -82,7 +82,7 @@ void printResponse(ref const(Response) res, bool includeHeaders, bool isHead,
         outStream.flush();
     }
 
-    if (!isHead && res.bodyData.length > 0)
+    if (!isHead)
     {
         if (outputFile.length > 0)
         {
@@ -90,7 +90,7 @@ void printResponse(ref const(Response) res, bool includeHeaders, bool isHead,
 
             write(outputFile, res.bodyData);
         }
-        else
+        else if (res.bodyData.length > 0)
         {
             outStream.rawWrite(res.bodyData);
             outStream.flush();
@@ -206,6 +206,36 @@ int runDurl(string[] args, File outStream = stdout, File errStream = stderr)
         }
 
         string[] urls = args[1 .. $];
+        foreach (u; urls)
+        {
+            if (u.strip().length == 0)
+            {
+                errStream.writeln("durl: URL cannot be empty!");
+                errStream.flush();
+                return 2;
+            }
+        }
+
+        if (maxRedirs < 0)
+        {
+            errStream.writeln("durl: --max-redirs must be non-negative!");
+            errStream.flush();
+            return 2;
+        }
+
+        if (connectTimeoutMs < 0)
+        {
+            errStream.writeln("durl: --connect-timeout must be non-negative!");
+            errStream.flush();
+            return 2;
+        }
+
+        if (maxTimeMs < 0)
+        {
+            errStream.writeln("durl: --max-time must be non-negative!");
+            errStream.flush();
+            return 2;
+        }
 
         // Determine effective HTTP method
         Method method = Method.GET;
@@ -263,6 +293,12 @@ int runDurl(string[] args, File outStream = stdout, File errStream = stderr)
             }
             string name = h[0 .. idx].strip();
             string val = h[idx + 1 .. $].strip();
+            if (name.length == 0)
+            {
+                errStream.writefln("durl: header name cannot be empty: %s", h);
+                errStream.flush();
+                return 2;
+            }
             parsedHeaders ~= Header(name, val);
         }
 
@@ -427,21 +463,44 @@ else
 /// ---
 unittest
 {
-    // Best practice: verify help, version, and option validation
+    // Spec: verify help, version, and option validation
     assert(runDurl(["durl", "--help"]) == 0);
     assert(runDurl(["durl", "-h"]) == 0);
     assert(runDurl(["durl", "--version"]) == 0);
     assert(runDurl(["durl", "-V"]) == 0);
 
-    // Missing URL returns exit code 2
+    // Missing or empty URL returns exit code 2
     assert(runDurl(["durl"]) == 2);
+    assert(runDurl(["durl", ""]) == 2);
+    assert(runDurl(["durl", "   "]) == 2);
 
     // Invalid option returns exit code 2
     assert(runDurl(["durl", "--invalid-option-xyz"]) == 2);
 
     // Invalid header format returns exit code 2
     assert(runDurl(["durl", "-H", "BadHeaderWithoutColon", "http://127.0.0.1/"]) == 2);
+    assert(runDurl(["durl", "-H", ": BadHeaderWithoutName", "http://127.0.0.1/"]) == 2);
 
     // Unsupported method returns exit code 2
     assert(runDurl(["durl", "-X", "NOTAMETHOD", "http://127.0.0.1/"]) == 2);
+
+    // Negative options return exit code 2
+    assert(runDurl(["durl", "--max-redirs", "-1", "http://127.0.0.1/"]) == 2);
+    assert(runDurl(["durl", "--connect-timeout", "-5", "http://127.0.0.1/"]) == 2);
+    assert(runDurl(["durl", "--max-time", "-10", "http://127.0.0.1/"]) == 2);
+
+    // Spec: printResponse writes empty file when -o is given even with 0-byte body
+    import std.file : exists, remove, getSize;
+    import core.sys.posix.unistd : getpid;
+
+    string tmpFile = format("/tmp/slate_test_durl_empty_%d.bin", getpid());
+    scope (exit)
+    {
+        if (exists(tmpFile))
+            remove(tmpFile);
+    }
+    Response emptyRes = Response(204, null, null, HttpVersion.h1_1);
+    printResponse(emptyRes, false, false, tmpFile);
+    assert(exists(tmpFile), "0-byte body with -o must create target file");
+    assert(getSize(tmpFile) == 0, "Target file must be 0 bytes");
 }

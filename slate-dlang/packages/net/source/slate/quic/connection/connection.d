@@ -14,8 +14,8 @@ import slate.quic.crypto.kdf : Side, CipherSuite, EncryptionLevel,
     deriveServerInitialSecret, deriveKeyMaterial, KeyMaterial, hashLength,
     deriveNextApplicationSecret;
 import slate.quic.crypto.aead : AeadKey, verifyRetryIntegrityTag;
-import slate.quic.crypto.packet_keys : DirectionalKeys, Keys, KeyPhaseUpdater,
-    protectPacket, unprotectPacket, unprotectPacketWithAead;
+import slate.quic.crypto.packet_keys : DirectionalKeys, Keys, protectPacket,
+    unprotectPacket, unprotectPacketWithAead;
 import slate.quic.crypto.tls_session : TlsContext, TlsSession;
 
 import slate.quic.wire.varint : VARINT_MAX, WireError;
@@ -30,8 +30,8 @@ import slate.quic.wire.frame : Frame, FrameType, FrameIterator, AckRange,
 import slate.quic.wire.transport_params : TransportParameters,
     encodeTransportParams, decodeTransportParams;
 
-import slate.quic.stream.id : StreamId, StreamDirection, SendStreamState;
-import slate.quic.stream.recv_buffer : RecvBuffer;
+import slate.quic.stream.id : StreamId, StreamDirection, SendStreamState, RecvStreamState;
+import slate.quic.stream.recv_buffer : RecvBuffer, CRYPTO_BUFFER_CAPACITY;
 import slate.quic.stream.send_buffer : SendBuffer, TransmitChunk;
 import slate.quic.stream.stream_map : StreamMap, QuicStream;
 
@@ -40,8 +40,9 @@ import slate.quic.recovery.loss_detection : LossDetector, PacketNumberSpace,
     SentPacketInfo, NUM_SPACES;
 
 import slate.quic.connection.events : ConnectionEventType, ConnectionEvent, ConnectionEventQueue;
-import slate.quic.connection.sent_frames : SentFrameKind, SentFrameDesc,
-    SentPacketRecord, SentFrameTracker, MAX_FRAMES_PER_PACKET;
+import slate.quic.connection.sent_frames : SentFrameKind, SentFrameDesc, SentPacketRecord,
+    SentFrameTracker, MAX_FRAMES_PER_PACKET, MAX_TRACKED_PACKETS_PER_SPACE;
+import slate.quic.crypto.c_openssl : OPENSSL_cleanse;
 import slate.quic.connection.packet_packer : QuicPacketPacker;
 
 public enum ConnectionState : ubyte
@@ -80,8 +81,8 @@ public struct QuicConnection
     bool[4] hasReadKeys = [false, false, false, false];
     bool[4] hasWriteKeys = [false, false, false, false];
 
-    KeyPhaseUpdater keyUpdater;
-    bool keyUpdaterInitialized = false;
+    AeadKey prevRemoteAead;
+    bool hasPrevRemoteAead = false;
 
     ubyte[48] localAppSecret;
     ubyte[48] remoteAppSecret;
@@ -144,7 +145,11 @@ public struct QuicConnection
         tls.cleanup();
         foreach (ref k; levelKeys)
             k.cleanup();
-        keyUpdater.cleanup();
+        if (hasPrevRemoteAead)
+        {
+            prevRemoteAead.cleanup();
+            hasPrevRemoteAead = false;
+        }
 
         foreach (i; 0 .. 4)
         {
@@ -161,6 +166,8 @@ public struct QuicConnection
         lossDetector.cleanup();
         sentFrames.cleanup();
         events.cleanup();
+        OPENSSL_cleanse(localAppSecret.ptr, localAppSecret.length);
+        OPENSSL_cleanse(remoteAppSecret.ptr, remoteAppSecret.length);
         appSecretLen = 0;
         state = ConnectionState.closed;
     }
@@ -192,9 +199,12 @@ public struct QuicConnection
             other.hasWriteKeys[i] = false;
         }
 
-        this.keyUpdater.moveFrom(other.keyUpdater);
-        this.keyUpdaterInitialized = other.keyUpdaterInitialized;
-        other.keyUpdaterInitialized = false;
+        if (other.hasPrevRemoteAead)
+        {
+            this.prevRemoteAead.moveFrom(other.prevRemoteAead);
+            this.hasPrevRemoteAead = true;
+            other.hasPrevRemoteAead = false;
+        }
 
         this.localAppSecret = other.localAppSecret;
         this.remoteAppSecret = other.remoteAppSecret;
@@ -271,8 +281,9 @@ public struct QuicConnection
      */
     static bool create(Side side, ref TlsContext tlsCtx, ConnectionId localCid,
             ConnectionId remoteCid, ref const TransportParameters localParams,
-            ulong nowMicros, out QuicConnection conn,
-            bool addressValidated = false, const(ubyte)[] retryToken = null) @trusted @nogc nothrow
+            ulong nowMicros, out QuicConnection conn, bool addressValidated = false,
+            const(ubyte)[] retryToken = null, const(char)[] clientAlpn = "h3",
+            const(char)[] serverName = null) @trusted @nogc nothrow
     {
         conn.cleanup();
 
@@ -281,7 +292,20 @@ public struct QuicConnection
         conn.localCid = localCid;
         conn.remoteCid = remoteCid;
         conn.initialDcid = (side == Side.client) ? remoteCid : localCid;
-        conn.localParams = localParams;
+
+        TransportParameters effLocalParams = localParams;
+        if (!effLocalParams.hasInitialSourceConnectionId)
+        {
+            effLocalParams.hasInitialSourceConnectionId = true;
+            effLocalParams.initialSourceConnectionId = localCid;
+        }
+        if (side == Side.server && !effLocalParams.hasOriginalDestinationConnectionId)
+        {
+            effLocalParams.hasOriginalDestinationConnectionId = true;
+            effLocalParams.originalDestinationConnectionId = conn.initialDcid;
+        }
+        conn.localParams = effLocalParams;
+
         conn.peerAddressValidated = (side == Side.client) ? true : addressValidated;
         conn.lastRxTimeMicros = nowMicros;
 
@@ -326,18 +350,21 @@ public struct QuicConnection
         // 2. Encode local TransportParameters and initialize TlsSession
         ubyte[512] tpBuf;
         size_t tpLen = 0;
-        if (encodeTransportParams(localParams, side, tpBuf[], tpLen) != 0)
+        if (encodeTransportParams(conn.localParams, side, tpBuf[], tpLen) != 0)
             return false;
 
-        conn.tls.init(tlsCtx, side, tpBuf[0 .. tpLen]);
+        conn.tls.init(tlsCtx, side, tpBuf[0 .. tpLen], clientAlpn, serverName);
 
         // 3. Initialize StreamMap
-        conn.streams = StreamMap(side,
-                localParams.initialMaxData, localParams.initialMaxStreamDataBidiLocal,
-                localParams.initialMaxStreamDataBidiRemote,
-                localParams.initialMaxStreamDataUni,
-                localParams.initialMaxStreamsBidi, localParams.initialMaxStreamsUni,
-                localParams.initialMaxStreamsBidi, localParams.initialMaxStreamsUni);
+        conn.streams = StreamMap(side, localParams.initialMaxData,
+                localParams.initialMaxStreamDataBidiLocal, localParams.initialMaxStreamDataBidiRemote,
+                localParams.initialMaxStreamDataUni, localParams.initialMaxStreamsBidi,
+                localParams.initialMaxStreamsUni, 0, 0);
+
+        foreach (s; 0 .. 3)
+        {
+            conn.cryptoRecv[s] = RecvBuffer(CRYPTO_BUFFER_CAPACITY);
+        }
 
         // 4. If Client, run initial step to produce ClientHello in cryptoSend[0]
         if (side == Side.client)
@@ -355,6 +382,14 @@ public struct QuicConnection
     }
 
     /**
+     * Returns the negotiated ALPN protocol string for this connection, or empty slice if not negotiated.
+     */
+    @property const(char)[] negotiatedAlpn() const return @trusted @nogc nothrow
+    {
+        return tls.negotiatedAlpn;
+    }
+
+    /**
      * Ingests an incoming UDP datagram containing one or more coalesced QUIC packets.
      */
     TransportErrorCode handleDatagram(const(ubyte)[] datagram, ulong nowMicros) @trusted @nogc nothrow
@@ -363,9 +398,10 @@ public struct QuicConnection
             return TransportErrorCode.noError;
 
         // RFC 9000 Section 14.1 & F2: Server drops undersized initial datagrams (< 1200 bytes)
-        if (localSide == Side.server && !peerAddressValidated)
+        if (localSide == Side.server && !peerAddressValidated && datagram.length > 0)
         {
-            if (datagram.length < MIN_INITIAL_DATAGRAM_LEN)
+            const bool isInitial = (datagram[0] & 0x80) != 0 && ((datagram[0] & 0x30) >> 4) == 0;
+            if (isInitial && datagram.length < MIN_INITIAL_DATAGRAM_LEN)
             {
                 return TransportErrorCode.noError; // Silently drop
             }
@@ -389,12 +425,7 @@ public struct QuicConnection
             }
         }
 
-        if (splitErr != WireError.none && splitErr != WireError.unexpectedEof)
-        {
-            enterClosing(TransportErrorCode.protocolViolation, 0, false);
-            return TransportErrorCode.protocolViolation;
-        }
-
+        // F-26: Silently drop trailing unparseable coalesced bytes without connection abort
         return TransportErrorCode.noError;
     }
 
@@ -433,7 +464,7 @@ public struct QuicConnection
         // Scratch buffer for in-place packet unprotection
         ubyte[4096] unprotBuf;
         if (packetBytes.length > unprotBuf.length)
-            return TransportErrorCode.internalError;
+            return TransportErrorCode.noError; // Silently drop oversized packet (F-26)
 
         unprotBuf[0 .. packetBytes.length] = packetBytes[];
 
@@ -442,11 +473,10 @@ public struct QuicConnection
         size_t decPayOff = 0;
         size_t decPlainLen = 0;
 
-        const ulong largestAcked = lossDetector.hasAckedPn[space]
-            ? lossDetector.largestAckedPn[space] : 0;
+        const ulong largestReceived = !ackRanges[space].empty ? ackRanges[space].largestReceived : 0;
 
         // Unprotect packet header and payload
-        QuicCryptoError cryptoErr = unprotectPacket(levelKeys[keyIdx].remote, prefix.pnOffset, largestAcked,
+        QuicCryptoError cryptoErr = unprotectPacket(levelKeys[keyIdx].remote, prefix.pnOffset, largestReceived,
                 unprotBuf[0 .. packetBytes.length], decPnLen, decPn, decPayOff, decPlainLen);
 
         if (cryptoErr != QuicCryptoError.none)
@@ -455,51 +485,80 @@ public struct QuicConnection
             if (prefix.type == PacketType.oneRttShort && appSecretLen > 0
                     && cryptoErr == QuicCryptoError.aeadTagMismatch)
             {
-                ubyte[48] nextRemoteSec;
-                deriveNextApplicationSecret(tls.negotiatedCipher,
-                        remoteAppSecret[0 .. appSecretLen], nextRemoteSec[0 .. appSecretLen]);
-                KeyMaterial nextKm;
-                deriveKeyMaterial(tls.negotiatedCipher, nextRemoteSec[0 .. appSecretLen], nextKm);
-                AeadKey tempAead;
-                tempAead.init(tls.negotiatedCipher,
-                        nextKm.key[0 .. nextKm.keyLen], nextKm.iv[0 .. 12]);
-
-                unprotBuf[0 .. packetBytes.length] = packetBytes[];
-                cryptoErr = unprotectPacketWithAead(levelKeys[3].remote.hp, tempAead, prefix.pnOffset, largestAcked,
-                        unprotBuf[0 .. packetBytes.length], decPnLen, decPn,
-                        decPayOff, decPlainLen);
-
-                if (cryptoErr == QuicCryptoError.none)
+                // Try previous remote AEAD key first (F-23)
+                if (hasPrevRemoteAead)
                 {
-                    const ubyte pktPhase = (unprotBuf[0] & 0x04) != 0 ? 1 : 0;
-                    if (pktPhase != remoteKeyPhase)
-                    {
-                        // Commit rotated remote keys
-                        remoteAppSecret[0 .. appSecretLen] = nextRemoteSec[0 .. appSecretLen];
-                        levelKeys[3].remote.aead.moveFrom(tempAead);
-                        remoteKeyPhase ^= 1;
+                    unprotBuf[0 .. packetBytes.length] = packetBytes[];
+                    cryptoErr = unprotectPacketWithAead(levelKeys[3].remote.hp,
+                            prevRemoteAead, prefix.pnOffset, largestReceived,
+                            unprotBuf[0 .. packetBytes.length], decPnLen,
+                            decPn, decPayOff, decPlainLen);
+                }
 
-                        // RFC 9001 §6.2: If peer initiated the key update, receiver must also update its write keys
-                        if (localKeyPhase != remoteKeyPhase)
+                if (cryptoErr != QuicCryptoError.none)
+                {
+                    ubyte[48] nextRemoteSec;
+                    deriveNextApplicationSecret(tls.negotiatedCipher,
+                            remoteAppSecret[0 .. appSecretLen], nextRemoteSec[0 .. appSecretLen]);
+                    KeyMaterial nextKm;
+                    deriveKeyMaterial(tls.negotiatedCipher, nextRemoteSec[0 .. appSecretLen],
+                            nextKm);
+                    AeadKey tempAead;
+                    tempAead.init(tls.negotiatedCipher,
+                            nextKm.key[0 .. nextKm.keyLen], nextKm.iv[0 .. 12]);
+
+                    unprotBuf[0 .. packetBytes.length] = packetBytes[];
+                    cryptoErr = unprotectPacketWithAead(levelKeys[3].remote.hp,
+                            tempAead, prefix.pnOffset, largestReceived,
+                            unprotBuf[0 .. packetBytes.length], decPnLen,
+                            decPn, decPayOff, decPlainLen);
+
+                    if (cryptoErr == QuicCryptoError.none)
+                    {
+                        const ubyte pktPhase = (unprotBuf[0] & 0x04) != 0 ? 1 : 0;
+                        if (pktPhase != remoteKeyPhase)
                         {
-                            ubyte[48] nextLocalSec;
-                            deriveNextApplicationSecret(tls.negotiatedCipher,
-                                    localAppSecret[0 .. appSecretLen],
-                                    nextLocalSec[0 .. appSecretLen]);
-                            KeyMaterial nextLocalKm;
-                            deriveKeyMaterial(tls.negotiatedCipher,
-                                    nextLocalSec[0 .. appSecretLen], nextLocalKm);
-                            levelKeys[3].local.aead.init(tls.negotiatedCipher,
-                                    nextLocalKm.key[0 .. nextLocalKm.keyLen],
-                                    nextLocalKm.iv[0 .. 12]);
-                            localAppSecret[0 .. appSecretLen] = nextLocalSec[0 .. appSecretLen];
-                            localKeyPhase = remoteKeyPhase;
+                            // Commit rotated remote keys, retaining previous key (F-23)
+                            remoteAppSecret[0 .. appSecretLen] = nextRemoteSec[0 .. appSecretLen];
+                            if (hasPrevRemoteAead)
+                                prevRemoteAead.cleanup();
+                            prevRemoteAead.moveFrom(levelKeys[3].remote.aead);
+                            hasPrevRemoteAead = true;
+                            levelKeys[3].remote.aead.moveFrom(tempAead);
+                            remoteKeyPhase ^= 1;
+
+                            // RFC 9001 §6.2: If peer initiated the key update, receiver must also update its write keys
+                            if (localKeyPhase != remoteKeyPhase)
+                            {
+                                ubyte[48] nextLocalSec;
+                                deriveNextApplicationSecret(tls.negotiatedCipher,
+                                        localAppSecret[0 .. appSecretLen],
+                                        nextLocalSec[0 .. appSecretLen]);
+                                KeyMaterial nextLocalKm;
+                                deriveKeyMaterial(tls.negotiatedCipher,
+                                        nextLocalSec[0 .. appSecretLen], nextLocalKm);
+                                levelKeys[3].local.aead.init(tls.negotiatedCipher,
+                                        nextLocalKm.key[0 .. nextLocalKm.keyLen],
+                                        nextLocalKm.iv[0 .. 12]);
+                                localAppSecret[0 .. appSecretLen] = nextLocalSec[0 .. appSecretLen];
+                                localKeyPhase = remoteKeyPhase;
+
+                                OPENSSL_cleanse(nextLocalSec.ptr, nextLocalSec.length);
+                                OPENSSL_cleanse(nextLocalKm.key.ptr, nextLocalKm.key.length);
+                                OPENSSL_cleanse(nextLocalKm.iv.ptr, nextLocalKm.iv.length);
+                                OPENSSL_cleanse(nextLocalKm.hp.ptr, nextLocalKm.hp.length);
+                            }
+                        }
+                        else
+                        {
+                            cryptoErr = QuicCryptoError.aeadTagMismatch;
                         }
                     }
-                    else
-                    {
-                        cryptoErr = QuicCryptoError.aeadTagMismatch;
-                    }
+
+                    OPENSSL_cleanse(nextRemoteSec.ptr, nextRemoteSec.length);
+                    OPENSSL_cleanse(nextKm.key.ptr, nextKm.key.length);
+                    OPENSSL_cleanse(nextKm.iv.ptr, nextKm.iv.length);
+                    OPENSSL_cleanse(nextKm.hp.ptr, nextKm.hp.length);
                 }
             }
 
@@ -509,10 +568,14 @@ public struct QuicConnection
 
         DecodedPacketHeader hdr;
         TransportErrorCode te = TransportErrorCode.noError;
-        const completeErr = completeHeaderAfterUnprotect(
-                unprotBuf[0 .. decPayOff + decPlainLen], prefix, largestAcked, hdr, te);
+        const completeErr = completeHeaderAfterUnprotect(unprotBuf[0 .. decPayOff + decPlainLen],
+                prefix, largestReceived, hdr, te);
         if (completeErr != 0 || te != TransportErrorCode.noError)
             return te != TransportErrorCode.noError ? te : TransportErrorCode.protocolViolation;
+
+        // Duplicate packet check (F-20): silently ignore
+        if (ackRanges[space].contains(hdr.packetNumber))
+            return TransportErrorCode.noError;
 
         // Server updates remoteCid from first Client Initial
         if (localSide == Side.server && prefix.type == PacketType.initial && remoteCid.len == 0)
@@ -572,10 +635,18 @@ public struct QuicConnection
         return TransportErrorCode.noError;
     }
 
-    private TransportErrorCode handleRetryPacket(ref const PacketPrefix prefix,
+    package TransportErrorCode handleRetryPacket(ref const PacketPrefix prefix,
             const(ubyte)[] packetBytes) @trusted @nogc nothrow
     {
         if (localSide != Side.client || prefix.token.length == 0)
+            return TransportErrorCode.noError;
+
+        // RFC 9000 §17.2.5.2: A client MUST treat receipt of a second Retry packet as PROTOCOL_VIOLATION
+        if (retryReceived)
+            return TransportErrorCode.protocolViolation;
+
+        // RFC 9000 §17.2.5.2: Discard if SCID matches client's DCID or SCID
+        if (prefix.scid == remoteCid || prefix.scid == initialDcid)
             return TransportErrorCode.noError;
 
         // RFC 9001 §5.8: Validate Retry Integrity Tag using original destination connection ID
@@ -610,6 +681,12 @@ public struct QuicConnection
             levelKeys[0].remote.init(CipherSuite.TLS_AES_128_GCM_SHA256,
                     serverKm.key[0 .. 16], serverKm.iv[0 .. 12], serverKm.hp[0 .. 16]);
 
+            // RFC 9000 §17.2.5.2: Discard sent Initial packets, discard loss detection, and reset Initial packet number
+            nextPn[0] = 0;
+            sentFrames.discardSpace(PacketNumberSpace.initial);
+            lossDetector.discardSpace(PacketNumberSpace.initial);
+            ackRanges[0].clear();
+
             // Mark cryptoSend[0] for retransmission from offset 0
             cryptoSend[0].onRangeLost(0, cryptoSend[0].writeOffset, false);
         }
@@ -617,11 +694,16 @@ public struct QuicConnection
         return TransportErrorCode.noError;
     }
 
-    private TransportErrorCode dispatchFrame(PacketNumberSpace space,
+    package TransportErrorCode dispatchFrame(PacketNumberSpace space,
             ref const Frame frame, ulong nowMicros) @trusted @nogc nothrow
     {
         switch (frame.type)
         {
+        case FrameType.newToken:
+            if (localSide == Side.server)
+                return TransportErrorCode.protocolViolation; // RFC 9000 §19.7
+            return TransportErrorCode.noError;
+
         case FrameType.padding:
             return TransportErrorCode.noError;
 
@@ -643,6 +725,7 @@ public struct QuicConnection
             const rErr = streams.onResetStreamFrame(frame.resetStream);
             if (rErr != TransportErrorCode.noError)
                 return rErr;
+            streams.reapClosedStreams();
             events.push(ConnectionEvent(ConnectionEventType.streamReset,
                     frame.resetStream.streamId, frame.resetStream.applicationErrorCode, false));
             return TransportErrorCode.noError;
@@ -699,15 +782,33 @@ public struct QuicConnection
             events.push(ConnectionEvent(ConnectionEventType.handshakeConfirmed, 0, 0, false));
             return TransportErrorCode.noError;
 
+        case FrameType.newConnectionId:
+            if (frame.newConnectionId.cid.len < 1
+                    || frame.newConnectionId.cid.len > 20)
+                return TransportErrorCode.frameEncodingError;
+            if (frame.newConnectionId.retirePriorTo > frame.newConnectionId.sequenceNumber)
+                return TransportErrorCode.protocolViolation;
+            return TransportErrorCode.noError;
+
+        case FrameType.retireConnectionId:
+            if (frame.retireConnectionId.sequenceNumber > VARINT_MAX)
+                return TransportErrorCode.frameEncodingError;
+            if (frame.retireConnectionId.sequenceNumber > 0)
+                return TransportErrorCode.protocolViolation;
+            return TransportErrorCode.noError;
+
         case FrameType.connectionCloseQuic:
         case FrameType.connectionCloseApp:
             state = ConnectionState.draining;
             closeErrorCode = frame.connectionClose.errorCode;
             closeFrameType = frame.connectionClose.frameType;
             closeIsApp = frame.connectionClose.isApplication;
-            const ulong rttVal = (lossDetector.rtt.smoothedRtt > 0) ? lossDetector.rtt.smoothedRtt
+            const ulong rawRtt = (lossDetector.rtt.smoothedRtt > 0) ? lossDetector.rtt.smoothedRtt
                 : 100_000;
-            drainingEndTimeMicros = nowMicros + 3 * rttVal;
+            const ulong clampedRtt = (rawRtt > ulong.max / 6) ? (ulong.max / 6) : rawRtt;
+            const ulong drainDur = 3 * clampedRtt;
+            drainingEndTimeMicros = (ulong.max - nowMicros < drainDur) ? ulong.max
+                : (nowMicros + drainDur);
             events.push(ConnectionEvent(ConnectionEventType.connectionClosed,
                     0, closeErrorCode, closeIsApp));
             return TransportErrorCode.noError;
@@ -720,12 +821,15 @@ public struct QuicConnection
     private TransportErrorCode processAckFrame(PacketNumberSpace space,
             ref const AckFrame ack, ulong nowMicros) @trusted @nogc nothrow
     {
-        SentPacketInfo[128] newlyAcked;
+        SentPacketInfo[MAX_TRACKED_PACKETS_PER_SPACE] newlyAcked;
         size_t ackedCount = 0;
-        SentPacketInfo[128] newlyLost;
+        SentPacketInfo[MAX_TRACKED_PACKETS_PER_SPACE] newlyLost;
         size_t lostCount = 0;
 
-        const te = lossDetector.onAckReceived(space, ack, 3, localParams.maxAckDelay * 1000,
+        const ubyte ackDelayExp = peerParamsReceived ? cast(ubyte) peerParams.ackDelayExponent : 3;
+        const ulong maxAckDelayMicros = peerParamsReceived ? (peerParams.maxAckDelay * 1000)
+            : 25_000;
+        const te = lossDetector.onAckReceived(space, ack, ackDelayExp, maxAckDelayMicros,
                 handshakeConfirmed, nowMicros, newlyAcked[], ackedCount, newlyLost[], lostCount);
 
         if (te != TransportErrorCode.noError)
@@ -772,9 +876,20 @@ public struct QuicConnection
                             discardSpace(PacketNumberSpace.handshake);
                         }
                     }
+                    else if (desc.kind == SentFrameKind.resetStream)
+                    {
+                        QuicStream* qs = streams.getStream(StreamId(desc.streamId));
+                        if (qs !is null)
+                        {
+                            qs.sendState = SendStreamState.resetRecvd;
+                        }
+                    }
                 }
             }
         }
+
+        // Reap closed streams once acknowledged (D-02)
+        streams.reapClosedStreams();
 
         // Process newly lost packets
         foreach (i; 0 .. lostCount)
@@ -802,6 +917,42 @@ public struct QuicConnection
                         handshakeDoneQueued = true;
                         handshakeDoneInFlight = false;
                     }
+                    else if (desc.kind == SentFrameKind.resetStream)
+                    {
+                        QuicStream* qs = streams.getStream(StreamId(desc.streamId));
+                        if (qs !is null && qs.sendState == SendStreamState.resetSent)
+                        {
+                            qs.resetQueued = true;
+                        }
+                    }
+                    else if (desc.kind == SentFrameKind.stopSending)
+                    {
+                        QuicStream* qs = streams.getStream(StreamId(desc.streamId));
+                        if (qs !is null)
+                        {
+                            qs.stopSendingQueued = true;
+                        }
+                    }
+                    else if (desc.kind == SentFrameKind.maxData)
+                    {
+                        streams.connFlow.rearm();
+                    }
+                    else if (desc.kind == SentFrameKind.maxStreamData)
+                    {
+                        QuicStream* qs = streams.getStream(StreamId(desc.streamId));
+                        if (qs !is null)
+                        {
+                            qs.flowCtrl.rearm();
+                        }
+                    }
+                    else if (desc.kind == SentFrameKind.maxStreamsBidi)
+                    {
+                        streams.maxStreamsBidiPending = true;
+                    }
+                    else if (desc.kind == SentFrameKind.maxStreamsUni)
+                    {
+                        streams.maxStreamsUniPending = true;
+                    }
                 }
             }
         }
@@ -809,10 +960,11 @@ public struct QuicConnection
         return TransportErrorCode.noError;
     }
 
-    private TransportErrorCode processCryptoFrame(PacketNumberSpace space,
+    package TransportErrorCode processCryptoFrame(PacketNumberSpace space,
             ref const CryptoFrame crypto, ulong nowMicros) @trusted @nogc nothrow
     {
-        const ingErr = cryptoRecv[space].ingest(crypto.offset, crypto.data, false);
+        const ingErr = cryptoRecv[space].ingest(crypto.offset, crypto.data,
+                false, TransportErrorCode.cryptoBufferExceeded);
         if (ingErr != TransportErrorCode.noError)
             return ingErr;
 
@@ -852,21 +1004,40 @@ public struct QuicConnection
                     : TransportErrorCode.transportParameterError;
             }
 
-            // RFC 9000 §7.3 CID authentication
-            if (peerParams.hasInitialSourceConnectionId
-                    && peerParams.initialSourceConnectionId != remoteCid)
+            // RFC 9000 §7.3 CID authentication (F-14)
+            if (!peerParams.hasInitialSourceConnectionId
+                    || peerParams.initialSourceConnectionId != remoteCid)
             {
                 return TransportErrorCode.transportParameterError;
             }
-            if (localSide == Side.client && peerParams.hasOriginalDestinationConnectionId
-                    && peerParams.originalDestinationConnectionId != initialDcid)
+
+            if (localSide == Side.client)
             {
-                return TransportErrorCode.transportParameterError;
+                if (!peerParams.hasOriginalDestinationConnectionId
+                        || peerParams.originalDestinationConnectionId != initialDcid)
+                {
+                    return TransportErrorCode.transportParameterError;
+                }
+                if (retryReceived)
+                {
+                    if (!peerParams.hasRetrySourceConnectionId
+                            || peerParams.retrySourceConnectionId != retryScid)
+                    {
+                        return TransportErrorCode.transportParameterError;
+                    }
+                }
+                else if (peerParams.hasRetrySourceConnectionId)
+                {
+                    return TransportErrorCode.transportParameterError;
+                }
             }
-            if (retryReceived && peerParams.hasRetrySourceConnectionId
-                    && peerParams.retrySourceConnectionId != retryScid)
+            else // localSide == Side.server (peer is client)
             {
-                return TransportErrorCode.transportParameterError;
+                if (peerParams.hasOriginalDestinationConnectionId
+                        || peerParams.hasRetrySourceConnectionId)
+                {
+                    return TransportErrorCode.transportParameterError;
+                }
             }
 
             peerParamsReceived = true;
@@ -889,16 +1060,40 @@ public struct QuicConnection
         return TransportErrorCode.noError;
     }
 
-    private TransportErrorCode processStreamFrame(ref const StreamFrame sf) @trusted @nogc nothrow
+    package TransportErrorCode processStreamFrame(ref const StreamFrame sf) @trusted @nogc nothrow
     {
+        QuicStream* qsBefore = streams.getStream(StreamId(sf.streamId));
+        if (qsBefore !is null && (qsBefore.recvState == RecvStreamState.resetRecvd
+                || qsBefore.recvState == RecvStreamState.resetRead
+                || qsBefore.recvState == RecvStreamState.dataRead))
+        {
+            return TransportErrorCode.noError;
+        }
+
         const te = streams.onStreamFrame(sf);
         if (te != TransportErrorCode.noError)
             return te;
 
-        events.push(ConnectionEvent(ConnectionEventType.streamReadable, sf.streamId, 0, false));
-        if (sf.fin)
+        QuicStream* qs = streams.getStream(StreamId(sf.streamId));
+        if (qs !is null)
         {
-            events.push(ConnectionEvent(ConnectionEventType.streamFinished, sf.streamId, 0, false));
+            if (qs.recvState != RecvStreamState.resetRecvd
+                    && qs.recvState != RecvStreamState.resetRead
+                    && qs.recvState != RecvStreamState.dataRead)
+            {
+                if (qs.recvBuf.readableBytes > 0)
+                {
+                    events.push(ConnectionEvent(ConnectionEventType.streamReadable,
+                            sf.streamId, 0, false));
+                }
+                if (qs.recvBuf.hasFinalSize
+                        && (qs.recvBuf.readOffset + qs.recvBuf.readableBytes == qs
+                            .recvBuf.finalSize))
+                {
+                    events.push(ConnectionEvent(ConnectionEventType.streamFinished,
+                            sf.streamId, 0, false));
+                }
+            }
         }
 
         return TransportErrorCode.noError;
@@ -942,7 +1137,6 @@ public struct QuicConnection
                     localAppSecret[0 .. appSecretLen] = wSec[];
                     localKeyPhase = 0;
                     remoteKeyPhase = 0;
-                    keyUpdaterInitialized = true;
                 }
             }
         }
@@ -994,7 +1188,18 @@ public struct QuicConnection
         QuicStream* qs = streams.getStream(sid);
         if (qs is null)
             return -1;
-        return cast(ptrdiff_t) qs.recvBuf.read(outBuf, finReached);
+        const size_t n = qs.recvBuf.read(outBuf, finReached);
+        if (n > 0)
+        {
+            qs.flowCtrl.onBytesRead(n);
+            streams.connFlow.onBytesRead(n);
+        }
+        if (finReached)
+        {
+            qs.recvState = RecvStreamState.dataRead;
+            streams.reapClosedStreams();
+        }
+        return cast(ptrdiff_t) n;
     }
 
     void resetStream(StreamId sid, ulong appErrorCode) @safe @nogc nothrow
@@ -1028,14 +1233,45 @@ public struct QuicConnection
         enterClosing(errorCode, 0, isApp);
     }
 
+    private ulong effectiveIdleTimeoutMicros() const @safe pure @nogc nothrow
+    {
+        enum ulong MAX_SAFE_IDLE_TIMEOUT_MS = ulong.max / 2000;
+        ulong ms = 0;
+        if (localParams.maxIdleTimeout > 0 && peerParams.maxIdleTimeout > 0)
+        {
+            ms = (localParams.maxIdleTimeout < peerParams.maxIdleTimeout) ? localParams.maxIdleTimeout
+                : peerParams.maxIdleTimeout;
+        }
+        else if (localParams.maxIdleTimeout > 0)
+            ms = localParams.maxIdleTimeout;
+        else if (peerParams.maxIdleTimeout > 0)
+            ms = peerParams.maxIdleTimeout;
+        else
+            return 0;
+
+        if (ms > MAX_SAFE_IDLE_TIMEOUT_MS)
+            ms = MAX_SAFE_IDLE_TIMEOUT_MS;
+        return ms * 1000;
+    }
+
     ulong nextTimeoutMicros(ulong nowMicros) const @safe pure @nogc nothrow
     {
         if (state == ConnectionState.draining)
             return drainingEndTimeMicros;
 
-        const ulong recTimeout = lossDetector.nextTimeoutMicros(
-                localParams.maxAckDelay * 1000, handshakeConfirmed);
-        return recTimeout;
+        const ulong maxAckDelayMicros = peerParamsReceived ? (peerParams.maxAckDelay * 1000) : (
+                localParams.maxAckDelay * 1000);
+        const ulong recDeadline = lossDetector.nextTimeoutMicros(maxAckDelayMicros,
+                handshakeConfirmed);
+        const ulong idleMicros = effectiveIdleTimeoutMicros();
+        if (idleMicros > 0 && lastRxTimeMicros > 0)
+        {
+            const ulong idleDeadline = (ulong.max - lastRxTimeMicros < idleMicros) ? ulong.max
+                : (lastRxTimeMicros + idleMicros);
+            if (recDeadline == 0 || idleDeadline < recDeadline)
+                return idleDeadline;
+        }
+        return recDeadline;
     }
 
     void onTimeout(ulong nowMicros) @trusted @nogc nothrow
@@ -1047,68 +1283,98 @@ public struct QuicConnection
         }
 
         // Idle timeout (RFC 9000 §10.1)
-        ulong effectiveIdleTimeoutMicros = 0;
-        if (localParams.maxIdleTimeout > 0 && peerParams.maxIdleTimeout > 0)
+        const ulong idleMicros = effectiveIdleTimeoutMicros();
+        if (idleMicros > 0 && lastRxTimeMicros > 0)
         {
-            const ulong minMs = (localParams.maxIdleTimeout < peerParams.maxIdleTimeout) ? localParams.maxIdleTimeout
-                : peerParams.maxIdleTimeout;
-            effectiveIdleTimeoutMicros = minMs * 1000;
-        }
-        else if (localParams.maxIdleTimeout > 0)
-        {
-            effectiveIdleTimeoutMicros = localParams.maxIdleTimeout * 1000;
-        }
-        else if (peerParams.maxIdleTimeout > 0)
-        {
-            effectiveIdleTimeoutMicros = peerParams.maxIdleTimeout * 1000;
+            const ulong idleDeadline = (ulong.max - lastRxTimeMicros < idleMicros) ? ulong.max
+                : (lastRxTimeMicros + idleMicros);
+            if (nowMicros >= idleDeadline)
+            {
+                state = ConnectionState.closed;
+                events.push(ConnectionEvent(ConnectionEventType.connectionClosed, 0, 0, false));
+                return;
+            }
         }
 
-        if (effectiveIdleTimeoutMicros > 0 && lastRxTimeMicros > 0
-                && nowMicros >= lastRxTimeMicros + effectiveIdleTimeoutMicros)
-        {
-            state = ConnectionState.closed;
-            events.push(ConnectionEvent(ConnectionEventType.connectionClosed, 0, 0, false));
+        const ulong maxAckDelayMicros = peerParamsReceived ? (peerParams.maxAckDelay * 1000) : (
+                localParams.maxAckDelay * 1000);
+        const ulong recDeadline = lossDetector.nextTimeoutMicros(maxAckDelayMicros,
+                handshakeConfirmed);
+        if (recDeadline == 0 || nowMicros < recDeadline)
             return;
-        }
 
         const uint prevPto = lossDetector.ptoCount;
-        SentPacketInfo[128] newlyLost;
+        SentPacketInfo[MAX_TRACKED_PACKETS_PER_SPACE] newlyLost;
         size_t lostCount = 0;
-        lossDetector.onTimeout(nowMicros, newlyLost[], lostCount);
+        lossDetector.onTimeout(nowMicros, newlyLost[], lostCount, maxAckDelayMicros);
 
         if (lossDetector.ptoCount > prevPto)
         {
             pingQueued = true;
         }
 
-        // Discard or retransmit lost packets
+        // Discard or retransmit lost packets (F-11, F-17, F-05, D-02)
         foreach (i; 0 .. lostCount)
         {
-            foreach (s; 0 .. NUM_SPACES)
+            const PacketNumberSpace sp = newlyLost[i].space;
+            SentPacketRecord rec;
+            if (sentFrames.takePacket(sp, newlyLost[i].pn, rec))
             {
-                SentPacketRecord rec;
-                if (sentFrames.takePacket(cast(PacketNumberSpace) s, newlyLost[i].pn, rec))
+                foreach (f; 0 .. rec.frameCount)
                 {
-                    foreach (f; 0 .. rec.frameCount)
+                    const desc = rec.frames[f];
+                    if (desc.kind == SentFrameKind.crypto)
                     {
-                        const desc = rec.frames[f];
-                        if (desc.kind == SentFrameKind.crypto)
+                        cryptoSend[cast(size_t) sp].onRangeLost(desc.offset, desc.length, desc.fin);
+                    }
+                    else if (desc.kind == SentFrameKind.stream)
+                    {
+                        QuicStream* qs = streams.getStream(StreamId(desc.streamId));
+                        if (qs !is null)
                         {
-                            cryptoSend[s].onRangeLost(desc.offset, desc.length, desc.fin);
+                            qs.sendBuf.onRangeLost(desc.offset, desc.length, desc.fin);
                         }
-                        else if (desc.kind == SentFrameKind.stream)
+                    }
+                    else if (desc.kind == SentFrameKind.handshakeDone)
+                    {
+                        handshakeDoneQueued = true;
+                        handshakeDoneInFlight = false;
+                    }
+                    else if (desc.kind == SentFrameKind.resetStream)
+                    {
+                        QuicStream* qs = streams.getStream(StreamId(desc.streamId));
+                        if (qs !is null && qs.sendState == SendStreamState.resetSent)
                         {
-                            QuicStream* qs = streams.getStream(StreamId(desc.streamId));
-                            if (qs !is null)
-                            {
-                                qs.sendBuf.onRangeLost(desc.offset, desc.length, desc.fin);
-                            }
+                            qs.resetQueued = true;
                         }
-                        else if (desc.kind == SentFrameKind.handshakeDone)
+                    }
+                    else if (desc.kind == SentFrameKind.stopSending)
+                    {
+                        QuicStream* qs = streams.getStream(StreamId(desc.streamId));
+                        if (qs !is null)
                         {
-                            handshakeDoneQueued = true;
-                            handshakeDoneInFlight = false;
+                            qs.stopSendingQueued = true;
                         }
+                    }
+                    else if (desc.kind == SentFrameKind.maxData)
+                    {
+                        streams.connFlow.rearm();
+                    }
+                    else if (desc.kind == SentFrameKind.maxStreamData)
+                    {
+                        QuicStream* qs = streams.getStream(StreamId(desc.streamId));
+                        if (qs !is null)
+                        {
+                            qs.flowCtrl.rearm();
+                        }
+                    }
+                    else if (desc.kind == SentFrameKind.maxStreamsBidi)
+                    {
+                        streams.maxStreamsBidiPending = true;
+                    }
+                    else if (desc.kind == SentFrameKind.maxStreamsUni)
+                    {
+                        streams.maxStreamsUniPending = true;
                     }
                 }
             }
@@ -1116,7 +1382,7 @@ public struct QuicConnection
     }
 }
 
-// Spec: RFC 9000 Section 8.1 - Anti-Amplification Limits
+// Spec: RFC 9000 Section 8.1 - Anti-Amplification Limits & Section 10.1 Idle Timeout Overflow Safety
 /// Example:
 @nogc unittest
 {
@@ -1129,5 +1395,15 @@ public struct QuicConnection
     assert(conn.amplificationBudget() == 2600);
     conn.peerAddressValidated = true;
     assert(conn.amplificationBudget() == size_t.max);
+
+    // Verify 62-bit peer maxIdleTimeout varint does not overflow effectiveIdleTimeoutMicros or prematurely close
+    conn.state = ConnectionState.active;
+    conn.localParams.maxIdleTimeout = 0;
+    conn.peerParams.maxIdleTimeout = (1UL << 62) - 1;
+    conn.lastRxTimeMicros = 1_000_000;
+    assert(conn.effectiveIdleTimeoutMicros() > 1_000_000_000_000UL);
+    assert(conn.nextTimeoutMicros(1_000_500) > 1_000_500);
+    conn.onTimeout(1_000_500);
+    assert(conn.state == ConnectionState.active);
     conn.cleanup();
 }

@@ -9,7 +9,7 @@ import slate.http.test_server : HttpStubServer;
 import slate.http.version_ : hasHttp3;
 import slate.http.multi : CancellationToken;
 
-// Best practice: @nogc callbacks + no GC delegates across C ABI (UB-4, UN-1)
+// Spec: @nogc callbacks + no GC delegates across C ABI (UB-4, UN-1)
 // Scenario: TC-03 hot path is nogc
 /// Example:
 /// ---
@@ -108,7 +108,7 @@ unittest
     assert(state.chunkCount >= 1, "Transfer should receive streamed chunks");
 }
 
-// Best practice: handle reuse without method pollution across transfers (CRIT-1)
+// Spec: handle reuse without method pollution across transfers (CRIT-1)
 /// Example:
 /// ---
 /// import slate.http.client;
@@ -219,7 +219,7 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify sequential Client reuse preserves keep-alive and numConnects == 0
+    // Spec: verify sequential Client reuse preserves keep-alive and numConnects == 0
     auto stub = new HttpStubServer("Client KeepAlive OK", true);
     scope (exit)
         stub.close();
@@ -259,7 +259,7 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify in-flight cancellation terminates Client transfer promptly
+    // Spec: verify in-flight cancellation terminates Client transfer promptly
     auto stub = new HttpStubServer("Delayed client", false, 500);
     scope (exit)
         stub.close();
@@ -308,7 +308,7 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify headers >512 bytes (such as large JWT bearer tokens) are not silently dropped
+    // Spec: verify headers >512 bytes (such as large JWT bearer tokens) are not silently dropped
     import std.array : replicate;
     import std.algorithm.searching : canFind;
 

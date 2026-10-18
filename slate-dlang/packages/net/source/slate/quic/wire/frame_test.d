@@ -384,3 +384,64 @@ import slate.quic.wire.packet : PacketType;
         assert(decodeFrame(buf[0 .. truncLen], truncF, tr, tErr) == WireError.unexpectedEof);
     }
 }
+
+/// Example:
+// Spec: RFC 9000 Section 19 / F-36, F-37, F-38, F-42 - Frame Encoding & Decoding Hardening
+@nogc unittest
+{
+    ubyte[128] buf;
+    size_t written = 0;
+    Frame outF;
+    size_t readLen = 0;
+    TransportErrorCode te;
+
+    // 1. Non-minimal frame-type varint rejection (F-42)
+    // PING (0x01) encoded as 2-byte varint: 0x40, 0x01
+    static immutable ubyte[2] nonMinimalPing = [0x40, 0x01];
+    assert(decodeFrame(nonMinimalPing[], outF, readLen, te) == WireError.invalidFrame);
+    assert(te == TransportErrorCode.frameEncodingError);
+
+    // 2. Excess ACK ranges rejection on decode (F-42)
+    WireWriter writer = WireWriter(buf[]);
+    writer.writeVarInt(0x02); // ACK
+    writer.writeVarInt(100); // largestAcked
+    writer.writeVarInt(0); // ackDelay
+    writer.writeVarInt(MAX_ACK_RANGES + 1); // excess ranges!
+    assert(decodeFrame(writer.writtenSlice, outF, readLen, te) == WireError.invalidFrame);
+    assert(te == TransportErrorCode.frameEncodingError);
+
+    // 3. Excess ACK ranges rejection on encode (F-36)
+    Frame excessAck;
+    excessAck.type = FrameType.ack;
+    excessAck.ack.numRanges = MAX_ACK_RANGES + 1;
+    assert(encodeFrame(excessAck, buf[], written) == WireError.invalidFrame);
+
+    // 4. Discriminant honoring (F-37)
+    Frame uniStreams;
+    uniStreams.type = FrameType.maxStreamsUni;
+    uniStreams.maxStreams.isBidirectional = true; // contradictory flag must be overridden by type
+    uniStreams.maxStreams.maximumStreams = 10;
+    assert(encodeFrame(uniStreams, buf[], written) == WireError.none);
+    assert(buf[0] == 0x13); // maxStreamsUni frame type byte
+
+    Frame appClose;
+    appClose.type = FrameType.connectionCloseApp;
+    appClose.connectionClose.isApplication = false; // contradictory flag must be overridden
+    appClose.connectionClose.errorCode = 42;
+    appClose.connectionClose.reasonPhrase = "bye";
+    assert(encodeFrame(appClose, buf[], written) == WireError.none);
+    assert(buf[0] == 0x1d); // connectionCloseApp frame type byte
+
+    // 5. Semantic encode rejection on invalid NEW_CONNECTION_ID (F-38)
+    Frame badNcid;
+    badNcid.type = FrameType.newConnectionId;
+    badNcid.newConnectionId.sequenceNumber = 1;
+    badNcid.newConnectionId.retirePriorTo = 2; // retirePriorTo > seq
+    assert(encodeFrame(badNcid, buf[], written) == WireError.invalidFrame);
+
+    // 6. Semantic encode rejection on MAX_STREAMS > 2^60 (F-38)
+    Frame badMaxStreams;
+    badMaxStreams.type = FrameType.maxStreamsBidi;
+    badMaxStreams.maxStreams.maximumStreams = (1UL << 60) + 1;
+    assert(encodeFrame(badMaxStreams, buf[], written) == WireError.invalidFrame);
+}

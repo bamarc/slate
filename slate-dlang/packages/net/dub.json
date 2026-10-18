@@ -12,7 +12,7 @@
         "slate:core": "*"
     },
     "libs": ["curl", "ssl", "crypto"],
-    "lflags-posix": ["-L/home/developer/.local/lib", "-L../../lib", "-Llib", "-L/usr/local/lib"],
+    "lflags-posix": ["-L$HOME/.local/lib", "-L$PACKAGE_DIR/../../lib", "-L$PACKAGE_DIR/lib", "-L/usr/local/lib"],
     "systemDependencies": "Requires libcurl >= 8.6 (pkg-config libcurl) with nghttp2 for HTTP/2 and ngtcp2+nghttp3 or OpenSSL 3.2+ for HTTP/3",
     "configurations": [
         {

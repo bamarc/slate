@@ -17,7 +17,11 @@ public enum SentFrameKind : ubyte
     handshakeDone,
     ping,
     maxData,
-    maxStreamData
+    maxStreamData,
+    maxStreamsBidi,
+    maxStreamsUni,
+    resetStream,
+    stopSending
 }
 
 public struct SentFrameDesc
@@ -258,7 +262,7 @@ public:
 }
 
 /// Example:
-// Best practice: Sent Frame Tracker Compaction & Bounded Capacity (covers U2, G4)
+// Spec: Sent Frame Tracker Compaction & Bounded Capacity (covers U2, G4)
 @nogc unittest
 {
     SentFrameTracker tracker;

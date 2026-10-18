@@ -8,26 +8,101 @@ import slate.quic.crypto.header_protection;
 import slate.quic.crypto.packet_keys;
 
 /**
- * Server ALPN selection callback.
+ * Heap-allocated ALPN configuration for TlsContext.
  *
- * Looks for "h3" in client ALPN list. If not offered, aborts with fatal alert 120.
+ * Ensures pointers registered with OpenSSL SSL_CTX_set_alpn_select_cb remain valid
+ * across TlsContext struct moves.
+ */
+private struct TlsAlpnConfig
+{
+    ubyte[256] wireData;
+    uint wireLen;
+    int refCount;
+}
+
+private void retainAlpnConfig(TlsAlpnConfig* cfg) @trusted @nogc nothrow
+{
+    if (cfg !is null)
+        cfg.refCount++;
+}
+
+private void releaseAlpnConfig(ref TlsAlpnConfig* cfg) @trusted @nogc nothrow
+{
+    if (cfg !is null)
+    {
+        cfg.refCount--;
+        if (cfg.refCount <= 0)
+        {
+            import core.stdc.stdlib : free;
+
+            free(cfg);
+        }
+        cfg = null;
+    }
+}
+
+/**
+ * Server ALPN selection callback (RFC 7301 & RFC 9001 Section 8.1).
+ *
+ * Validates the client ALPN wire list and matches against the server's configured
+ * ALPN protocols. If no match or malformed input, aborts with fatal alert 120.
  */
 extern (C) private int alpnSelectCb(SSL* s, const(ubyte)** out_,
         ubyte* outlen, const(ubyte)* in_, uint inlen, void* arg) @nogc nothrow
 {
+    if (in_ is null || inlen == 0 || out_ is null || outlen is null)
+        return SSL_TLSEXT_ERR_ALERT_FATAL;
+
+    // Validate entire client ALPN wire format (no zero-length tokens, no truncation)
+    uint vPos = 0;
+    while (vPos < inlen)
+    {
+        const uint cLen = in_[vPos];
+        if (cLen == 0 || inlen - vPos < 1 + cLen)
+            return SSL_TLSEXT_ERR_ALERT_FATAL;
+        vPos += 1 + cLen;
+    }
+
+    const(TlsAlpnConfig)* cfg = cast(const(TlsAlpnConfig)*) arg;
+    if (cfg !is null && cfg.wireLen > 0 && cfg.wireLen <= cfg.wireData.length)
+    {
+        uint sPos = 0;
+        while (sPos < cfg.wireLen)
+        {
+            const uint sLen = cfg.wireData[sPos];
+            if (sLen == 0 || cfg.wireLen - sPos < 1 + sLen)
+                break;
+            const(ubyte)[] sProto = cfg.wireData[sPos + 1 .. sPos + 1 + sLen];
+
+            uint cPos = 0;
+            while (cPos < inlen)
+            {
+                const uint cLen = in_[cPos];
+                const(ubyte)[] cProto = in_[cPos + 1 .. cPos + 1 + cLen];
+                if (cProto == sProto)
+                {
+                    *out_ = in_ + cPos + 1;
+                    *outlen = cast(ubyte) cLen;
+                    return SSL_TLSEXT_ERR_OK;
+                }
+                cPos += 1 + cLen;
+            }
+            sPos += 1 + sLen;
+        }
+        return SSL_TLSEXT_ERR_ALERT_FATAL;
+    }
+
+    // Fallback default if no TlsAlpnConfig was attached ("h3" and "smsp/1")
     uint pos = 0;
     while (pos < inlen)
     {
         const ubyte len = in_[pos];
-        if (pos + 1 + len <= inlen)
+        const(ubyte)[] proto = in_[pos + 1 .. pos + 1 + len];
+        if (proto == cast(const(ubyte)[]) "h3" || proto == cast(const(ubyte)[]) "smsp/1")
         {
-            const(ubyte)[] proto = in_[pos + 1 .. pos + 1 + len];
-            if (proto == cast(const(ubyte)[]) "h3")
-            {
-                *out_ = in_ + pos + 1;
-                *outlen = len;
-                return SSL_TLSEXT_ERR_OK;
-            }
+            *out_ = in_ + pos + 1;
+            *outlen = len;
+            return SSL_TLSEXT_ERR_OK;
         }
         pos += 1 + len;
     }
@@ -43,6 +118,7 @@ struct TlsContext
 
 private:
     SSL_CTX* m_ctx;
+    TlsAlpnConfig* m_alpnConfig;
     bool m_isServer;
 
     package(slate.quic) @property SSL_CTX* handle() @safe @nogc nothrow pure
@@ -63,17 +139,89 @@ public:
 
     ~this() @trusted @nogc nothrow
     {
+        cleanup();
+    }
+
+    void cleanup() @trusted @nogc nothrow
+    {
         if (m_ctx !is null)
         {
             SSL_CTX_free(m_ctx);
             m_ctx = null;
         }
+        releaseAlpnConfig(m_alpnConfig);
+    }
+
+    void moveFrom(ref TlsContext other) @trusted @nogc nothrow
+    {
+        if (&this == &other)
+            return;
+        cleanup();
+        m_ctx = other.m_ctx;
+        m_alpnConfig = other.m_alpnConfig;
+        m_isServer = other.m_isServer;
+        other.m_ctx = null;
+        other.m_alpnConfig = null;
+    }
+
+    /**
+     * Configures the list of ALPN protocols accepted by this server context.
+     */
+    bool setAlpnProtocols(scope const(char[])[] protocols) @trusted @nogc nothrow
+    {
+        if (m_ctx is null || protocols.length == 0)
+            return false;
+
+        ubyte[256] tempWire;
+        uint offset = 0;
+        foreach (proto; protocols)
+        {
+            if (proto.length == 0 || proto.length > 255)
+                return false;
+            if (tempWire.length - offset < 1 + proto.length)
+                return false;
+            tempWire[offset] = cast(ubyte) proto.length;
+            tempWire[offset + 1 .. offset + 1 + proto.length] = cast(const(ubyte)[]) proto[];
+            offset += cast(uint)(1 + proto.length);
+        }
+
+        if (m_alpnConfig is null)
+        {
+            import core.stdc.stdlib : calloc;
+
+            m_alpnConfig = cast(TlsAlpnConfig*) calloc(1, TlsAlpnConfig.sizeof);
+            if (m_alpnConfig is null)
+                return false;
+            m_alpnConfig.refCount = 1;
+        }
+
+        m_alpnConfig.wireData[0 .. offset] = tempWire[0 .. offset];
+        m_alpnConfig.wireLen = offset;
+
+        if (m_isServer)
+        {
+            SSL_CTX_set_alpn_select_cb(m_ctx, &alpnSelectCb, m_alpnConfig);
+        }
+        else
+        {
+            SSL_CTX_set_alpn_protos(m_ctx, m_alpnConfig.wireData.ptr, m_alpnConfig.wireLen);
+        }
+        return true;
+    }
+
+    /**
+     * Configures a single ALPN protocol token on this context.
+     */
+    bool setAlpnProtocol(scope const(char)[] proto) @trusted @nogc nothrow
+    {
+        const(char)[][1] list = [proto];
+        return setAlpnProtocols(list[]);
     }
 
     /**
      * Creates a server TLS context with certificate and private key files.
      */
-    static TlsContext createServer(const(char)[] certPemPath, const(char)[] keyPemPath) @trusted
+    static TlsContext createServer(scope const(char)[] certPemPath, scope const(char)[] keyPemPath) @trusted @nogc nothrow
     {
         TlsContext ctx;
         ctx.m_isServer = true;
@@ -84,30 +232,39 @@ public:
         // Require TLS 1.3
         SSL_CTX_ctrl(ctx.m_ctx, SSL_CTRL_SET_MIN_PROTO_VERSION, TLS1_3_VERSION, null);
 
-        // Load certificate and key
-        import std.string : toStringz;
-
-        const char* cCert = certPemPath.toStringz();
-        const char* cKey = keyPemPath.toStringz();
-
-        if (SSL_CTX_use_certificate_file(ctx.m_ctx, cCert, SSL_FILETYPE_PEM) <= 0
-                || SSL_CTX_use_PrivateKey_file(ctx.m_ctx, cKey, SSL_FILETYPE_PEM) <= 0)
+        if (certPemPath.length == 0 || certPemPath.length >= 1024
+                || keyPemPath.length == 0 || keyPemPath.length >= 1024)
         {
-            SSL_CTX_free(ctx.m_ctx);
-            ctx.m_ctx = null;
+            ctx.cleanup();
             return ctx;
         }
 
-        // Set ALPN selection callback
-        SSL_CTX_set_alpn_select_cb(ctx.m_ctx, &alpnSelectCb, null);
+        char[1024] cCertBuf = void;
+        cCertBuf[0 .. certPemPath.length] = certPemPath[];
+        cCertBuf[certPemPath.length] = '\0';
+
+        char[1024] cKeyBuf = void;
+        cKeyBuf[0 .. keyPemPath.length] = keyPemPath[];
+        cKeyBuf[keyPemPath.length] = '\0';
+
+        if (SSL_CTX_use_certificate_file(ctx.m_ctx, cCertBuf.ptr, SSL_FILETYPE_PEM) <= 0
+                || SSL_CTX_use_PrivateKey_file(ctx.m_ctx, cKeyBuf.ptr, SSL_FILETYPE_PEM) <= 0)
+        {
+            ctx.cleanup();
+            return ctx;
+        }
+
+        // Default server ALPN protocols: "h3" and "smsp/1"
+        const(char)[][2] defaultAlpn = ["h3", "smsp/1"];
+        ctx.setAlpnProtocols(defaultAlpn[]);
 
         return ctx;
     }
 
     /**
-     * Creates a client TLS context.
+     * Creates a client TLS context with peer verification enabled by default (RFC 9001 Section 8.2).
      */
-    static TlsContext createClient() @trusted
+    static TlsContext createClient(scope const(char)[] caFilePath = null) @trusted @nogc nothrow
     {
         TlsContext ctx;
         ctx.m_isServer = false;
@@ -117,6 +274,48 @@ public:
 
         // Require TLS 1.3
         SSL_CTX_ctrl(ctx.m_ctx, SSL_CTRL_SET_MIN_PROTO_VERSION, TLS1_3_VERSION, null);
+
+        // Enable peer verification & system CA paths
+        SSL_CTX_set_verify(ctx.m_ctx, SSL_VERIFY_PEER, null);
+        SSL_CTX_set_default_verify_paths(ctx.m_ctx);
+
+        if (caFilePath.length > 0)
+        {
+            if (caFilePath.length >= 1024)
+            {
+                ctx.cleanup();
+                return ctx;
+            }
+            char[1024] caBuf = void;
+            caBuf[0 .. caFilePath.length] = caFilePath[];
+            caBuf[caFilePath.length] = '\0';
+
+            if (SSL_CTX_load_verify_locations(ctx.m_ctx, caBuf.ptr, null) <= 0)
+            {
+                ctx.cleanup();
+                return ctx;
+            }
+        }
+
+        return ctx;
+    }
+
+    /**
+     * Creates an insecure client TLS context with SSL_VERIFY_NONE.
+     *
+     * Used exclusively for unit tests or loopback self-signed test fixtures.
+     */
+    static TlsContext createClientInsecure() @trusted @nogc nothrow
+    {
+        TlsContext ctx;
+        ctx.m_isServer = false;
+        ctx.m_ctx = SSL_CTX_new(TLS_client_method());
+        if (ctx.m_ctx is null)
+            return ctx;
+
+        // Require TLS 1.3
+        SSL_CTX_ctrl(ctx.m_ctx, SSL_CTRL_SET_MIN_PROTO_VERSION, TLS1_3_VERSION, null);
+        SSL_CTX_set_verify(ctx.m_ctx, SSL_VERIFY_NONE, null);
 
         return ctx;
     }
@@ -147,21 +346,22 @@ package(slate.quic) struct TlsSessionState
     EncryptionLevel expectedReadLevel;
     EncryptionLevel writeLevel;
 
-    // Transport Parameters
-    ubyte[512] peerParams;
+    // Transport Parameters (RFC 9000 & F-34: 2048 bytes capacity)
+    ubyte[2048] peerParams;
     size_t peerParamsLen;
-    ubyte[512] localParams;
+    ubyte[2048] localParams;
     size_t localParamsLen;
+    bool peerParamsOverflow;
 
     // Incoming crypto feed
     const(ubyte)* inBufPtr;
     size_t inBufLen;
     size_t inBufOffset;
 
-    // Outgoing crypto buffers per encryption level
+    // Outgoing crypto buffers per encryption level (F-34: 16 KiB handshake buffer)
     ubyte[4096] outInitial;
     size_t outInitialLen;
-    ubyte[4096] outHandshake;
+    ubyte[16384] outHandshake;
     size_t outHandshakeLen;
     ubyte[4096] out1Rtt;
     size_t out1RttLen;
@@ -172,7 +372,7 @@ package(slate.quic) struct TlsSessionState
     SecretSlot appReadSec;
     SecretSlot appWriteSec;
 
-    int onCryptoSend(const(ubyte)* buf, size_t buf_len, size_t* consumed) @trusted @nogc nothrow
+    int onCryptoSend(const(ubyte)* buf, size_t bufLen, size_t* consumed) @trusted @nogc nothrow
     {
         ubyte[] target;
         size_t* pLen;
@@ -195,7 +395,7 @@ package(slate.quic) struct TlsSessionState
         }
 
         const size_t avail = target.length - *pLen;
-        const size_t toCopy = (buf_len < avail) ? buf_len : avail;
+        const size_t toCopy = (bufLen < avail) ? bufLen : avail;
 
         if (toCopy > 0)
         {
@@ -207,76 +407,80 @@ package(slate.quic) struct TlsSessionState
         return 1;
     }
 
-    int onCryptoRecv(const(ubyte)** buf, size_t* bytes_read) @trusted @nogc nothrow
+    int onCryptoRecv(const(ubyte)** buf, size_t* bytesRead) @trusted @nogc nothrow
     {
         const size_t avail = inBufLen - inBufOffset;
         if (avail > 0)
         {
             *buf = inBufPtr + inBufOffset;
-            *bytes_read = avail;
+            *bytesRead = avail;
         }
         else
         {
             *buf = null;
-            *bytes_read = 0;
+            *bytesRead = 0;
         }
         return 1;
     }
 
-    int onCryptoRelease(size_t bytes_read) @safe @nogc nothrow
+    int onCryptoRelease(size_t bytesRead) @safe @nogc nothrow
     {
-        inBufOffset += bytes_read;
+        inBufOffset += bytesRead;
         return 1;
     }
 
-    int onYieldSecret(uint prot_level, int direction, const(ubyte)* secret, size_t secret_len) @trusted @nogc nothrow
+    int onYieldSecret(uint protLevel, int direction, const(ubyte)* secret, size_t secretLen) @trusted @nogc nothrow
     {
         SecretSlot* slot;
-        if (prot_level == OSSL_RECORD_PROTECTION_LEVEL_HANDSHAKE)
+        if (protLevel == OSSL_RECORD_PROTECTION_LEVEL_HANDSHAKE)
         {
             slot = (direction == 1) ? &hsWriteSec : &hsReadSec;
         }
-        else if (prot_level == OSSL_RECORD_PROTECTION_LEVEL_APPLICATION)
+        else if (protLevel == OSSL_RECORD_PROTECTION_LEVEL_APPLICATION)
         {
             slot = (direction == 1) ? &appWriteSec : &appReadSec;
         }
 
-        if (slot !is null && secret_len <= slot.data.length)
+        if (slot !is null && secretLen <= slot.data.length)
         {
-            slot.data[0 .. secret_len] = secret[0 .. secret_len];
-            slot.len = secret_len;
+            slot.data[0 .. secretLen] = secret[0 .. secretLen];
+            slot.len = secretLen;
             slot.valid = true;
         }
 
         if (direction == 1)
         {
-            if (prot_level == OSSL_RECORD_PROTECTION_LEVEL_HANDSHAKE)
+            if (protLevel == OSSL_RECORD_PROTECTION_LEVEL_HANDSHAKE)
                 writeLevel = EncryptionLevel.handshake;
-            else if (prot_level == OSSL_RECORD_PROTECTION_LEVEL_APPLICATION)
+            else if (protLevel == OSSL_RECORD_PROTECTION_LEVEL_APPLICATION)
                 writeLevel = EncryptionLevel.oneRtt;
         }
         else if (direction == 0)
         {
-            if (prot_level == OSSL_RECORD_PROTECTION_LEVEL_HANDSHAKE)
+            if (protLevel == OSSL_RECORD_PROTECTION_LEVEL_HANDSHAKE)
                 expectedReadLevel = EncryptionLevel.handshake;
-            else if (prot_level == OSSL_RECORD_PROTECTION_LEVEL_APPLICATION)
+            else if (protLevel == OSSL_RECORD_PROTECTION_LEVEL_APPLICATION)
                 expectedReadLevel = EncryptionLevel.oneRtt;
         }
 
         return 1;
     }
 
-    int onGotTransportParams(const(ubyte)* params, size_t params_len) @trusted @nogc nothrow
+    int onGotTransportParams(const(ubyte)* params, size_t paramsLen) @trusted @nogc nothrow
     {
-        const size_t toCopy = (params_len < peerParams.length) ? params_len : peerParams.length;
-        peerParams[0 .. toCopy] = params[0 .. toCopy];
-        peerParamsLen = toCopy;
+        if (paramsLen > peerParams.length)
+        {
+            peerParamsOverflow = true;
+            return 0; // Reject oversized transport parameters per RFC 9000 & F-34
+        }
+        peerParams[0 .. paramsLen] = params[0 .. paramsLen];
+        peerParamsLen = paramsLen;
         return 1;
     }
 
-    int onAlert(ubyte alert_code) @safe @nogc nothrow
+    int onAlert(ubyte alertCodeIn) @safe @nogc nothrow
     {
-        alertCode = alert_code;
+        alertCode = alertCodeIn;
         hasAlert = true;
         return 1;
     }
@@ -379,6 +583,7 @@ public:
 private:
     SSL* m_ssl;
     TlsSessionState* m_state;
+    TlsAlpnConfig* m_alpnConfig;
     bool m_hsKeysPolled;
     bool m_appKeysPolled;
 
@@ -387,15 +592,19 @@ public:
      * Initializes TlsSession with TlsContext, endpoint side, and transport parameters.
      */
     this(ref TlsContext ctx, Side side, const(ubyte)[] transportParams,
-            const(char)[] clientAlpn = "h3") @trusted @nogc nothrow
+            const(char)[] clientAlpn = "h3", const(char)[] serverName = null) @trusted @nogc nothrow
     {
-        init(ctx, side, transportParams, clientAlpn);
+        init(ctx, side, transportParams, clientAlpn, serverName);
     }
 
     void init(ref TlsContext ctx, Side side, const(ubyte)[] transportParams,
-            const(char)[] clientAlpn = "h3") @trusted @nogc nothrow
+            const(char)[] clientAlpn = "h3", const(char)[] serverName = null) @trusted @nogc nothrow
     {
         cleanup();
+
+        // Reject empty or oversized local transport parameters (RFC 9000 & F-34)
+        if (transportParams.length == 0 || transportParams.length > 2048)
+            return;
 
         import core.stdc.stdlib : calloc;
 
@@ -410,7 +619,13 @@ public:
 
         m_ssl = SSL_new(ctx.handle);
         if (m_ssl is null)
+        {
+            cleanup();
             return;
+        }
+
+        m_alpnConfig = ctx.m_alpnConfig;
+        retainAlpnConfig(m_alpnConfig);
 
         if (side == Side.server)
         {
@@ -420,8 +635,19 @@ public:
         {
             SSL_set_connect_state(m_ssl);
 
+            // Configure SNI & Hostname verification
+            if (serverName.length > 0 && serverName.length < 1024)
+            {
+                char[1024] hostBuf = void;
+                hostBuf[0 .. serverName.length] = serverName[];
+                hostBuf[serverName.length] = '\0';
+                SSL_ctrl(m_ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME,
+                        TLSEXT_NAMETYPE_host_name, cast(void*) hostBuf.ptr);
+                SSL_set1_host(m_ssl, hostBuf.ptr);
+            }
+
             // Configure Client ALPN
-            if (clientAlpn.length > 0 && clientAlpn.length < 255)
+            if (clientAlpn.length > 0 && clientAlpn.length <= 255)
             {
                 ubyte[256] alpnWire;
                 alpnWire[0] = cast(ubyte) clientAlpn.length;
@@ -432,13 +658,9 @@ public:
 
         SSL_set_quic_tls_cbs(m_ssl, s_quicTlsDispatch.ptr, m_state);
 
-        if (transportParams.length > 0 && transportParams.length <= m_state.localParams.length)
-        {
-            m_state.localParamsLen = transportParams.length;
-            m_state.localParams[0 .. m_state.localParamsLen] = transportParams[];
-            SSL_set_quic_tls_transport_params(m_ssl, m_state.localParams.ptr,
-                    m_state.localParamsLen);
-        }
+        m_state.localParamsLen = transportParams.length;
+        m_state.localParams[0 .. m_state.localParamsLen] = transportParams[];
+        SSL_set_quic_tls_transport_params(m_ssl, m_state.localParams.ptr, m_state.localParamsLen);
     }
 
     ~this() @trusted @nogc nothrow
@@ -455,24 +677,33 @@ public:
         }
         if (m_state !is null)
         {
+            OPENSSL_cleanse(m_state.hsReadSec.data.ptr, m_state.hsReadSec.data.length);
+            OPENSSL_cleanse(m_state.hsWriteSec.data.ptr, m_state.hsWriteSec.data.length);
+            OPENSSL_cleanse(m_state.appReadSec.data.ptr, m_state.appReadSec.data.length);
+            OPENSSL_cleanse(m_state.appWriteSec.data.ptr, m_state.appWriteSec.data.length);
             import core.stdc.stdlib : free;
 
             free(m_state);
             m_state = null;
         }
+        releaseAlpnConfig(m_alpnConfig);
         m_hsKeysPolled = false;
         m_appKeysPolled = false;
     }
 
     void moveFrom(ref TlsSession other) @trusted @nogc nothrow
     {
+        if (&this == &other)
+            return;
         cleanup();
         m_ssl = other.m_ssl;
         m_state = other.m_state;
+        m_alpnConfig = other.m_alpnConfig;
         m_hsKeysPolled = other.m_hsKeysPolled;
         m_appKeysPolled = other.m_appKeysPolled;
         other.m_ssl = null;
         other.m_state = null;
+        other.m_alpnConfig = null;
     }
 
     /**
@@ -492,6 +723,12 @@ public:
         m_state.inBufPtr = data.ptr;
         m_state.inBufLen = data.length;
         m_state.inBufOffset = 0;
+        scope (exit)
+        {
+            m_state.inBufPtr = null;
+            m_state.inBufLen = 0;
+            m_state.inBufOffset = 0;
+        }
 
         return stepHandshake();
     }
@@ -512,6 +749,13 @@ public:
         if (m_ssl is null || m_state is null)
             return QuicCryptoError.internalError;
 
+        if (m_state.peerParamsOverflow)
+        {
+            m_state.hasAlert = true;
+            m_state.alertCode = 47; // illegal_parameter
+            return QuicCryptoError.transportParamsTooLarge;
+        }
+
         const int ret = SSL_do_handshake(m_ssl);
 
         const(SSL_CIPHER)* c = SSL_get_current_cipher(m_ssl);
@@ -525,6 +769,17 @@ public:
         {
             m_state.handshakeComplete = true;
             return QuicCryptoError.none;
+        }
+
+        const long verifyRes = SSL_get_verify_result(m_ssl);
+        if (verifyRes != X509_V_OK)
+        {
+            if (!m_state.hasAlert)
+            {
+                m_state.hasAlert = true;
+                m_state.alertCode = 42; // bad_certificate
+            }
+            return QuicCryptoError.handshakeFailed;
         }
 
         if (m_state.hasAlert)
@@ -552,6 +807,21 @@ public:
     @property CipherSuite negotiatedCipher() const @trusted @nogc nothrow pure
     {
         return m_state !is null ? m_state.cipher : CipherSuite.TLS_AES_128_GCM_SHA256;
+    }
+
+    /**
+     * Returns the negotiated ALPN protocol string, or empty slice if not negotiated.
+     */
+    @property const(char)[] negotiatedAlpn() const return @trusted @nogc nothrow
+    {
+        if (m_ssl is null)
+            return null;
+        const(ubyte)* data = null;
+        uint len = 0;
+        SSL_get0_alpn_selected(m_ssl, &data, &len);
+        if (data is null || len == 0)
+            return null;
+        return cast(const(char)[]) data[0 .. len];
     }
 
     @property bool hasAlert() const @trusted @nogc nothrow pure
@@ -749,7 +1019,7 @@ unittest
     // Initialize server and client contexts
     TlsContext serverCtx = TlsContext.createServer("test/fixtures/quic_cert.pem",
             "test/fixtures/quic_key.pem");
-    TlsContext clientCtx = TlsContext.createClient();
+    TlsContext clientCtx = TlsContext.createClientInsecure();
 
     assert(serverCtx.isValid, "Server context init failed");
     assert(clientCtx.isValid, "Client context init failed");

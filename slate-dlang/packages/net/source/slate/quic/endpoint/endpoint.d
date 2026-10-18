@@ -50,8 +50,9 @@ private:
     uint[4] m_supportedVersions;
     size_t m_numSupportedVersions;
     ulong m_retryNonceCounter;
-    ulong[64] m_usedRetryTimestamps;
+    ulong[64] m_usedRetryNonces;
     size_t m_usedRetryCount;
+    size_t m_nextPollIndex;
 
 public:
      ~this() @trusted @nogc nothrow
@@ -81,8 +82,9 @@ public:
         m_tokenCodec.cleanup();
         m_tlsCtx = null;
         m_usedRetryCount = 0;
-        foreach (ref ts; m_usedRetryTimestamps)
-            ts = 0;
+        m_nextPollIndex = 0;
+        foreach (ref n; m_usedRetryNonces)
+            n = 0;
     }
 
     void moveFrom(ref QuicEndpoint other) @trusted @nogc nothrow
@@ -103,8 +105,9 @@ public:
         this.m_supportedVersions = other.m_supportedVersions;
         this.m_numSupportedVersions = other.m_numSupportedVersions;
         this.m_retryNonceCounter = other.m_retryNonceCounter;
-        this.m_usedRetryTimestamps = other.m_usedRetryTimestamps;
+        this.m_usedRetryNonces = other.m_usedRetryNonces;
         this.m_usedRetryCount = other.m_usedRetryCount;
+        this.m_nextPollIndex = other.m_nextPollIndex;
 
         other.m_slots = null;
         other.m_capacity = 0;
@@ -112,8 +115,9 @@ public:
         other.m_tlsCtx = null;
         other.m_retryNonceCounter = 0;
         other.m_usedRetryCount = 0;
-        foreach (ref ts; other.m_usedRetryTimestamps)
-            ts = 0;
+        other.m_nextPollIndex = 0;
+        foreach (ref n; other.m_usedRetryNonces)
+            n = 0;
     }
 
     /**
@@ -139,6 +143,11 @@ public:
         m_resetToken = resetToken;
         m_requireRetry = requireRetry;
         m_activeCount = 0;
+        m_nextPollIndex = 0;
+
+        import slate.quic.crypto.c_openssl : RAND_bytes;
+
+        RAND_bytes(cast(ubyte*)&m_retryNonceCounter, ulong.sizeof);
 
         m_supportedVersions[0] = QUIC_VERSION_1;
         m_numSupportedVersions = 1;
@@ -203,6 +212,16 @@ public:
             }
         }
         return null;
+    }
+
+    /**
+     * Returns the slice of connection slots managed by this endpoint.
+     */
+    @property ConnectionSlot[] slots() return @trusted @nogc nothrow pure
+    {
+        if (m_slots is null || m_capacity == 0)
+            return null;
+        return m_slots[0 .. m_capacity];
     }
 
     /**
@@ -295,12 +314,52 @@ public:
             }
         }
 
+        if (!isLong)
+        {
+            // Route Short Header to active connection by checking slot.localCid (F-12)
+            if (m_slots !is null)
+            {
+                foreach (ref slot; m_slots[0 .. m_capacity])
+                {
+                    if (slot.active)
+                    {
+                        const ubyte cidLen = slot.localCid.len;
+                        if (cidLen > 0 && datagram.length >= 1 + cidLen)
+                        {
+                            if (datagram[1 .. 1 + cidLen] == slot.localCid.asSlice())
+                            {
+                                matchedConn = &slot.conn;
+                                return slot.conn.handleDatagram(datagram, nowMicros);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Unmatched Short Header (RFC 9000 Section 10.3: Stateless Reset) (F-25)
+            import slate.quic.crypto.c_openssl : CRYPTO_memcmp, RAND_bytes;
+
+            if (datagram.length >= 16 && CRYPTO_memcmp(datagram.ptr + datagram.length - 16,
+                    m_resetToken.ptr, 16) == 0)
+                return TransportErrorCode.noError;
+
+            if (datagram.length >= 44 && outResponse.length >= 43)
+            {
+                const size_t resetLen = 43;
+                outResponse[0] = 0x40 | 0x1a; // Short header with Fixed bit = 1
+                RAND_bytes(outResponse.ptr + 1, resetLen - 17);
+                outResponse[resetLen - 16 .. resetLen] = m_resetToken[];
+                responseLen = resetLen;
+            }
+            return TransportErrorCode.noError;
+        }
+
         PacketPrefix prefix;
         const parseErr = parsePacketPrefix(datagram, 8, prefix);
         if (parseErr != WireError.none)
             return TransportErrorCode.noError;
 
-        // 2. Route to existing active connection
+        // 2. Route Long Header to existing active connection
         if (m_slots !is null)
         {
             foreach (ref slot; m_slots[0 .. m_capacity])
@@ -314,26 +373,6 @@ public:
                     }
                 }
             }
-        }
-
-        // 3. Unmatched Short Header (RFC 9000 Section 10.3: Stateless Reset)
-        if (!isLong || prefix.type == PacketType.oneRttShort)
-        {
-            if (datagram.length >= 16 && datagram[$ - 16 .. $] == m_resetToken[])
-                return TransportErrorCode.noError;
-
-            if (datagram.length >= 44 && outResponse.length >= 43)
-            {
-                const size_t resetLen = 43;
-                outResponse[0] = 0x40 | 0x1a; // Short header with Fixed bit = 1
-                foreach (i; 1 .. resetLen - 16)
-                {
-                    outResponse[i] = cast(ubyte)(0x3c ^ (i * 19));
-                }
-                outResponse[resetLen - 16 .. resetLen] = m_resetToken[];
-                responseLen = resetLen;
-            }
-            return TransportErrorCode.noError;
         }
 
         // 4. Client Initial Packet (RFC 9000 Section 14.1 & Section 17.2)
@@ -400,16 +439,16 @@ public:
                         return vErr;
                     }
 
-                    // Check for token replay
+                    // Check for token replay (F-13)
                     const size_t checkCount = (m_usedRetryCount < 64) ? m_usedRetryCount : 64;
                     foreach (i; 0 .. checkCount)
                     {
-                        if (m_usedRetryTimestamps[i] == verified.issuedMicros)
+                        if (m_usedRetryNonces[i] == verified.nonceCounter)
                         {
                             return TransportErrorCode.invalidToken;
                         }
                     }
-                    m_usedRetryTimestamps[m_usedRetryCount % 64] = verified.issuedMicros;
+                    m_usedRetryNonces[m_usedRetryCount % 64] = verified.nonceCounter;
                     m_usedRetryCount++;
 
                     // Valid Retry token! Allocate new Server connection with addressValidated = true
@@ -489,16 +528,20 @@ public:
         outPeerAddr = SocketAddr.init;
         bytesWritten = 0;
 
-        if (m_slots is null || outDatagram.length == 0)
+        if (m_slots is null || outDatagram.length == 0 || m_capacity == 0)
             return false;
 
-        foreach (ref slot; m_slots[0 .. m_capacity])
+        const size_t startIdx = m_nextPollIndex % m_capacity;
+        foreach (step; 0 .. m_capacity)
         {
+            const size_t idx = (startIdx + step) % m_capacity;
+            ref ConnectionSlot slot = m_slots[idx];
             if (slot.active)
             {
                 if (slot.conn.pollTransmit(outDatagram, nowMicros, bytesWritten))
                 {
                     outPeerAddr = slot.peerAddr;
+                    m_nextPollIndex = (idx + 1) % m_capacity;
                     return true;
                 }
             }
@@ -527,12 +570,12 @@ private:
             }
         }
 
-        // 2. Second pass: reclaim closed or expired/draining/closing connections
+        // 2. Second pass: reclaim closed or expired draining connections (F-25, D-09)
         foreach (ref slot; m_slots[0 .. m_capacity])
         {
             if (slot.active && (slot.conn.state == ConnectionState.closed
-                    || slot.conn.state == ConnectionState.draining
-                    || slot.conn.state == ConnectionState.closing))
+                    || (slot.conn.state == ConnectionState.draining
+                    && nowMicros >= slot.conn.drainingEndTimeMicros)))
             {
                 slot.conn.cleanup();
                 slot.active = true;
@@ -552,7 +595,7 @@ private:
 
         foreach (ref slot; m_slots[0 .. m_capacity])
         {
-            if (slot.active && slot.localCid == localCid)
+            if (slot.active && (slot.localCid == localCid || slot.conn.localCid == localCid))
             {
                 slot.conn.cleanup();
                 slot.active = false;

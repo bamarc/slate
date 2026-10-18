@@ -25,6 +25,7 @@ public struct RecvInterval
 
 public enum size_t MAX_INTERVALS = 64;
 public enum size_t DEFAULT_MAX_BUFFER_CAPACITY = 16 * 1024 * 1024; // 16 MB
+public enum size_t CRYPTO_BUFFER_CAPACITY = 64 * 1024; // 64 KiB (RFC 9000 Section 19.6, F-06)
 
 /**
  * Retransmission-safe, out-of-order reassembly buffer for QUIC streams and crypto streams.
@@ -313,17 +314,23 @@ public struct RecvBuffer
             return;
         }
 
-        // If at least 4KB has been consumed, shift unread data left
+        // If at least 4KB has been consumed, shift unread data left (F-16)
         if (m_readOffset - bufferStartOffset >= 4096)
         {
-            const size_t shift = cast(size_t)(m_readOffset - bufferStartOffset);
-            // CRITICAL-01 fix: compute remaining from highest buffered interval, NOT m_highestReceivedOffset
-            const ulong highestBuffered = intervals[numIntervals - 1].end;
-            const size_t remaining = highestBuffered > m_readOffset ? cast(size_t)(
-                    highestBuffered - m_readOffset) : 0;
-            if (shift <= capacity && remaining > 0 && remaining <= (capacity - shift))
+            foreach (i; 0 .. numIntervals)
             {
-                memmove(data, data + shift, remaining);
+                if (intervals[i].end <= m_readOffset)
+                    continue;
+
+                const ulong intStart = intervals[i].start > m_readOffset
+                    ? intervals[i].start : m_readOffset;
+                const size_t srcOff = cast(size_t)(intStart - bufferStartOffset);
+                const size_t dstOff = cast(size_t)(intStart - m_readOffset);
+                const size_t len = cast(size_t)(intervals[i].end - intStart);
+                if (srcOff != dstOff && srcOff + len <= capacity && dstOff + len <= capacity)
+                {
+                    memmove(data + dstOff, data + srcOff, len);
+                }
             }
             bufferStartOffset = m_readOffset;
         }
@@ -496,7 +503,7 @@ public struct RecvBuffer
 }
 
 /// Example:
-// Best practice: RecvBuffer Move Semantics and Memory Cleanup (covers U2, G4)
+// Spec: RecvBuffer Move Semantics and Memory Cleanup (covers U2, G4)
 @nogc unittest
 {
     RecvBuffer b1;

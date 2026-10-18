@@ -63,8 +63,8 @@ public struct StreamId
     }
 
     this(ulong id) @safe pure @nogc nothrow
+    in (id <= VARINT_MAX, "StreamId must not exceed VARINT_MAX")
     {
-        assert(id <= VARINT_MAX, "StreamId must not exceed VARINT_MAX");
         this.id = id;
     }
 
@@ -148,8 +148,8 @@ public struct StreamId
      * Constructs a StreamId from initiator, directionality, and index.
      */
     static StreamId make(Side initiator, StreamDirection dir, ulong index) @safe pure @nogc nothrow
+    in (index <= (VARINT_MAX >> 2), "Stream index exceeds 60-bit maximum")
     {
-        assert(index <= (VARINT_MAX >> 2), "Stream index exceeds 60-bit maximum");
         ulong val = (index << 2);
         if (dir == StreamDirection.unidirectional)
             val |= 0x02;

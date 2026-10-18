@@ -21,6 +21,8 @@ public struct FlowController
     ulong localMaxData = 0;
     ulong initialWindowSize = 0;
 
+    bool updateQueued = false;
+
     // Send side
     ulong bytesSent = 0;
     ulong remoteMaxData = 0;
@@ -72,6 +74,41 @@ public struct FlowController
     }
 
     /**
+     * Rearms flow control update transmission on packet loss.
+     */
+    void rearm() @safe pure @nogc nothrow
+    {
+        if (initialWindowSize > 0)
+            updateQueued = true;
+    }
+
+    /**
+     * Checks if available receive window is below 50% of initialWindowSize without mutating state (D-01).
+     */
+    bool hasPendingMaxDataUpdate() const @safe pure @nogc nothrow
+    {
+        if (initialWindowSize == 0)
+            return false;
+
+        if (updateQueued)
+            return true;
+
+        const ulong availableWindow = localMaxData > readOffset ? (localMaxData - readOffset) : 0;
+        if (availableWindow <= (initialWindowSize / 2))
+        {
+            ulong candidate = readOffset;
+            if (candidate > (VARINT_MAX - initialWindowSize))
+                candidate = VARINT_MAX;
+            else
+                candidate += initialWindowSize;
+
+            return candidate > localMaxData;
+        }
+
+        return false;
+    }
+
+    /**
      * Checks if available receive window is below 50% of initialWindowSize.
      * If so, auto-tunes localMaxData and yields the new limit.
      */
@@ -79,6 +116,13 @@ public struct FlowController
     {
         if (initialWindowSize == 0)
             return false;
+
+        if (updateQueued)
+        {
+            updateQueued = false;
+            nextMaxData = localMaxData;
+            return true;
+        }
 
         const ulong availableWindow = localMaxData > readOffset ? (localMaxData - readOffset) : 0;
         if (availableWindow <= (initialWindowSize / 2))
@@ -185,4 +229,36 @@ public struct FlowController
     FlowController fc = FlowController(1000, 1000);
     assert(fc.commitReceive(VARINT_MAX + 1) == TransportErrorCode.flowControlError);
     assert(!fc.checkReceiveAllowed(VARINT_MAX + 1));
+}
+
+/// Example:
+// Spec: RFC 9000 Section 4.2 - Non-Mutating Pending Flow Control Window Query (D-01)
+@nogc unittest
+{
+    FlowController fc = FlowController(100, 100);
+    assert(!fc.hasPendingMaxDataUpdate());
+
+    // Reading 60 bytes drops available window below 50%
+    fc.onBytesRead(60);
+    assert(fc.hasPendingMaxDataUpdate());
+    // Calling it multiple times must be non-mutating!
+    assert(fc.hasPendingMaxDataUpdate());
+    assert(fc.localMaxData == 100);
+
+    ulong newMax = 0;
+    assert(fc.shouldSendMaxDataUpdate(newMax));
+    assert(newMax == 160);
+    assert(fc.localMaxData == 160);
+
+    // After emission, no pending update
+    assert(!fc.hasPendingMaxDataUpdate());
+    assert(!fc.shouldSendMaxDataUpdate(newMax));
+
+    // Rearm makes it pending again
+    fc.rearm();
+    assert(fc.hasPendingMaxDataUpdate());
+    assert(fc.hasPendingMaxDataUpdate());
+    assert(fc.shouldSendMaxDataUpdate(newMax));
+    assert(newMax == 160);
+    assert(!fc.hasPendingMaxDataUpdate());
 }

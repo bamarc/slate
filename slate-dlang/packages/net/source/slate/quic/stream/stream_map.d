@@ -103,9 +103,16 @@ public struct StreamMap
     ulong remoteMaxStreamsBidi = 0;
     ulong remoteMaxStreamsUni = 0;
 
-    ulong initialMaxStreamDataBidiLocal = 0;
-    ulong initialMaxStreamDataBidiRemote = 0;
-    ulong initialMaxStreamDataUni = 0;
+    ulong localInitialMaxStreamDataBidiLocal = 0;
+    ulong localInitialMaxStreamDataBidiRemote = 0;
+    ulong localInitialMaxStreamDataUni = 0;
+
+    ulong peerInitialMaxStreamDataBidiLocal = 0;
+    ulong peerInitialMaxStreamDataBidiRemote = 0;
+    ulong peerInitialMaxStreamDataUni = 0;
+
+    bool maxStreamsBidiPending = false;
+    bool maxStreamsUniPending = false;
 
     ulong nextLocalBidiIndex = 0;
     ulong nextLocalUniIndex = 0;
@@ -120,18 +127,28 @@ public struct StreamMap
     this(Side localSide, ulong initialMaxData, ulong initialMaxStreamDataBidiLocal,
             ulong initialMaxStreamDataBidiRemote, ulong initialMaxStreamDataUni,
             ulong localMaxStreamsBidi, ulong localMaxStreamsUni,
-            ulong remoteMaxStreamsBidi = 0, ulong remoteMaxStreamsUni = 0) @safe pure @nogc nothrow
+            ulong remoteMaxStreamsBidi = 0, ulong remoteMaxStreamsUni = 0,
+            ulong peerInitialMaxStreamDataBidiLocal = ulong.max,
+            ulong peerInitialMaxStreamDataBidiRemote = ulong.max,
+            ulong peerInitialMaxStreamDataUni = ulong.max) @safe pure @nogc nothrow
     {
         this.localSide = localSide;
         this.connFlow = FlowController(initialMaxData, 0);
-        this.initialMaxStreamDataBidiLocal = initialMaxStreamDataBidiLocal;
-        this.initialMaxStreamDataBidiRemote = initialMaxStreamDataBidiRemote;
-        this.initialMaxStreamDataUni = initialMaxStreamDataUni;
+        this.localInitialMaxStreamDataBidiLocal = initialMaxStreamDataBidiLocal;
+        this.localInitialMaxStreamDataBidiRemote = initialMaxStreamDataBidiRemote;
+        this.localInitialMaxStreamDataUni = initialMaxStreamDataUni;
 
         this.localMaxStreamsBidi = localMaxStreamsBidi;
         this.localMaxStreamsUni = localMaxStreamsUni;
         this.remoteMaxStreamsBidi = remoteMaxStreamsBidi;
         this.remoteMaxStreamsUni = remoteMaxStreamsUni;
+
+        this.peerInitialMaxStreamDataBidiLocal = (peerInitialMaxStreamDataBidiLocal != ulong.max)
+            ? peerInitialMaxStreamDataBidiLocal : initialMaxStreamDataBidiLocal;
+        this.peerInitialMaxStreamDataBidiRemote = (peerInitialMaxStreamDataBidiRemote != ulong.max)
+            ? peerInitialMaxStreamDataBidiRemote : initialMaxStreamDataBidiRemote;
+        this.peerInitialMaxStreamDataUni = (peerInitialMaxStreamDataUni != ulong.max)
+            ? peerInitialMaxStreamDataUni : initialMaxStreamDataUni;
     }
 
     ~this() @trusted @nogc nothrow
@@ -167,9 +184,12 @@ public struct StreamMap
         this.localMaxStreamsUni = other.localMaxStreamsUni;
         this.remoteMaxStreamsBidi = other.remoteMaxStreamsBidi;
         this.remoteMaxStreamsUni = other.remoteMaxStreamsUni;
-        this.initialMaxStreamDataBidiLocal = other.initialMaxStreamDataBidiLocal;
-        this.initialMaxStreamDataBidiRemote = other.initialMaxStreamDataBidiRemote;
-        this.initialMaxStreamDataUni = other.initialMaxStreamDataUni;
+        this.localInitialMaxStreamDataBidiLocal = other.localInitialMaxStreamDataBidiLocal;
+        this.localInitialMaxStreamDataBidiRemote = other.localInitialMaxStreamDataBidiRemote;
+        this.localInitialMaxStreamDataUni = other.localInitialMaxStreamDataUni;
+        this.peerInitialMaxStreamDataBidiLocal = other.peerInitialMaxStreamDataBidiLocal;
+        this.peerInitialMaxStreamDataBidiRemote = other.peerInitialMaxStreamDataBidiRemote;
+        this.peerInitialMaxStreamDataUni = other.peerInitialMaxStreamDataUni;
         this.nextLocalBidiIndex = other.nextLocalBidiIndex;
         this.nextLocalUniIndex = other.nextLocalUniIndex;
         this.nextExpectedPeerBidiIndex = other.nextExpectedPeerBidiIndex;
@@ -217,9 +237,9 @@ public struct StreamMap
         connFlow.updateRemoteMaxData(peerParams.initialMaxData);
         remoteMaxStreamsBidi = peerParams.initialMaxStreamsBidi;
         remoteMaxStreamsUni = peerParams.initialMaxStreamsUni;
-        initialMaxStreamDataBidiRemote = peerParams.initialMaxStreamDataBidiRemote;
-        initialMaxStreamDataBidiLocal = peerParams.initialMaxStreamDataBidiLocal;
-        initialMaxStreamDataUni = peerParams.initialMaxStreamDataUni;
+        peerInitialMaxStreamDataBidiRemote = peerParams.initialMaxStreamDataBidiRemote;
+        peerInitialMaxStreamDataBidiLocal = peerParams.initialMaxStreamDataBidiLocal;
+        peerInitialMaxStreamDataUni = peerParams.initialMaxStreamDataUni;
 
         foreach (i; 0 .. m_streamCount)
         {
@@ -264,7 +284,8 @@ public struct StreamMap
                 f.type = FrameType.resetStream;
                 f.resetStream.streamId = streams[i].id.id;
                 f.resetStream.applicationErrorCode = streams[i].applicationErrorCode;
-                f.resetStream.finalSize = streams[i].sendBuf.writeOffset;
+                // F-17: use highest sent offset (unsentOffset) as finalSize
+                f.resetStream.finalSize = streams[i].sendBuf.unsentOffset;
                 return true;
             }
             if (streams[i].stopSendingQueued)
@@ -281,12 +302,79 @@ public struct StreamMap
     }
 
     /**
+     * Polls pending flow control updates (MAX_DATA, MAX_STREAM_DATA, MAX_STREAMS) (F-05).
+     */
+    bool pollFlowControlFrame(out Frame f) @trusted @nogc nothrow
+    {
+        ulong nextMaxData = 0;
+        if (connFlow.shouldSendMaxDataUpdate(nextMaxData))
+        {
+            f.type = FrameType.maxData;
+            f.maxData.maximumData = nextMaxData;
+            return true;
+        }
+
+        foreach (i; 0 .. m_streamCount)
+        {
+            ulong nextStreamMax = 0;
+            if (streams[i].flowCtrl.shouldSendMaxDataUpdate(nextStreamMax))
+            {
+                f.type = FrameType.maxStreamData;
+                f.maxStreamData.streamId = streams[i].id.id;
+                f.maxStreamData.maximumStreamData = nextStreamMax;
+                return true;
+            }
+        }
+
+        if (maxStreamsBidiPending)
+        {
+            maxStreamsBidiPending = false;
+            f.type = FrameType.maxStreamsBidi;
+            f.maxStreams.maximumStreams = localMaxStreamsBidi;
+            f.maxStreams.isBidirectional = true;
+            return true;
+        }
+
+        if (maxStreamsUniPending)
+        {
+            maxStreamsUniPending = false;
+            f.type = FrameType.maxStreamsUni;
+            f.maxStreams.maximumStreams = localMaxStreamsUni;
+            f.maxStreams.isBidirectional = false;
+            return true;
+        }
+
+        return false;
+    }
+
+    private const(QuicStream)[] activeStreams() const @trusted pure @nogc nothrow
+    {
+        return streams ? streams[0 .. m_streamCount] : null;
+    }
+
+    @property bool hasPendingFlowControl() const @safe pure @nogc nothrow
+    {
+        if (connFlow.hasPendingMaxDataUpdate())
+            return true;
+        foreach (ref const(QuicStream) s; activeStreams())
+        {
+            if (s.flowCtrl.hasPendingMaxDataUpdate())
+                return true;
+        }
+        return maxStreamsBidiPending || maxStreamsUniPending;
+    }
+
+    /**
      * Opens a new locally-initiated stream if allowed by remote limits.
      */
     TransportErrorCode openLocalStream(StreamDirection dir, out StreamId outId) @trusted @nogc nothrow
     {
         if (m_streamCount >= MAX_CONCURRENT_STREAMS_CEILING)
-            return TransportErrorCode.internalError;
+        {
+            reapClosedStreams();
+            if (m_streamCount >= MAX_CONCURRENT_STREAMS_CEILING)
+                return TransportErrorCode.internalError;
+        }
 
         const bool isBidi = (dir == StreamDirection.bidirectional);
         const ulong maxAllowed = isBidi ? remoteMaxStreamsBidi : remoteMaxStreamsUni;
@@ -296,8 +384,9 @@ public struct StreamMap
             return TransportErrorCode.streamLimitError;
 
         outId = StreamId.make(localSide, dir, nextIndex);
-        ulong localWindow = isBidi ? initialMaxStreamDataBidiLocal : 0;
-        ulong remoteWindow = isBidi ? initialMaxStreamDataBidiRemote : initialMaxStreamDataUni;
+        ulong localWindow = isBidi ? localInitialMaxStreamDataBidiLocal : 0;
+        ulong remoteWindow = isBidi ? peerInitialMaxStreamDataBidiRemote
+            : peerInitialMaxStreamDataUni;
 
         if (!addStream(outId, localWindow, remoteWindow))
             return TransportErrorCode.internalError;
@@ -332,7 +421,12 @@ public struct StreamMap
         const ulong streamsToOpen = idx - nextExpected + 1;
         if (streamsToOpen > MAX_CONCURRENT_STREAMS_CEILING
                 || m_streamCount + streamsToOpen > MAX_CONCURRENT_STREAMS_CEILING)
-            return TransportErrorCode.streamLimitError;
+        {
+            reapClosedStreams();
+            if (streamsToOpen > MAX_CONCURRENT_STREAMS_CEILING
+                    || m_streamCount + streamsToOpen > MAX_CONCURRENT_STREAMS_CEILING)
+                return TransportErrorCode.streamLimitError;
+        }
 
         for (ulong cur = nextExpected; cur <= idx; cur++)
         {
@@ -340,8 +434,8 @@ public struct StreamMap
             if (getStream(curSid) is null)
             {
                 ulong localWin = sid.isBidirectional
-                    ? initialMaxStreamDataBidiRemote : initialMaxStreamDataUni;
-                ulong remoteWin = sid.isBidirectional ? initialMaxStreamDataBidiLocal : 0;
+                    ? localInitialMaxStreamDataBidiRemote : localInitialMaxStreamDataUni;
+                ulong remoteWin = sid.isBidirectional ? peerInitialMaxStreamDataBidiLocal : 0;
                 if (!addStream(curSid, localWin, remoteWin))
                     return TransportErrorCode.internalError;
             }
@@ -403,10 +497,15 @@ public struct StreamMap
             const ulong needed = idx - nextExpected + 1;
             if (needed > MAX_CONCURRENT_STREAMS_CEILING
                     || m_streamCount + needed > MAX_CONCURRENT_STREAMS_CEILING)
-                return TransportErrorCode.streamLimitError;
+            {
+                reapClosedStreams();
+                if (needed > MAX_CONCURRENT_STREAMS_CEILING
+                        || m_streamCount + needed > MAX_CONCURRENT_STREAMS_CEILING)
+                    return TransportErrorCode.streamLimitError;
+            }
 
             const ulong initialRemoteWin = sid.isBidirectional
-                ? initialMaxStreamDataBidiRemote : initialMaxStreamDataUni;
+                ? localInitialMaxStreamDataBidiRemote : localInitialMaxStreamDataUni;
             if (endOffset > initialRemoteWin)
                 return TransportErrorCode.flowControlError;
 
@@ -492,10 +591,15 @@ public struct StreamMap
             const ulong needed = idx - nextExpected + 1;
             if (needed > MAX_CONCURRENT_STREAMS_CEILING
                     || m_streamCount + needed > MAX_CONCURRENT_STREAMS_CEILING)
-                return TransportErrorCode.streamLimitError;
+            {
+                reapClosedStreams();
+                if (needed > MAX_CONCURRENT_STREAMS_CEILING
+                        || m_streamCount + needed > MAX_CONCURRENT_STREAMS_CEILING)
+                    return TransportErrorCode.streamLimitError;
+            }
 
             const ulong initialRemoteWin = sid.isBidirectional
-                ? initialMaxStreamDataBidiRemote : initialMaxStreamDataUni;
+                ? localInitialMaxStreamDataBidiRemote : localInitialMaxStreamDataUni;
             if (frame.finalSize > initialRemoteWin)
                 return TransportErrorCode.flowControlError;
 
@@ -581,7 +685,10 @@ public struct StreamMap
         stream.stopSendingReceived = true;
         stream.applicationErrorCode = frame.applicationErrorCode;
         if (stream.sendState == SendStreamState.ready || stream.sendState == SendStreamState.send)
+        {
             stream.sendState = SendStreamState.resetSent;
+            stream.resetQueued = true;
+        }
 
         return TransportErrorCode.noError;
     }
@@ -736,10 +843,85 @@ public struct StreamMap
         return false;
     }
 
+    /**
+     * Determines whether a stream has completed both transmission and reception lifecycle.
+     */
+    bool isStreamClosed(ref const QuicStream s) const @safe pure @nogc nothrow
+    {
+        if (s.resetQueued || s.stopSendingQueued)
+            return false;
+
+        const bool sendDone = (s.sendState == SendStreamState.resetRecvd || s.sendState == SendStreamState.resetSent
+                || s.sendState == SendStreamState.dataRecvd || s.sendBuf.isAllAcked());
+
+        const bool recvDone = (s.recvState == RecvStreamState.resetRecvd || s.recvState == RecvStreamState.resetRead
+                || s.recvState == RecvStreamState.dataRead || (s.recvBuf.hasFinalSize
+                    && s.recvBuf.readOffset == s.recvBuf.finalSize));
+
+        if (s.id.isBidirectional)
+            return sendDone && recvDone;
+
+        if (s.id.initiator == localSide)
+            return sendDone;
+        else
+            return recvDone;
+    }
+
+    /**
+     * Reaps completed closed streams from the table to free capacity.
+     */
+    size_t reapClosedStreams() @trusted @nogc nothrow
+    {
+        if (m_streamCount == 0)
+            return 0;
+
+        size_t reaped = 0;
+        size_t writeIdx = 0;
+        foreach (readIdx; 0 .. m_streamCount)
+        {
+            if (isStreamClosed(streams[readIdx]))
+            {
+                if (streams[readIdx].id.initiator != localSide)
+                {
+                    if (streams[readIdx].id.isBidirectional)
+                    {
+                        if (localMaxStreamsBidi < VARINT_MAX)
+                            localMaxStreamsBidi++;
+                        maxStreamsBidiPending = true;
+                    }
+                    else
+                    {
+                        if (localMaxStreamsUni < VARINT_MAX)
+                            localMaxStreamsUni++;
+                        maxStreamsUniPending = true;
+                    }
+                }
+                streams[readIdx].cleanup();
+                reaped++;
+            }
+            else
+            {
+                if (writeIdx != readIdx)
+                {
+                    streams[writeIdx].moveFrom(streams[readIdx]);
+                }
+                writeIdx++;
+            }
+        }
+        m_streamCount = writeIdx;
+        if (nextPollIndex >= m_streamCount)
+            nextPollIndex = 0;
+        return reaped;
+    }
+
     private bool addStream(StreamId id, ulong localWin, ulong remoteWin) @trusted @nogc nothrow
     {
         if (m_streamCount >= MAX_CONCURRENT_STREAMS_CEILING)
-            return false;
+        {
+            reapClosedStreams();
+            if (m_streamCount >= MAX_CONCURRENT_STREAMS_CEILING)
+                return false;
+        }
 
         if (m_streamCount >= m_capacity)
         {
@@ -851,7 +1033,7 @@ public struct StreamMap
 }
 
 /// Example:
-// Best practice: StreamMap Move Semantics and Memory Management (covers U2, G4)
+// Spec: StreamMap Move Semantics and Memory Management (covers U2, G4)
 @nogc unittest
 {
     StreamMap sm1 = StreamMap(Side.client, 1000, 500, 500, 500, 10, 10, 10, 10);
@@ -1043,4 +1225,55 @@ public struct StreamMap
     // Queue STOP_SENDING
     s.stopSendingQueued = true;
     assert(sm.hasPendingWritable);
+}
+
+/// Example:
+// Spec: RFC 9000 Section 3.5, Section 4.5 - STOP_SENDING Response and Lifetime Sequential Stream Reaping (covers F-08, F-09, F-17)
+@nogc unittest
+{
+    // 1. Verify STOP_SENDING queues RESET_STREAM with final size = highest sent offset
+    StreamMap sm = StreamMap(Side.client, 100_000, 10_000, 10_000, 10_000, 2000, 2000, 2000, 2000);
+    sm.connFlow.updateRemoteMaxData(100_000);
+    StreamId sid;
+    assert(sm.openLocalStream(StreamDirection.bidirectional, sid) == TransportErrorCode.noError);
+    QuicStream* s = sm.getStream(sid);
+    assert(s !is null);
+
+    ubyte[100] writeData;
+    assert(s.sendBuf.write(writeData[], false));
+    StreamId polledSid;
+    TransmitChunk chunk;
+    assert(sm.pollWritable(polledSid, 50, chunk));
+    assert(chunk.data.length == 50);
+    assert(s.sendState == SendStreamState.send);
+
+    StopSendingFrame ssf;
+    ssf.streamId = sid.id;
+    ssf.applicationErrorCode = 0xbeef;
+    assert(sm.onStopSendingFrame(ssf) == TransportErrorCode.noError);
+    assert(s.resetQueued);
+    assert(s.sendState == SendStreamState.resetSent);
+
+    Frame ctrlFrame;
+    assert(sm.pollControlFrame(ctrlFrame));
+    assert(ctrlFrame.type == FrameType.resetStream);
+    assert(ctrlFrame.resetStream.streamId == sid.id);
+    assert(ctrlFrame.resetStream.applicationErrorCode == 0xbeef);
+    assert(ctrlFrame.resetStream.finalSize == 50); // highest sent offset
+
+    // 2. Verify >1024 lifetime sequential streams reap closed streams
+    StreamMap smSeq = StreamMap(Side.client, 10_000_000, 1000, 1000, 1000, 2000, 2000, 2000, 2000);
+    foreach (i; 0 .. 1100)
+    {
+        StreamId curSid;
+        assert(smSeq.openLocalStream(StreamDirection.bidirectional,
+                curSid) == TransportErrorCode.noError);
+        QuicStream* curStream = smSeq.getStream(curSid);
+        assert(curStream !is null);
+        // Mark stream complete
+        curStream.sendState = SendStreamState.dataRecvd;
+        curStream.recvState = RecvStreamState.dataRead;
+    }
+    // Stream table should have successfully accommodated 1100 streams through closed stream reaping!
+    assert(smSeq.streamCount <= MAX_CONCURRENT_STREAMS_CEILING);
 }

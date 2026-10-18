@@ -681,10 +681,17 @@ class CurlMultiException : Exception
 
 // --- Preallocated exceptions for @nogc execution paths ---
 
-// Shared preallocated exceptions for @nogc throw sites.
-// Initialized in shared static this() so foreign threads (e.g. C callbacks,
-// pthread_create, Slint UI workers) that do not run D runtime TLS static this()
-// can safely throw without dereferencing null or triggering SIGSEGV.
+// Thread-local preallocated exceptions for @nogc throw sites so concurrent threads
+// do not race on Throwable unwinder fields (F-61).
+private static CurlException[128] _tlsPreallocatedErrors;
+private static CurlException _tlsGlobalFallbackError;
+private static CancelledException _tlsPreallocatedCancelled;
+private static TimeoutException _tlsPreallocatedTimeout;
+private static TooManyRedirectsException _tlsPreallocatedTooManyRedirects;
+private static CurlMultiException[16] _tlsPreallocatedMultiErrors;
+private static CurlMultiException _tlsGlobalMultiFallbackError;
+
+// Shared fallback preallocated exceptions for foreign threads (e.g. C callbacks, pthread_create)
 private __gshared CurlException[128] _preallocatedErrors;
 private __gshared CurlException _globalFallbackError;
 private __gshared CancelledException _preallocatedCancelled;
@@ -692,6 +699,30 @@ private __gshared TimeoutException _preallocatedTimeout;
 private __gshared TooManyRedirectsException _preallocatedTooManyRedirects;
 private __gshared CurlMultiException[16] _preallocatedMultiErrors;
 private __gshared CurlMultiException _globalMultiFallbackError;
+
+static this()
+{
+    _tlsGlobalFallbackError = new CurlException(cast(CurlCode)-1, "Unknown libcurl error");
+    _tlsPreallocatedCancelled = new CancelledException("Transfer was cancelled");
+    _tlsPreallocatedTimeout = new TimeoutException("Operation timed out");
+    _tlsPreallocatedTooManyRedirects = new TooManyRedirectsException("Too many redirects");
+    _tlsGlobalMultiFallbackError = new CurlMultiException(cast(CurlMCode)-99,
+            "Unknown libcurl multi error");
+
+    foreach (int i; 1 .. 128)
+    {
+        auto c = cast(CurlCode) i;
+        _tlsPreallocatedErrors[i] = new CurlException(c, curlCodeDescription(c));
+    }
+    _tlsPreallocatedErrors[cast(int) CurlCode.CURLE_OPERATION_TIMEDOUT] = _tlsPreallocatedTimeout;
+    _tlsPreallocatedErrors[cast(int) CurlCode.CURLE_TOO_MANY_REDIRECTS] = _tlsPreallocatedTooManyRedirects;
+
+    foreach (int i; 1 .. 16)
+    {
+        auto mc = cast(CurlMCode) i;
+        _tlsPreallocatedMultiErrors[i] = new CurlMultiException(mc, curlMCodeDescription(mc));
+    }
+}
 
 shared static this()
 {
@@ -721,11 +752,15 @@ shared static this()
 @nogc @trusted void throwCancelledNogc(string msg = "Transfer was cancelled",
         string file = __FILE__, size_t line = __LINE__)
 {
+    if (_tlsPreallocatedCancelled !is null)
+        throw _tlsPreallocatedCancelled;
     if (_preallocatedCancelled !is null)
         throw _preallocatedCancelled;
+    if (_tlsGlobalFallbackError !is null)
+        throw _tlsGlobalFallbackError;
     if (_globalFallbackError !is null)
         throw _globalFallbackError;
-    assert(0, "throwCancelledNogc called before shared static initialization");
+    assert(0, "throwCancelledNogc called before static initialization");
 }
 
 /// Throws a preallocated `CurlMultiException` matching `code` without any GC allocation.
@@ -736,15 +771,24 @@ shared static this()
         return;
 
     int idx = cast(int) code;
+    if (idx > 0 && idx < _tlsPreallocatedMultiErrors.length
+            && _tlsPreallocatedMultiErrors[idx]!is null)
+    {
+        throw _tlsPreallocatedMultiErrors[idx];
+    }
     if (idx > 0 && idx < _preallocatedMultiErrors.length && _preallocatedMultiErrors[idx]!is null)
     {
         throw _preallocatedMultiErrors[idx];
+    }
+    if (_tlsGlobalMultiFallbackError !is null)
+    {
+        throw _tlsGlobalMultiFallbackError;
     }
     if (_globalMultiFallbackError !is null)
     {
         throw _globalMultiFallbackError;
     }
-    assert(0, "throwCurlMultiErrorNogc called before shared static initialization");
+    assert(0, "throwCurlMultiErrorNogc called before static initialization");
 }
 
 /// Enforces that a `CurlMCode` is `CURLM_OK` under `@nogc`, throwing a preallocated `CurlMultiException` on failure.
@@ -774,29 +818,46 @@ shared static this()
     if (code == CurlCode.CURLE_OK)
         return;
 
-    if (code == CurlCode.CURLE_ABORTED_BY_CALLBACK && _preallocatedCancelled !is null)
+    if (code == CurlCode.CURLE_ABORTED_BY_CALLBACK)
     {
-        throw _preallocatedCancelled;
+        if (_tlsPreallocatedCancelled !is null)
+            throw _tlsPreallocatedCancelled;
+        if (_preallocatedCancelled !is null)
+            throw _preallocatedCancelled;
     }
-    if (code == CurlCode.CURLE_OPERATION_TIMEDOUT && _preallocatedTimeout !is null)
+    if (code == CurlCode.CURLE_OPERATION_TIMEDOUT)
     {
-        throw _preallocatedTimeout;
+        if (_tlsPreallocatedTimeout !is null)
+            throw _tlsPreallocatedTimeout;
+        if (_preallocatedTimeout !is null)
+            throw _preallocatedTimeout;
     }
-    if (code == CurlCode.CURLE_TOO_MANY_REDIRECTS && _preallocatedTooManyRedirects !is null)
+    if (code == CurlCode.CURLE_TOO_MANY_REDIRECTS)
     {
-        throw _preallocatedTooManyRedirects;
+        if (_tlsPreallocatedTooManyRedirects !is null)
+            throw _tlsPreallocatedTooManyRedirects;
+        if (_preallocatedTooManyRedirects !is null)
+            throw _preallocatedTooManyRedirects;
     }
 
     int idx = cast(int) code;
+    if (idx > 0 && idx < _tlsPreallocatedErrors.length && _tlsPreallocatedErrors[idx]!is null)
+    {
+        throw _tlsPreallocatedErrors[idx];
+    }
     if (idx > 0 && idx < _preallocatedErrors.length && _preallocatedErrors[idx]!is null)
     {
         throw _preallocatedErrors[idx];
+    }
+    if (_tlsGlobalFallbackError !is null)
+    {
+        throw _tlsGlobalFallbackError;
     }
     if (_globalFallbackError !is null)
     {
         throw _globalFallbackError;
     }
-    assert(0, "throwCurlErrorNogc called before shared static initialization");
+    assert(0, "throwCurlErrorNogc called before static initialization");
 }
 
 /// Enforces that a `CurlCode` is `CURLE_OK` under `@nogc`, throwing a preallocated `CurlException` on failure.

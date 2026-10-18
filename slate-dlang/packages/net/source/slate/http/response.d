@@ -152,7 +152,7 @@ struct Response
 /// ---
 unittest
 {
-    // Best practice: verify response status invariant and header case insensitivity
+    // Spec: verify response status invariant and header case insensitivity
     auto res = Response(200, [
         Header("Content-Type", "application/json"),
         Header("X-Request-Id", "req-abc-123")
@@ -191,7 +191,7 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify @nogc byChunk consumption across chunk boundaries
+    // Spec: verify @nogc byChunk consumption across chunk boundaries
     @nogc void testNogcByChunk()
     {
         static immutable ubyte[10] payload = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];

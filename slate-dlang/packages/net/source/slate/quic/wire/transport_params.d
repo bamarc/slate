@@ -63,23 +63,25 @@ public struct TransportParameters
 private WireError writeVarIntParam(ref WireWriter writer, ulong paramId, ulong value) @safe pure @nogc nothrow
 {
     const size_t valLen = varIntLen(value);
-    if (writer.writeVarInt(paramId) != WireError.none)
-        return WireError.bufferTooSmall;
-    if (writer.writeVarInt(valLen) != WireError.none)
-        return WireError.bufferTooSmall;
-    if (writer.writeVarInt(value) != WireError.none)
-        return WireError.bufferTooSmall;
-    return WireError.none;
+    WireError err = writer.writeVarInt(paramId);
+    if (err != WireError.none)
+        return err;
+    err = writer.writeVarInt(valLen);
+    if (err != WireError.none)
+        return err;
+    return writer.writeVarInt(value);
 }
 
 private WireError writeCidParam(ref WireWriter writer, ulong paramId, const ref ConnectionId cid) @safe pure @nogc nothrow
 {
-    if (writer.writeVarInt(paramId) != WireError.none)
-        return WireError.bufferTooSmall;
-    if (writer.writeVarInt(cid.len) != WireError.none)
-        return WireError.bufferTooSmall;
-    if (cid.len > 0 && writer.writeBytes(cid.asSlice()) != WireError.none)
-        return WireError.bufferTooSmall;
+    WireError err = writer.writeVarInt(paramId);
+    if (err != WireError.none)
+        return err;
+    err = writer.writeVarInt(cid.len);
+    if (err != WireError.none)
+        return err;
+    if (cid.len > 0)
+        return writer.writeBytes(cid.asSlice());
     return WireError.none;
 }
 
@@ -90,138 +92,166 @@ WireError encodeTransportParams(const ref TransportParameters params, Side mySid
         ubyte[] outBuf, out size_t bytesWritten) @safe pure @nogc nothrow
 {
     bytesWritten = 0;
+    if (params.maxUdpPayloadSize < 1200)
+        return WireError.transportParameterError;
+    if (params.ackDelayExponent > 20)
+        return WireError.transportParameterError;
+    if (params.maxAckDelay >= (1UL << 14))
+        return WireError.transportParameterError;
+    if (params.activeConnectionIdLimit < 2)
+        return WireError.transportParameterError;
+
     WireWriter writer = WireWriter(outBuf);
+    WireError wErr;
 
     // 0x00 original_destination_connection_id (server only)
     if (mySide == Side.server && params.hasOriginalDestinationConnectionId)
     {
-        if (writeCidParam(writer, TransportParameterId.originalDestinationConnectionId,
-                params.originalDestinationConnectionId) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeCidParam(writer, TransportParameterId.originalDestinationConnectionId,
+                params.originalDestinationConnectionId);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x01 max_idle_timeout
     if (params.maxIdleTimeout > 0)
     {
-        if (writeVarIntParam(writer, TransportParameterId.maxIdleTimeout,
-                params.maxIdleTimeout) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeVarIntParam(writer, TransportParameterId.maxIdleTimeout,
+                params.maxIdleTimeout);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x02 stateless_reset_token (server only)
     if (mySide == Side.server && params.hasStatelessResetToken)
     {
-        if (writer.writeVarInt(TransportParameterId.statelessResetToken) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(16) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeBytes(params.statelessResetToken[]) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(TransportParameterId.statelessResetToken);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(16);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeBytes(params.statelessResetToken[]);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x03 max_udp_payload_size (default 65527)
     if (params.maxUdpPayloadSize != 65527)
     {
-        if (writeVarIntParam(writer, TransportParameterId.maxUdpPayloadSize,
-                params.maxUdpPayloadSize) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeVarIntParam(writer, TransportParameterId.maxUdpPayloadSize,
+                params.maxUdpPayloadSize);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x04 initial_max_data
     if (params.initialMaxData > 0)
     {
-        if (writeVarIntParam(writer, TransportParameterId.initialMaxData,
-                params.initialMaxData) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeVarIntParam(writer, TransportParameterId.initialMaxData,
+                params.initialMaxData);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x05 initial_max_stream_data_bidi_local
     if (params.initialMaxStreamDataBidiLocal > 0)
     {
-        if (writeVarIntParam(writer, TransportParameterId.initialMaxStreamDataBidiLocal,
-                params.initialMaxStreamDataBidiLocal) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeVarIntParam(writer, TransportParameterId.initialMaxStreamDataBidiLocal,
+                params.initialMaxStreamDataBidiLocal);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x06 initial_max_stream_data_bidi_remote
     if (params.initialMaxStreamDataBidiRemote > 0)
     {
-        if (writeVarIntParam(writer, TransportParameterId.initialMaxStreamDataBidiRemote,
-                params.initialMaxStreamDataBidiRemote) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeVarIntParam(writer, TransportParameterId.initialMaxStreamDataBidiRemote,
+                params.initialMaxStreamDataBidiRemote);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x07 initial_max_stream_data_uni
     if (params.initialMaxStreamDataUni > 0)
     {
-        if (writeVarIntParam(writer, TransportParameterId.initialMaxStreamDataUni,
-                params.initialMaxStreamDataUni) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeVarIntParam(writer, TransportParameterId.initialMaxStreamDataUni,
+                params.initialMaxStreamDataUni);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x08 initial_max_streams_bidi
     if (params.initialMaxStreamsBidi > 0)
     {
-        if (writeVarIntParam(writer, TransportParameterId.initialMaxStreamsBidi,
-                params.initialMaxStreamsBidi) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeVarIntParam(writer, TransportParameterId.initialMaxStreamsBidi,
+                params.initialMaxStreamsBidi);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x09 initial_max_streams_uni
     if (params.initialMaxStreamsUni > 0)
     {
-        if (writeVarIntParam(writer, TransportParameterId.initialMaxStreamsUni,
-                params.initialMaxStreamsUni) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeVarIntParam(writer,
+                TransportParameterId.initialMaxStreamsUni, params.initialMaxStreamsUni);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x0a ack_delay_exponent (default 3)
     if (params.ackDelayExponent != 3)
     {
-        if (writeVarIntParam(writer, TransportParameterId.ackDelayExponent,
-                params.ackDelayExponent) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeVarIntParam(writer, TransportParameterId.ackDelayExponent,
+                params.ackDelayExponent);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x0b max_ack_delay (default 25)
     if (params.maxAckDelay != 25)
     {
-        if (writeVarIntParam(writer, TransportParameterId.maxAckDelay,
-                params.maxAckDelay) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeVarIntParam(writer, TransportParameterId.maxAckDelay, params.maxAckDelay);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x0c disable_active_migration
     if (params.disableActiveMigration)
     {
-        if (writer.writeVarInt(TransportParameterId.disableActiveMigration) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(0) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(TransportParameterId.disableActiveMigration);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(0);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x0e active_connection_id_limit (default 2)
     if (params.activeConnectionIdLimit != 2)
     {
-        if (writeVarIntParam(writer, TransportParameterId.activeConnectionIdLimit,
-                params.activeConnectionIdLimit) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeVarIntParam(writer, TransportParameterId.activeConnectionIdLimit,
+                params.activeConnectionIdLimit);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x0f initial_source_connection_id
     if (params.hasInitialSourceConnectionId)
     {
-        if (writeCidParam(writer, TransportParameterId.initialSourceConnectionId,
-                params.initialSourceConnectionId) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeCidParam(writer, TransportParameterId.initialSourceConnectionId,
+                params.initialSourceConnectionId);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     // 0x10 retry_source_connection_id (server only)
     if (mySide == Side.server && params.hasRetrySourceConnectionId)
     {
-        if (writeCidParam(writer, TransportParameterId.retrySourceConnectionId,
-                params.retrySourceConnectionId) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writeCidParam(writer, TransportParameterId.retrySourceConnectionId,
+                params.retrySourceConnectionId);
+        if (wErr != WireError.none)
+            return wErr;
     }
 
     bytesWritten = writer.bytesWritten;
@@ -249,7 +279,10 @@ WireError decodeTransportParams(const(ubyte)[] buf, Side peerSide,
         ulong paramId = 0;
         WireError wErr = reader.readVarInt(paramId);
         if (wErr != WireError.none)
+        {
+            err = TransportErrorCode.transportParameterError;
             return wErr;
+        }
 
         // Duplicate parameter detection (RFC 9000 Section 18.2)
         if (paramId < 64)
@@ -272,23 +305,27 @@ WireError decodeTransportParams(const(ubyte)[] buf, Side peerSide,
                     return WireError.transportParameterError;
                 }
             }
-            if (numSeenHigh >= seenHighIds.length)
+            if (numSeenHigh < seenHighIds.length)
             {
-                err = TransportErrorCode.transportParameterError;
-                return WireError.transportParameterError;
+                seenHighIds[numSeenHigh++] = paramId;
             }
-            seenHighIds[numSeenHigh++] = paramId;
         }
 
         ulong paramLen = 0;
         wErr = reader.readVarInt(paramLen);
         if (wErr != WireError.none)
+        {
+            err = TransportErrorCode.transportParameterError;
             return wErr;
+        }
 
         const(ubyte)[] valSlice;
         wErr = reader.readSlice(cast(size_t) paramLen, valSlice);
         if (wErr != WireError.none)
+        {
+            err = TransportErrorCode.transportParameterError;
             return wErr;
+        }
 
         // RFC 9000 Section 18.2: Client MUST NOT send server-only parameters
         if (peerSide == Side.client)
@@ -470,6 +507,23 @@ WireError decodeTransportParams(const(ubyte)[] buf, Side peerSide,
             params.hasRetrySourceConnectionId = true;
             break;
 
+        case TransportParameterId.preferredAddress:
+            // RFC 9000 Section 18.2:
+            // IPv4 (4) + IPv4 port (2) + IPv6 (16) + IPv6 port (2) + cid_len (1) + cid (cid_len) + stateless_reset_token (16)
+            // Minimum length: 4 + 2 + 16 + 2 + 1 + 0 + 16 = 41 bytes.
+            if (valSlice.length < 41)
+            {
+                err = TransportErrorCode.transportParameterError;
+                return WireError.transportParameterError;
+            }
+            const ubyte cidLen = valSlice[24];
+            if (cidLen > MAX_CID_LEN || valSlice.length != 41 + cidLen)
+            {
+                err = TransportErrorCode.transportParameterError;
+                return WireError.transportParameterError;
+            }
+            break;
+
         default:
             // RFC 9000 Section 18.1: Unknown / GREASE parameters MUST be ignored
             break;
@@ -649,7 +703,7 @@ WireError decodeTransportParams(const(ubyte)[] buf, Side peerSide,
             te) == WireError.transportParameterError);
     assert(te == TransportErrorCode.transportParameterError);
 
-    // 11. More than 64 GREASE parameters (overflow defense)
+    // 11. More than 64 GREASE parameters (RFC 9000 Section 18.1 - MUST NOT fail valid peers, F-43)
     ubyte[1024] greaseBuf;
     WireWriter gw = WireWriter(greaseBuf[]);
     foreach (i; 0 .. 65)
@@ -658,7 +712,30 @@ WireError decodeTransportParams(const(ubyte)[] buf, Side peerSide,
         gw.writeVarInt(1);
         gw.writeU8(cast(ubyte) i);
     }
-    assert(decodeTransportParams(gw.writtenSlice, Side.server, tp,
+    assert(decodeTransportParams(gw.writtenSlice, Side.server, tp, te) == WireError.none);
+
+    // 12. preferredAddress validation (F-39)
+    // Server sent preferredAddress with < 41 bytes
+    writer = WireWriter(buf[]);
+    writer.writeVarInt(TransportParameterId.preferredAddress);
+    writer.writeVarInt(40); // 40 < 41!
+    ubyte[40] shortPref = 0;
+    writer.writeBytes(shortPref[]);
+    assert(decodeTransportParams(writer.writtenSlice, Side.server, tp,
+            te) == WireError.transportParameterError);
+    assert(te == TransportErrorCode.transportParameterError);
+
+    // Valid preferredAddress with 0-len CID: 4 + 2 + 16 + 2 + 1 + 0 + 16 = 41 bytes
+    writer = WireWriter(buf[]);
+    writer.writeVarInt(TransportParameterId.preferredAddress);
+    writer.writeVarInt(41);
+    ubyte[41] validPref = 0;
+    validPref[24] = 0; // cidLen = 0
+    writer.writeBytes(validPref[]);
+    assert(decodeTransportParams(writer.writtenSlice, Side.server, tp, te) == WireError.none);
+
+    // Client sent preferredAddress -> rejected!
+    assert(decodeTransportParams(writer.writtenSlice, Side.client, tp,
             te) == WireError.transportParameterError);
     assert(te == TransportErrorCode.transportParameterError);
 }

@@ -267,6 +267,7 @@ WireError encodeFrame(const ref Frame frame, ubyte[] outBuf, out size_t bytesWri
 {
     bytesWritten = 0;
     WireWriter writer = WireWriter(outBuf);
+    WireError wErr;
 
     switch (frame.type)
     {
@@ -280,256 +281,335 @@ WireError encodeFrame(const ref Frame frame, ubyte[] outBuf, out size_t bytesWri
         return WireError.none;
 
     case FrameType.ping:
-        if (writer.writeVarInt(0x01) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(0x01);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.ack:
     case FrameType.ackEcn:
-        if (frame.ack.numRanges == 0)
+        if (frame.ack.numRanges == 0
+                || frame.ack.numRanges > MAX_ACK_RANGES)
             return WireError.invalidFrame;
 
-        const ulong typeVal = frame.ack.hasEcn ? 0x03 : 0x02;
-        if (writer.writeVarInt(typeVal) != WireError.none)
-            return WireError.bufferTooSmall;
+        const ulong typeVal = (frame.type == FrameType.ackEcn || frame.ack.hasEcn) ? 0x03 : 0x02;
+        wErr = writer.writeVarInt(typeVal);
+        if (wErr != WireError.none)
+            return wErr;
 
         const ulong largestAcked = frame.ack.ranges[0].largest;
-        if (writer.writeVarInt(largestAcked) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(largestAcked);
+        if (wErr != WireError.none)
+            return wErr;
 
-        if (writer.writeVarInt(frame.ack.ackDelay) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(frame.ack.ackDelay);
+        if (wErr != WireError.none)
+            return wErr;
 
         const ulong additionalRanges = frame.ack.numRanges - 1;
-        if (writer.writeVarInt(additionalRanges) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(additionalRanges);
+        if (wErr != WireError.none)
+            return wErr;
 
         if (frame.ack.ranges[0].largest < frame.ack.ranges[0].smallest)
             return WireError.invalidFrame;
 
         const ulong firstRange = frame.ack.ranges[0].largest - frame.ack.ranges[0].smallest;
-        if (writer.writeVarInt(firstRange) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(firstRange);
+        if (wErr != WireError.none)
+            return wErr;
 
         foreach (i; 1 .. frame.ack.numRanges)
         {
             if (frame.ack.ranges[i].largest < frame.ack.ranges[i].smallest)
                 return WireError.invalidFrame;
 
-            if (frame.ack.ranges[i - 1].smallest < frame.ack.ranges[i].largest + 2)
+            if (frame.ack.ranges[i - 1].smallest < 2
+                    || frame.ack.ranges[i - 1].smallest - 2 < frame.ack.ranges[i].largest)
                 return WireError.invalidFrame;
 
             const ulong gap = frame.ack.ranges[i - 1].smallest - frame.ack.ranges[i].largest - 2;
             const ulong rangeLen = frame.ack.ranges[i].largest - frame.ack.ranges[i].smallest;
 
-            if (writer.writeVarInt(gap) != WireError.none)
-                return WireError.bufferTooSmall;
-            if (writer.writeVarInt(rangeLen) != WireError.none)
-                return WireError.bufferTooSmall;
+            wErr = writer.writeVarInt(gap);
+            if (wErr != WireError.none)
+                return wErr;
+            wErr = writer.writeVarInt(rangeLen);
+            if (wErr != WireError.none)
+                return wErr;
         }
 
-        if (frame.ack.hasEcn)
+        if (frame.type == FrameType.ackEcn || frame.ack.hasEcn)
         {
-            if (writer.writeVarInt(frame.ack.ect0) != WireError.none)
-                return WireError.bufferTooSmall;
-            if (writer.writeVarInt(frame.ack.ect1) != WireError.none)
-                return WireError.bufferTooSmall;
-            if (writer.writeVarInt(frame.ack.ecnCe) != WireError.none)
-                return WireError.bufferTooSmall;
+            wErr = writer.writeVarInt(frame.ack.ect0);
+            if (wErr != WireError.none)
+                return wErr;
+            wErr = writer.writeVarInt(frame.ack.ect1);
+            if (wErr != WireError.none)
+                return wErr;
+            wErr = writer.writeVarInt(frame.ack.ecnCe);
+            if (wErr != WireError.none)
+                return wErr;
         }
 
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.resetStream:
-        if (writer.writeVarInt(0x04) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.resetStream.streamId) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.resetStream.applicationErrorCode) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.resetStream.finalSize) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(0x04);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.resetStream.streamId);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.resetStream.applicationErrorCode);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.resetStream.finalSize);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.stopSending:
-        if (writer.writeVarInt(0x05) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.stopSending.streamId) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.stopSending.applicationErrorCode) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(0x05);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.stopSending.streamId);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.stopSending.applicationErrorCode);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.crypto:
-        if (writer.writeVarInt(0x06) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.crypto.offset) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.crypto.data.length) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeBytes(frame.crypto.data) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(0x06);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.crypto.offset);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.crypto.data.length);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeBytes(frame.crypto.data);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.newToken:
         if (frame.newToken.token.length == 0)
             return WireError.invalidFrame;
-        if (writer.writeVarInt(0x07) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.newToken.token.length) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeBytes(frame.newToken.token) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(0x07);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.newToken.token.length);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeBytes(frame.newToken.token);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.stream0: .. case FrameType.stream7:
+        if (frame.stream.offset > VARINT_MAX
+                || frame.stream.data.length > VARINT_MAX - frame.stream.offset)
+            return WireError.invalidFrame;
+
         const ulong typeByte = 0x08 | (frame.stream.hasOffset
                 ? 0x04 : 0) | (frame.stream.hasLength ? 0x02 : 0) | (frame.stream.fin ? 0x01 : 0);
 
-        if (writer.writeVarInt(typeByte) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.stream.streamId) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(typeByte);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.stream.streamId);
+        if (wErr != WireError.none)
+            return wErr;
         if (frame.stream.hasOffset)
         {
-            if (writer.writeVarInt(frame.stream.offset) != WireError.none)
-                return WireError.bufferTooSmall;
+            wErr = writer.writeVarInt(frame.stream.offset);
+            if (wErr != WireError.none)
+                return wErr;
         }
         if (frame.stream.hasLength)
         {
-            if (writer.writeVarInt(frame.stream.data.length) != WireError.none)
-                return WireError.bufferTooSmall;
+            wErr = writer.writeVarInt(frame.stream.data.length);
+            if (wErr != WireError.none)
+                return wErr;
         }
-        if (writer.writeBytes(frame.stream.data) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeBytes(frame.stream.data);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.maxData:
-        if (writer.writeVarInt(0x10) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.maxData.maximumData) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(0x10);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.maxData.maximumData);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.maxStreamData:
-        if (writer.writeVarInt(0x11) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.maxStreamData.streamId) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.maxStreamData.maximumStreamData) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(0x11);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.maxStreamData.streamId);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.maxStreamData.maximumStreamData);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.maxStreamsBidi:
     case FrameType.maxStreamsUni:
-        const ulong msType = frame.maxStreams.isBidirectional ? 0x12 : 0x13;
-        if (writer.writeVarInt(msType) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.maxStreams.maximumStreams) != WireError.none)
-            return WireError.bufferTooSmall;
+        if (frame.maxStreams.maximumStreams > (1UL << 60))
+            return WireError.invalidFrame;
+        const ulong msType = (frame.type == FrameType.maxStreamsUni
+                || !frame.maxStreams.isBidirectional) ? 0x13 : 0x12;
+        wErr = writer.writeVarInt(msType);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.maxStreams.maximumStreams);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.dataBlocked:
-        if (writer.writeVarInt(0x14) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.dataBlocked.maximumData) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(0x14);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.dataBlocked.maximumData);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.streamDataBlocked:
-        if (writer.writeVarInt(0x15) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.streamDataBlocked.streamId) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.streamDataBlocked.maximumStreamData) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(0x15);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.streamDataBlocked.streamId);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.streamDataBlocked.maximumStreamData);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.streamsBlockedBidi:
     case FrameType.streamsBlockedUni:
-        const ulong sbType = frame.streamsBlocked.isBidirectional ? 0x16 : 0x17;
-        if (writer.writeVarInt(sbType) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.streamsBlocked.streamLimit) != WireError.none)
-            return WireError.bufferTooSmall;
+        if (frame.streamsBlocked.streamLimit > (1UL << 60))
+            return WireError.invalidFrame;
+        const ulong sbType = (frame.type == FrameType.streamsBlockedUni
+                || !frame.streamsBlocked.isBidirectional) ? 0x17 : 0x16;
+        wErr = writer.writeVarInt(sbType);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.streamsBlocked.streamLimit);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.newConnectionId:
-        if (writer.writeVarInt(0x18) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.newConnectionId.sequenceNumber) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.newConnectionId.retirePriorTo) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeU8(frame.newConnectionId.cid.len) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeBytes(frame.newConnectionId.cid.asSlice()) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeBytes(frame.newConnectionId.statelessResetToken[]) != WireError.none)
-            return WireError.bufferTooSmall;
+        if (frame.newConnectionId.retirePriorTo > frame.newConnectionId.sequenceNumber)
+            return WireError.invalidFrame;
+        if (frame.newConnectionId.cid.len < 1 || frame.newConnectionId.cid.len > 20)
+            return WireError.invalidFrame;
+        wErr = writer.writeVarInt(0x18);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.newConnectionId.sequenceNumber);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.newConnectionId.retirePriorTo);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeU8(frame.newConnectionId.cid.len);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeBytes(frame.newConnectionId.cid.asSlice());
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeBytes(frame.newConnectionId.statelessResetToken[]);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.retireConnectionId:
-        if (writer.writeVarInt(0x19) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.retireConnectionId.sequenceNumber) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(0x19);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.retireConnectionId.sequenceNumber);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.pathChallenge:
-        if (writer.writeVarInt(0x1a) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeBytes(frame.pathChallenge.data[]) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(0x1a);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeBytes(frame.pathChallenge.data[]);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.pathResponse:
-        if (writer.writeVarInt(0x1b) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeBytes(frame.pathResponse.data[]) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(0x1b);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeBytes(frame.pathResponse.data[]);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.connectionCloseQuic:
     case FrameType.connectionCloseApp:
-        const ulong ccType = frame.connectionClose.isApplication ? 0x1d : 0x1c;
-        if (writer.writeVarInt(ccType) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeVarInt(frame.connectionClose.errorCode) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (!frame.connectionClose.isApplication)
+        const bool isApp = (frame.type == FrameType.connectionCloseApp
+                || frame.connectionClose.isApplication);
+        const ulong ccType = isApp ? 0x1d : 0x1c;
+        wErr = writer.writeVarInt(ccType);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeVarInt(frame.connectionClose.errorCode);
+        if (wErr != WireError.none)
+            return wErr;
+        if (!isApp)
         {
-            if (writer.writeVarInt(frame.connectionClose.frameType) != WireError.none)
-                return WireError.bufferTooSmall;
+            wErr = writer.writeVarInt(frame.connectionClose.frameType);
+            if (wErr != WireError.none)
+                return wErr;
         }
-        if (writer.writeVarInt(frame.connectionClose.reasonPhrase.length) != WireError.none)
-            return WireError.bufferTooSmall;
-        if (writer.writeBytes(
-                cast(const(ubyte)[]) frame.connectionClose.reasonPhrase) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(frame.connectionClose.reasonPhrase.length);
+        if (wErr != WireError.none)
+            return wErr;
+        wErr = writer.writeBytes(cast(const(ubyte)[]) frame.connectionClose.reasonPhrase);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
     case FrameType.handshakeDone:
-        if (writer.writeVarInt(0x1e) != WireError.none)
-            return WireError.bufferTooSmall;
+        wErr = writer.writeVarInt(0x1e);
+        if (wErr != WireError.none)
+            return wErr;
         bytesWritten = writer.bytesWritten;
         return WireError.none;
 
@@ -556,6 +636,13 @@ WireError decodeFrame(const(ubyte)[] inBuf, out Frame frame, out size_t bytesRea
     WireError wErr = reader.readVarInt(rawType);
     if (wErr != WireError.none)
         return wErr;
+
+    // Reject non-minimal frame-type varints (RFC 9000 Section 12.4 & F-42)
+    if (varIntLen(rawType) < (1 << (inBuf[0] >> 6)))
+    {
+        err = TransportErrorCode.frameEncodingError;
+        return WireError.invalidFrame;
+    }
 
     // Handle PADDING run (0x00)
     if (rawType == 0x00)
@@ -651,6 +738,12 @@ WireError decodeFrame(const(ubyte)[] inBuf, out Frame frame, out size_t bytesRea
         wErr = reader.readVarInt(rangeCount);
         if (wErr != WireError.none)
             return wErr;
+
+        if (rangeCount + 1 > MAX_ACK_RANGES)
+        {
+            err = TransportErrorCode.frameEncodingError;
+            return WireError.invalidFrame;
+        }
 
         ulong firstRange = 0;
         wErr = reader.readVarInt(firstRange);

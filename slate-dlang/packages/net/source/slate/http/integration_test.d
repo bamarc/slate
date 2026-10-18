@@ -17,6 +17,8 @@ import slate.http.debug_;
 
 import std.socket;
 import core.thread;
+import core.atomic : atomicLoad, atomicStore, atomicOp;
+import core.sys.posix.unistd : getpid;
 import std.file : exists, remove;
 import std.process : execute, spawnProcess, wait, kill;
 import std.format : format;
@@ -27,8 +29,8 @@ package class H2LoopbackServer
     TcpSocket listener;
     ushort port;
     Thread thread;
-    bool running = true;
-    int requestCount;
+    shared bool running = true;
+    shared int requestCount;
 
     this()
     {
@@ -46,12 +48,12 @@ package class H2LoopbackServer
     {
         import core.time : dur;
 
-        while (running)
+        while (atomicLoad(running))
         {
             try
             {
                 Socket client = listener.accept();
-                if (!running)
+                if (!atomicLoad(running))
                 {
                     client.close();
                     break;
@@ -81,7 +83,7 @@ package class H2LoopbackServer
                 client.send(serverSettings[]);
 
                 // 3. Frame processing loop on this connection
-                while (running)
+                while (atomicLoad(running))
                 {
                     ubyte[9] hdr;
                     readSoFar = 0;
@@ -132,7 +134,7 @@ package class H2LoopbackServer
                     }
                     else if (ftype == 1) // HEADERS
                     {
-                        requestCount++;
+                        atomicOp!"+="(requestCount, 1);
                         // Send HEADERS: :status: 200 (static table index 8 = 0x88)
                         // length 1, type 1, flags END_HEADERS (0x04), streamId
                         ubyte[10] respHeaders;
@@ -169,7 +171,7 @@ package class H2LoopbackServer
 
     void close()
     {
-        running = false;
+        atomicStore(running, false);
         try
         {
             auto s = new TcpSocket();
@@ -199,7 +201,7 @@ package class Http1LoopbackServer
     TcpSocket listener;
     ushort port;
     Thread thread;
-    bool running = true;
+    shared bool running = true;
 
     this()
     {
@@ -217,12 +219,12 @@ package class Http1LoopbackServer
     {
         import core.time : msecs;
 
-        while (running)
+        while (atomicLoad(running))
         {
             try
             {
                 Socket client = listener.accept();
-                if (!running)
+                if (!atomicLoad(running))
                 {
                     client.close();
                     break;
@@ -277,7 +279,7 @@ package class Http1LoopbackServer
 
     void close()
     {
-        running = false;
+        atomicStore(running, false);
         try
         {
             auto s = new TcpSocket();
@@ -316,7 +318,7 @@ package class Http1LoopbackServer
 /// ---
 unittest
 {
-    // Best practice: verify real HTTP/2 binary framing negotiation and pooled connection reuse
+    // Spec: verify real HTTP/2 binary framing negotiation and pooled connection reuse
     auto server = new H2LoopbackServer();
     scope (exit)
         server.close();
@@ -352,9 +354,9 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify default TLS verification rejects untrusted cert, caInfo succeeds, missing CA bundle fails fast with actionable message, and insecureOptIn logs audit count
-    string certPath = "/tmp/slate_test_tls_cert.pem";
-    string keyPath = "/tmp/slate_test_tls_key.pem";
+    // Spec: verify default TLS verification rejects untrusted cert, caInfo succeeds, missing CA bundle fails fast with actionable message, and insecureOptIn logs audit count
+    string certPath = format("/tmp/slate_test_tls_cert_%d.pem", getpid());
+    string keyPath = format("/tmp/slate_test_tls_key_%d.pem", getpid());
 
     // Generate self-signed test certificate using openssl
     execute([
@@ -509,13 +511,13 @@ server.serve_forever()
 /// ---
 unittest
 {
-    // Best practice: verify per-request timeouts throw TimeoutException, redirect loops throw TooManyRedirectsException, and HTTPS->HTTP downgrade is blocked by default
+    // Spec: verify per-request timeouts throw TimeoutException, redirect loops throw TooManyRedirectsException, and HTTPS->HTTP downgrade is blocked by default
     auto h1Server = new Http1LoopbackServer();
     scope (exit)
         h1Server.close();
 
-    string certPath = "/tmp/slate_test_redir_cert.pem";
-    string keyPath = "/tmp/slate_test_redir_key.pem";
+    string certPath = format("/tmp/slate_test_redir_cert_%d.pem", getpid());
+    string keyPath = format("/tmp/slate_test_redir_key_%d.pem", getpid());
 
     execute([
         "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout",
@@ -671,7 +673,7 @@ server.serve_forever()
 /// ---
 unittest
 {
-    // Best practice: verify zero handle or resource leaks over pooled high-iteration fault injection
+    // Spec: verify zero handle or resource leaks over pooled high-iteration fault injection
     auto h1Server = new Http1LoopbackServer();
     scope (exit)
         h1Server.close();
@@ -771,10 +773,10 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify Alt-Svc cache writes to disk upon Client teardown and is readable by subsequent Client
-    string certPath = "/tmp/slate_test_altsvc_cert.pem";
-    string keyPath = "/tmp/slate_test_altsvc_key.pem";
-    string altSvcPath = "/tmp/slate_test_altsvc_cache.txt";
+    // Spec: verify Alt-Svc cache writes to disk upon Client teardown and is readable by subsequent Client
+    string certPath = format("/tmp/slate_test_altsvc_cert_%d.pem", getpid());
+    string keyPath = format("/tmp/slate_test_altsvc_key_%d.pem", getpid());
+    string altSvcPath = format("/tmp/slate_test_altsvc_cache_%d.txt", getpid());
 
     if (exists(altSvcPath))
         remove(altSvcPath);
@@ -900,7 +902,7 @@ server.serve_forever()
 /// ---
 unittest
 {
-    // Best practice: verify hasHttp3 reports clear diagnostics and h3Only fails fast when unavailable
+    // Spec: verify hasHttp3 reports clear diagnostics and h3Only fails fast when unavailable
     if (!hasHttp3())
     {
         string reason = http3UnavailableExplanation();
@@ -931,7 +933,7 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify durl against Http1LoopbackServer, H2LoopbackServer, and TLS servers
+    // Spec: verify durl against Http1LoopbackServer, H2LoopbackServer, and TLS servers
     import std.algorithm.searching : canFind;
     import std.file : exists, remove, readText;
     import std.process : execute;
@@ -987,7 +989,7 @@ unittest
     assert(!headRes.output.canFind("HTTP1 OK"), "HEAD response must not include body");
 
     // Output to file with -o
-    string outPath = "/tmp/slate_durl_test_out.txt";
+    string outPath = format("/tmp/slate_durl_test_out_%d.txt", getpid());
     scope (exit)
     {
         if (exists(outPath))
@@ -1032,8 +1034,8 @@ unittest
     assert(h2ParRes.output.canFind("H2 OK"));
 
     // 4. Test against Python TLS self-signed server
-    string certPath = "/tmp/slate_durl_tls_cert.pem";
-    string keyPath = "/tmp/slate_durl_tls_key.pem";
+    string certPath = format("/tmp/slate_durl_tls_cert_%d.pem", getpid());
+    string keyPath = format("/tmp/slate_durl_tls_key_%d.pem", getpid());
 
     execute([
         "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout",

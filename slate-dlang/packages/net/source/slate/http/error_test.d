@@ -32,7 +32,7 @@ unittest
     enforceCurl(CurlCode.CURLE_OK);
 }
 
-// Best practice: verify preallocated @nogc exception throwing without GC allocation
+// Spec: verify preallocated @nogc exception throwing without GC allocation
 /// Example:
 /// ---
 /// import slate.http.error;
@@ -65,7 +65,7 @@ unittest
     assert(caught, "enforceCurlNogc must throw on non-OK code");
 }
 
-// Best practice: Thread safety of @nogc preallocated exceptions in worker threads
+// Spec: Thread safety of @nogc preallocated exceptions in worker threads
 /// Example:
 /// ---
 /// import slate.http.error;
@@ -178,7 +178,7 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify CancelledException preserves CURLE_ABORTED_BY_CALLBACK under @nogc
+    // Spec: verify CancelledException preserves CURLE_ABORTED_BY_CALLBACK under @nogc
     @nogc void checkCancel()
     {
         throwCancelledNogc();
@@ -210,7 +210,7 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify CurlMultiException preserves code and @nogc preallocated throw
+    // Spec: verify CurlMultiException preserves code and @nogc preallocated throw
     assert(curlMCodeToString(CurlMCode.CURLM_OK) == "CURLM_OK");
     assert(curlMCodeToString(CurlMCode.CURLM_BAD_HANDLE) == "CURLM_BAD_HANDLE");
     assert(curlMultiStrerror(CurlMCode.CURLM_OK) !is null);
@@ -261,7 +261,7 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify TimeoutException and TooManyRedirectsException in both GC and @nogc paths
+    // Spec: verify TimeoutException and TooManyRedirectsException in both GC and @nogc paths
     bool caughtTimeout = false;
     try
     {

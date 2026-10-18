@@ -219,7 +219,7 @@ public:
 }
 
 /// Example:
-// Best practice: Connection Event Queue Bounded Capacity & RAII Movement (covers U2, G4)
+// Spec: Connection Event Queue Bounded Capacity & RAII Movement (covers U2, G4)
 @nogc unittest
 {
     ConnectionEventQueue q1;

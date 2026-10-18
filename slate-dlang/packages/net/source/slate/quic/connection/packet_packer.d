@@ -15,11 +15,15 @@ import slate.quic.wire.frame : Frame, FrameType, AckRange, AckFrame,
 import slate.quic.stream.id : StreamId;
 import slate.quic.stream.send_buffer : TransmitChunk;
 import slate.quic.recovery.loss_detection : PacketNumberSpace;
+import slate.quic.crypto.header_protection : packetNumberLength;
 import slate.quic.connection.connection : ConnectionState;
 import slate.quic.connection.sent_frames : SentFrameKind, SentFrameDesc, MAX_FRAMES_PER_PACKET;
+import slate.quic.crypto.c_openssl : OPENSSL_cleanse;
 
 mixin template QuicPacketPacker()
 {
+    import slate.quic.crypto.header_protection : packetNumberLength;
+
     /**
      * Packs pending outgoing frames into coalesced packets within outDatagram.
      */
@@ -108,6 +112,7 @@ mixin template QuicPacketPacker()
         ubyte frameCount = 0;
 
         // PING frame
+        bool pingPacked = false;
         if (pingQueued && plainLen < plaintext.length && frameCount < MAX_FRAMES_PER_PACKET)
         {
             Frame f;
@@ -117,15 +122,16 @@ mixin template QuicPacketPacker()
             {
                 plainLen += wr;
                 sentFramesList[frameCount++] = SentFrameDesc(SentFrameKind.ping, 0, 0, 0, false);
-                pingQueued = false;
+                pingPacked = true;
             }
         }
 
         // ACK frame
+        bool ackPacked = false;
         if (hasAck && plainLen < plaintext.length)
         {
             AckFrame ack;
-            if (ackRanges[0].buildAckFrame(nowMicros, 3, ack))
+            if (ackRanges[0].buildAckFrame(nowMicros, cast(ubyte) localParams.ackDelayExponent, ack))
             {
                 Frame f;
                 f.type = FrameType.ack;
@@ -134,6 +140,7 @@ mixin template QuicPacketPacker()
                 if (encodeFrame(f, plaintext[plainLen .. $], wr) == 0)
                 {
                     plainLen += wr;
+                    ackPacked = true;
                 }
             }
         }
@@ -171,7 +178,8 @@ mixin template QuicPacketPacker()
             return false;
 
         const ulong pn = nextPn[0];
-        const size_t pnLen = 2;
+        const ulong largestAcked = lossDetector.hasAckedPn[0] ? lossDetector.largestAckedPn[0] : 0;
+        const size_t pnLen = packetNumberLength(pn, largestAcked);
         size_t pnOff = 0;
         size_t hdrLen = 0;
 
@@ -209,10 +217,15 @@ mixin template QuicPacketPacker()
                 plainLen, protLen) != QuicCryptoError.none)
             return false;
 
+        if (ackPacked)
+            ackRanges[0].onAckSent();
+        if (pingPacked)
+            pingQueued = false;
+
         nextPn[0]++;
         sentFrames.recordPacket(PacketNumberSpace.initial, pn, sentFramesList[0 .. frameCount]);
         lossDetector.onPacketSent(PacketNumberSpace.initial, pn,
-                cast(uint) protLen, frameCount > 0, true, nowMicros);
+                cast(uint) protLen, frameCount > 0, frameCount > 0, nowMicros);
 
         pktLen = protLen;
         return true;
@@ -233,6 +246,7 @@ mixin template QuicPacketPacker()
         ubyte frameCount = 0;
 
         // PING frame
+        bool pingPacked = false;
         if (pingQueued && plainLen < plaintext.length && frameCount < MAX_FRAMES_PER_PACKET)
         {
             Frame f;
@@ -242,15 +256,16 @@ mixin template QuicPacketPacker()
             {
                 plainLen += wr;
                 sentFramesList[frameCount++] = SentFrameDesc(SentFrameKind.ping, 0, 0, 0, false);
-                pingQueued = false;
+                pingPacked = true;
             }
         }
 
         // ACK frame
+        bool ackPacked = false;
         if (hasAck && plainLen < plaintext.length)
         {
             AckFrame ack;
-            if (ackRanges[1].buildAckFrame(nowMicros, 3, ack))
+            if (ackRanges[1].buildAckFrame(nowMicros, cast(ubyte) localParams.ackDelayExponent, ack))
             {
                 Frame f;
                 f.type = FrameType.ack;
@@ -259,6 +274,7 @@ mixin template QuicPacketPacker()
                 if (encodeFrame(f, plaintext[plainLen .. $], wr) == 0)
                 {
                     plainLen += wr;
+                    ackPacked = true;
                 }
             }
         }
@@ -292,7 +308,14 @@ mixin template QuicPacketPacker()
             return false;
 
         const ulong pn = nextPn[1];
-        const size_t pnLen = 2;
+        const ulong largestAcked = lossDetector.hasAckedPn[1] ? lossDetector.largestAckedPn[1] : 0;
+        const size_t pnLen = packetNumberLength(pn, largestAcked);
+        if (plainLen + pnLen < 4)
+        {
+            const size_t minPlain = 4 - pnLen;
+            plaintext[plainLen .. minPlain] = 0;
+            plainLen = minPlain;
+        }
         size_t pnOff = 0;
         size_t hdrLen = 0;
 
@@ -310,10 +333,15 @@ mixin template QuicPacketPacker()
                 plainLen, protLen) != QuicCryptoError.none)
             return false;
 
+        if (ackPacked)
+            ackRanges[1].onAckSent();
+        if (pingPacked)
+            pingQueued = false;
+
         nextPn[1]++;
         sentFrames.recordPacket(PacketNumberSpace.handshake, pn, sentFramesList[0 .. frameCount]);
         lossDetector.onPacketSent(PacketNumberSpace.handshake, pn,
-                cast(uint) protLen, frameCount > 0, true, nowMicros);
+                cast(uint) protLen, frameCount > 0, frameCount > 0, nowMicros);
 
         pktLen = protLen;
         return true;
@@ -325,9 +353,17 @@ mixin template QuicPacketPacker()
         const bool hasAck = ackRanges[2].hasPendingAck;
         const bool hasCrypto = cryptoSend[2].hasPendingBytes;
         const bool hasStream = streams.hasPendingWritable;
+        const bool hasFlowControl = streams.hasPendingFlowControl;
 
-        if (!hasAck && !hasCrypto && !hasStream && !handshakeDoneQueued
+        if (!hasAck && !hasCrypto && !hasStream && !hasFlowControl && !handshakeDoneQueued
                 && !hasPendingPathResponse && !hasPendingPathChallenge && !pingQueued)
+            return false;
+
+        const size_t estimatedHdrLen = 1 + remoteCid.len + 4;
+        const size_t maxPlain = (outBuf.length > estimatedHdrLen + 16) ? (
+                outBuf.length - estimatedHdrLen - 16) : 0;
+        const size_t availPlain = (maxPlain < 4096) ? maxPlain : 4096;
+        if (availPlain == 0)
             return false;
 
         ubyte[4096] plaintext;
@@ -336,59 +372,130 @@ mixin template QuicPacketPacker()
         ubyte frameCount = 0;
 
         // PING frame
-        if (pingQueued && plainLen < plaintext.length && frameCount < MAX_FRAMES_PER_PACKET)
+        bool pingPacked = false;
+        if (pingQueued && plainLen < availPlain && frameCount < MAX_FRAMES_PER_PACKET)
         {
             Frame f;
             f.type = FrameType.ping;
             size_t wr = 0;
-            if (encodeFrame(f, plaintext[plainLen .. $], wr) == 0)
+            if (encodeFrame(f, plaintext[plainLen .. availPlain], wr) == 0)
             {
                 plainLen += wr;
                 sentFramesList[frameCount++] = SentFrameDesc(SentFrameKind.ping, 0, 0, 0, false);
-                pingQueued = false;
+                pingPacked = true;
             }
         }
 
-        // Pending control frames (RESET_STREAM or STOP_SENDING)
+        // Pending control frames (RESET_STREAM or STOP_SENDING) (D-04)
         Frame ctrlFrame;
-        while (streams.pollControlFrame(ctrlFrame)
-                && plainLen < plaintext.length && frameCount < MAX_FRAMES_PER_PACKET)
+        while (plainLen < availPlain && frameCount < MAX_FRAMES_PER_PACKET
+                && streams.pollControlFrame(ctrlFrame))
         {
             size_t wr = 0;
-            if (encodeFrame(ctrlFrame, plaintext[plainLen .. $], wr) == 0)
+            if (encodeFrame(ctrlFrame, plaintext[plainLen .. availPlain], wr) == 0)
             {
                 plainLen += wr;
-                sentFramesList[frameCount++] = SentFrameDesc(SentFrameKind.stream,
-                        (ctrlFrame.type == FrameType.resetStream)
-                        ? ctrlFrame.resetStream.streamId
+                sentFramesList[frameCount++] = SentFrameDesc((ctrlFrame.type == FrameType.resetStream)
+                        ? SentFrameKind.resetStream
+                        : SentFrameKind.stopSending,
+                        (ctrlFrame.type == FrameType.resetStream) ? ctrlFrame.resetStream.streamId
                         : ctrlFrame.stopSending.streamId, 0, 0, false);
+            }
+            else
+            {
+                QuicStream* qs = streams.getStream(StreamId((ctrlFrame.type == FrameType.resetStream)
+                        ? ctrlFrame.resetStream.streamId : ctrlFrame.stopSending.streamId));
+                if (qs !is null)
+                {
+                    if (ctrlFrame.type == FrameType.resetStream)
+                        qs.resetQueued = true;
+                    else
+                        qs.stopSendingQueued = true;
+                }
+                break;
+            }
+        }
+
+        // Pending flow control updates (MAX_DATA, MAX_STREAM_DATA, MAX_STREAMS) (F-05, D-02, D-04)
+        Frame fcFrame;
+        while (plainLen < availPlain && frameCount < MAX_FRAMES_PER_PACKET
+                && streams.pollFlowControlFrame(fcFrame))
+        {
+            size_t wr = 0;
+            if (encodeFrame(fcFrame, plaintext[plainLen .. availPlain], wr) == 0)
+            {
+                plainLen += wr;
+                SentFrameKind kind;
+                ulong sId = 0;
+                if (fcFrame.type == FrameType.maxData)
+                {
+                    kind = SentFrameKind.maxData;
+                }
+                else if (fcFrame.type == FrameType.maxStreamData)
+                {
+                    kind = SentFrameKind.maxStreamData;
+                    sId = fcFrame.maxStreamData.streamId;
+                }
+                else if (fcFrame.type == FrameType.maxStreamsBidi)
+                {
+                    kind = SentFrameKind.maxStreamsBidi;
+                }
+                else
+                {
+                    kind = SentFrameKind.maxStreamsUni;
+                }
+                sentFramesList[frameCount++] = SentFrameDesc(kind, sId, 0, 0, false);
+            }
+            else
+            {
+                if (fcFrame.type == FrameType.maxData)
+                {
+                    streams.connFlow.rearm();
+                }
+                else if (fcFrame.type == FrameType.maxStreamData)
+                {
+                    QuicStream* qs = streams.getStream(StreamId(fcFrame.maxStreamData.streamId));
+                    if (qs !is null)
+                        qs.flowCtrl.rearm();
+                }
+                else if (fcFrame.type == FrameType.maxStreamsBidi)
+                {
+                    streams.maxStreamsBidiPending = true;
+                }
+                else if (fcFrame.type == FrameType.maxStreamsUni)
+                {
+                    streams.maxStreamsUniPending = true;
+                }
+                break;
             }
         }
 
         // ACK frame
-        if (hasAck && plainLen < plaintext.length)
+        bool ackPacked = false;
+        if (hasAck && plainLen < availPlain)
         {
             AckFrame ack;
-            if (ackRanges[2].buildAckFrame(nowMicros, 3, ack))
+            if (ackRanges[2].buildAckFrame(nowMicros, cast(ubyte) localParams.ackDelayExponent, ack))
             {
                 Frame f;
                 f.type = FrameType.ack;
                 f.ack = ack;
                 size_t wr = 0;
-                if (encodeFrame(f, plaintext[plainLen .. $], wr) == 0)
+                if (encodeFrame(f, plaintext[plainLen .. availPlain], wr) == 0)
                 {
                     plainLen += wr;
+                    ackPacked = true;
                 }
             }
         }
 
         // HANDSHAKE_DONE frame (Server only)
-        if (handshakeDoneQueued && plainLen < plaintext.length && frameCount < MAX_FRAMES_PER_PACKET)
+        if (handshakeDoneQueued && plainLen < availPlain && frameCount < MAX_FRAMES_PER_PACKET)
         {
             Frame f;
             f.type = FrameType.handshakeDone;
             size_t wr = 0;
-            if (encodeFrame(f, plaintext[plainLen .. $], wr) == 0)
+            if (encodeFrame(f, plaintext[plainLen .. availPlain], wr) == 0)
             {
                 plainLen += wr;
                 handshakeDoneQueued = false;
@@ -399,14 +506,13 @@ mixin template QuicPacketPacker()
         }
 
         // PATH_RESPONSE frame
-        if (hasPendingPathResponse && plainLen < plaintext.length
-                && frameCount < MAX_FRAMES_PER_PACKET)
+        if (hasPendingPathResponse && plainLen < availPlain && frameCount < MAX_FRAMES_PER_PACKET)
         {
             Frame f;
             f.type = FrameType.pathResponse;
             f.pathResponse.data = pendingPathResponseData;
             size_t wr = 0;
-            if (encodeFrame(f, plaintext[plainLen .. $], wr) == 0)
+            if (encodeFrame(f, plaintext[plainLen .. availPlain], wr) == 0)
             {
                 plainLen += wr;
                 hasPendingPathResponse = false;
@@ -415,26 +521,23 @@ mixin template QuicPacketPacker()
         }
 
         // PATH_CHALLENGE frame
-        if (hasPendingPathChallenge && plainLen < plaintext.length
-                && frameCount < MAX_FRAMES_PER_PACKET)
+        if (hasPendingPathChallenge && plainLen < availPlain && frameCount < MAX_FRAMES_PER_PACKET)
         {
             Frame f;
             f.type = FrameType.pathChallenge;
             f.pathChallenge.data = pendingPathChallengeData;
             size_t wr = 0;
-            if (encodeFrame(f, plaintext[plainLen .. $], wr) == 0)
+            if (encodeFrame(f, plaintext[plainLen .. availPlain], wr) == 0)
             {
                 plainLen += wr;
+                hasPendingPathChallenge = false;
                 sentFramesList[frameCount++] = SentFrameDesc(SentFrameKind.ping, 0, 0, 0, false);
             }
         }
 
         // CRYPTO frame (post-handshake 1-RTT)
-        const size_t maxPlain = (outBuf.length > 64) ? (outBuf.length - 64) : 0;
-        const size_t availPlain = (maxPlain < plaintext.length) ? maxPlain : plaintext.length;
         const size_t availCrypto = (availPlain > plainLen + 16) ? (availPlain - plainLen - 16) : 0;
-
-        if (hasCrypto && availCrypto > 0 && plainLen < plaintext.length
+        if (hasCrypto && availCrypto > 0 && plainLen < availPlain
                 && frameCount < MAX_FRAMES_PER_PACKET)
         {
             TransmitChunk chunk;
@@ -445,7 +548,7 @@ mixin template QuicPacketPacker()
                 f.crypto.offset = chunk.offset;
                 f.crypto.data = chunk.data;
                 size_t wr = 0;
-                if (encodeFrame(f, plaintext[plainLen .. $], wr) == 0)
+                if (encodeFrame(f, plaintext[plainLen .. availPlain], wr) == 0)
                 {
                     plainLen += wr;
                     sentFramesList[frameCount++] = SentFrameDesc(SentFrameKind.crypto,
@@ -454,13 +557,13 @@ mixin template QuicPacketPacker()
             }
         }
 
-        // STREAM frames
-        if (hasStream && plainLen < plaintext.length && frameCount < MAX_FRAMES_PER_PACKET)
+        // STREAM frames (F-10: check lossDetector.cc.canSend)
+        if (hasStream && lossDetector.cc.canSend && plainLen < availPlain
+                && frameCount < MAX_FRAMES_PER_PACKET)
         {
             StreamId sid;
             TransmitChunk chunk;
-            const size_t avail = (plaintext.length - plainLen > 32) ? (
-                    plaintext.length - plainLen - 32) : 0;
+            const size_t avail = (availPlain > plainLen + 32) ? (availPlain - plainLen - 32) : 0;
             if (avail > 0 && streams.pollWritable(sid, avail, chunk))
             {
                 Frame f;
@@ -472,7 +575,7 @@ mixin template QuicPacketPacker()
                 f.stream.hasLength = true;
                 f.stream.fin = chunk.fin;
                 size_t wr = 0;
-                if (encodeFrame(f, plaintext[plainLen .. $], wr) == 0)
+                if (encodeFrame(f, plaintext[plainLen .. availPlain], wr) == 0)
                 {
                     plainLen += wr;
                     sentFramesList[frameCount++] = SentFrameDesc(SentFrameKind.stream,
@@ -485,7 +588,14 @@ mixin template QuicPacketPacker()
             return false;
 
         const ulong pn = nextPn[2];
-        const size_t pnLen = 1;
+        const ulong largestAcked = lossDetector.hasAckedPn[2] ? lossDetector.largestAckedPn[2] : 0;
+        const size_t pnLen = packetNumberLength(pn, largestAcked);
+        if (plainLen + pnLen < 4)
+        {
+            const size_t minPlain = 4 - pnLen;
+            plaintext[plainLen .. minPlain] = 0;
+            plainLen = minPlain;
+        }
         size_t pnOff = 0;
         size_t hdrLen = 0;
         const bool keyPhase = (localKeyPhase != 0);
@@ -503,11 +613,16 @@ mixin template QuicPacketPacker()
                 plainLen, protLen) != QuicCryptoError.none)
             return false;
 
+        if (ackPacked)
+            ackRanges[2].onAckSent();
+        if (pingPacked)
+            pingQueued = false;
+
         nextPn[2]++;
         sentFrames.recordPacket(PacketNumberSpace.applicationData, pn,
                 sentFramesList[0 .. frameCount]);
         lossDetector.onPacketSent(PacketNumberSpace.applicationData, pn,
-                cast(uint) protLen, frameCount > 0, true, nowMicros);
+                cast(uint) protLen, frameCount > 0, frameCount > 0, nowMicros);
 
         pktLen = protLen;
         return true;
@@ -537,29 +652,42 @@ mixin template QuicPacketPacker()
 
         ubyte[256] plaintext;
         Frame f;
-        f.type = closeIsApp ? FrameType.connectionCloseApp : FrameType.connectionCloseQuic;
-        f.connectionClose.errorCode = closeErrorCode;
-        f.connectionClose.frameType = closeFrameType;
-        f.connectionClose.isApplication = closeIsApp;
+        if (space != PacketNumberSpace.applicationData && closeIsApp)
+        {
+            f.type = FrameType.connectionCloseQuic;
+            f.connectionClose.errorCode = 0x0c; // APPLICATION_ERROR (RFC 9000 §10.2.3)
+            f.connectionClose.frameType = 0;
+            f.connectionClose.isApplication = false;
+        }
+        else
+        {
+            f.type = closeIsApp ? FrameType.connectionCloseApp : FrameType.connectionCloseQuic;
+            f.connectionClose.errorCode = closeErrorCode;
+            f.connectionClose.frameType = closeFrameType;
+            f.connectionClose.isApplication = closeIsApp;
+        }
 
         size_t plainLen = 0;
         if (encodeFrame(f, plaintext[], plainLen) != 0)
             return false;
 
         const ulong pn = nextPn[space];
+        const ulong largestAcked = lossDetector.hasAckedPn[space]
+            ? lossDetector.largestAckedPn[space] : 0;
+        const size_t pnLen = packetNumberLength(pn, largestAcked);
         size_t pnOff = 0;
         size_t hdrLen = 0;
 
         if (pktType == PacketType.oneRttShort)
         {
             const bool keyPhase = (localKeyPhase != 0);
-            if (encodeShortHeader(remoteCid, pn, 1, keyPhase, false, outBuf, pnOff, hdrLen) != 0)
+            if (encodeShortHeader(remoteCid, pn, pnLen, keyPhase, false, outBuf, pnOff, hdrLen) != 0)
                 return false;
         }
         else
         {
             if (encodeLongHeader(pktType, QUIC_VERSION_1, remoteCid, localCid,
-                    null, pn, 2, plainLen, outBuf, pnOff, hdrLen) != 0)
+                    null, pn, pnLen, plainLen, outBuf, pnOff, hdrLen) != 0)
                 return false;
         }
 
@@ -569,17 +697,19 @@ mixin template QuicPacketPacker()
         outBuf[hdrLen .. hdrLen + plainLen] = plaintext[0 .. plainLen];
 
         size_t protLen = 0;
-        if (protectPacket(levelKeys[keyIdx].local, pn, pnOff,
-                (pktType == PacketType.oneRttShort ? 1 : 2), outBuf, plainLen, protLen) != QuicCryptoError
-                .none)
+        if (protectPacket(levelKeys[keyIdx].local, pn, pnOff, pnLen, outBuf,
+                plainLen, protLen) != QuicCryptoError.none)
             return false;
 
         nextPn[space]++;
         closePacketSent = true;
         state = ConnectionState.draining;
-        const ulong rttVal = (lossDetector.rtt.smoothedRtt > 0) ? lossDetector.rtt.smoothedRtt
+        const ulong rawRtt = (lossDetector.rtt.smoothedRtt > 0) ? lossDetector.rtt.smoothedRtt
             : 100_000;
-        drainingEndTimeMicros = nowMicros + 3 * rttVal;
+        const ulong clampedRtt = (rawRtt > ulong.max / 6) ? (ulong.max / 6) : rawRtt;
+        const ulong drainDur = 3 * clampedRtt;
+        drainingEndTimeMicros = (ulong.max - nowMicros < drainDur) ? ulong.max
+            : (nowMicros + drainDur);
 
         totalBytesSent += protLen;
         bytesWritten = protLen;
@@ -645,12 +775,12 @@ mixin template QuicPacketPacker()
                 nextKm.key[0 .. nextKm.keyLen], nextKm.iv[0 .. 12]);
         localAppSecret[0 .. appSecretLen] = nextLocalSec[0 .. appSecretLen];
         localKeyPhase ^= 1;
-        return true;
-    }
 
-    void close(ulong errorCode, bool isApplicationClose = false) @safe pure @nogc nothrow
-    {
-        enterClosing(errorCode, 0, isApplicationClose);
+        OPENSSL_cleanse(nextLocalSec.ptr, nextLocalSec.length);
+        OPENSSL_cleanse(nextKm.key.ptr, nextKm.key.length);
+        OPENSSL_cleanse(nextKm.iv.ptr, nextKm.iv.length);
+        OPENSSL_cleanse(nextKm.hp.ptr, nextKm.hp.length);
+        return true;
     }
 }
 

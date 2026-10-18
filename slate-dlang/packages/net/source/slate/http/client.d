@@ -26,7 +26,10 @@ import slate.http.multi : CancellationToken, xferInfoCancellationCb;
 import core.stdc.stdlib : malloc, realloc, free;
 import slate.http.debug_ : DebugSink, CurlInfoType, curlDebugCb, DebugContext;
 
-package import slate.http.test_server : HttpStubServer;
+version (unittest)
+{
+    package import slate.http.test_server : HttpStubServer;
+}
 
 /// TLS certificate verification mode (TC-10).
 enum TlsMode
@@ -104,6 +107,8 @@ struct ClientConfig
     long altSvcCtrl = CURLALTSVC_H1 | CURLALTSVC_H2 | CURLALTSVC_H3; /// Alt-Svc bitmask (ST-3)
     bool acceptEncoding = true; /// Enable automatic decompression (gzip, deflate, br, zstd)
     HttpVersion defaultHttpVersion = HttpVersion.auto_; /// Default HTTP protocol version
+    size_t maxResponseBytes = 64 * 1024 * 1024; /// Maximum allowed response body in bytes (default 64 MiB) (F-60)
+    size_t maxHeaderBytes = 256 * 1024; /// Maximum allowed raw response headers in bytes (default 256 KiB) (F-60)
     bool verbose = false; /// Enable libcurl internal debug logging
     DebugContext debugContext; /// Internal debug context for CURLOPT_DEBUGDATA (OPT-1)
 
@@ -183,12 +188,14 @@ package extern (C) size_t clientBufferWriteCb(char* ptr, size_t size, size_t nme
 {
     if (userdata is null)
         return 0;
+    if (size != 0 && size_t.max / size < nmemb)
+        return 0;
     size_t total = size * nmemb;
     if (total == 0)
         return 0;
 
     auto ctx = cast(BufferWriteCtx*) userdata;
-    if (ctx.written + total > ctx.dest.length)
+    if (ctx.written + total < ctx.written || ctx.written + total > ctx.dest.length)
     {
         ctx.overflow = true;
         return 0; // Abort transfer on buffer overflow
@@ -210,6 +217,8 @@ private extern (C) size_t clientStreamWriteCb(char* ptr, size_t size, size_t nme
 {
     if (userdata is null)
         return 0;
+    if (size != 0 && size_t.max / size < nmemb)
+        return 0;
     size_t total = size * nmemb;
     if (total == 0)
         return 0;
@@ -228,7 +237,9 @@ package struct DynamicBufferCtx
     ubyte* ptr;
     size_t len;
     size_t cap;
+    size_t maxAllowed; /// Max permitted bytes (F-60)
     bool oom;
+    bool overflow;
 }
 
 /// Write callback accumulating data onto the C heap using malloc/realloc without D GC (UN-1).
@@ -236,16 +247,33 @@ package extern (C) size_t clientDynamicWriteCb(char* ptr, size_t size, size_t nm
 {
     if (userdata is null)
         return 0;
+    if (size != 0 && size_t.max / size < nmemb)
+        return 0;
     size_t total = size * nmemb;
     if (total == 0)
         return 0;
 
     auto ctx = cast(DynamicBufferCtx*) userdata;
+    if (ctx.maxAllowed > 0 && (ctx.len + total > ctx.maxAllowed || ctx.len + total < ctx.len))
+    {
+        ctx.overflow = true;
+        return 0; // Abort on max allowed bytes exceeded (F-60)
+    }
+
     if (ctx.len + total > ctx.cap)
     {
         size_t newCap = (ctx.cap == 0) ? 4096 : ctx.cap * 2;
+        if (newCap < ctx.cap)
+            newCap = size_t.max;
         while (ctx.len + total > newCap)
+        {
+            if (newCap > size_t.max / 2)
+            {
+                newCap = size_t.max;
+                break;
+            }
             newCap *= 2;
+        }
         ubyte* newPtr = cast(ubyte*) realloc(ctx.ptr, newCap);
         if (newPtr is null)
         {
@@ -287,9 +315,12 @@ package Header[] parseHeaders(const(char)[] raw) @safe pure
         if (line.length == 0)
             continue;
 
-        // Skip HTTP status response lines (e.g. "HTTP/1.1 200 OK")
+        // Reset accumulated headers on new HTTP status line (e.g. redirect or 1xx hops) (F-65)
         if (line.length >= 5 && line[0 .. 5] == "HTTP/")
+        {
+            result = null;
             continue;
+        }
 
         ptrdiff_t colon = -1;
         foreach (idx, c; line)
@@ -337,6 +368,33 @@ package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
         const ref Request req, const(char)* cUrl, out curl_slist* headerList,
         const(char)* altSvcPath = null, long altSvcCtrl = 0) @trusted @nogc
 {
+    // Validate URL and headers for CRLF/NUL injection and empty header names (F-62)
+    foreach (c; req.url)
+    {
+        if (c == '\r' || c == '\n' || c == '\0')
+            throwCurlErrorNogc(CurlCode.CURLE_URL_MALFORMAT);
+    }
+    foreach (ref h; req.headers)
+    {
+        if (h.name.length == 0)
+            throwCurlErrorNogc(CurlCode.CURLE_BAD_FUNCTION_ARGUMENT);
+        foreach (c; h.name)
+        {
+            if (c == '\r' || c == '\n' || c == '\0')
+                throwCurlErrorNogc(CurlCode.CURLE_BAD_FUNCTION_ARGUMENT);
+        }
+        foreach (c; h.value)
+        {
+            if (c == '\r' || c == '\n' || c == '\0')
+                throwCurlErrorNogc(CurlCode.CURLE_BAD_FUNCTION_ARGUMENT);
+        }
+    }
+
+    // Set allowed protocols to http and https strictly (F-63)
+    curl_easy_setopt(handle, CURLoption.CURLOPT_PROTOCOLS_STR, "http,https\0".ptr);
+    // Ignore OS signals for multi-threaded safety (F-66)
+    curl_easy_setopt(handle, CURLoption.CURLOPT_NOSIGNAL, 1L);
+
     // 1. URL
     curl_easy_setopt(handle, CURLoption.CURLOPT_URL, cUrl);
 
@@ -449,8 +507,18 @@ package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
         }
     }
 
-    // 4. Request Headers (allocate dynamically when header exceeds static 512-byte buffer)
+    // 4. Request Headers (safe slist construction with failure rollback) (F-59)
     headerList = null;
+    scope (failure)
+    {
+        if (headerList !is null)
+        {
+            curl_slist_free_all(headerList);
+            headerList = null;
+        }
+        curl_easy_setopt(handle, CURLoption.CURLOPT_HTTPHEADER, null);
+    }
+
     foreach (ref h; req.headers)
     {
         char[512] hBuf;
@@ -464,9 +532,10 @@ package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
             hBuf[n .. n + h.value.length] = h.value[];
             n += h.value.length;
             hBuf[n] = '\0';
-            headerList = curl_slist_append(headerList, hBuf.ptr);
-            if (headerList is null)
+            curl_slist* next = curl_slist_append(headerList, hBuf.ptr);
+            if (next is null)
                 throwCurlErrorNogc(CurlCode.CURLE_OUT_OF_MEMORY);
+            headerList = next;
         }
         else
         {
@@ -480,9 +549,10 @@ package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
             dynH[h.name.length .. h.name.length + 2] = ": ";
             dynH[h.name.length + 2 .. totalLen - 1] = h.value[];
             dynH[totalLen - 1] = '\0';
-            headerList = curl_slist_append(headerList, dynH);
-            if (headerList is null)
+            curl_slist* next = curl_slist_append(headerList, dynH);
+            if (next is null)
                 throwCurlErrorNogc(CurlCode.CURLE_OUT_OF_MEMORY);
+            headerList = next;
         }
     }
     if (headerList !is null)
@@ -525,10 +595,8 @@ package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
         curl_easy_setopt(handle, CURLoption.CURLOPT_REDIR_PROTOCOLS_STR, "http,https\0".ptr);
     }
 
-    // TLS Certificate Verification (TC-10)
-    bool isTlsInsecure = (config.tlsMode == TlsMode.insecureOptIn)
-        || (!config.verifyPeer) || (!config.verifyHost);
-    if (isTlsInsecure)
+    // TLS Certificate Verification (TC-10, F-66)
+    if (config.tlsMode == TlsMode.insecureOptIn)
     {
         recordInsecureTlsAudit();
         curl_easy_setopt(handle, CURLoption.CURLOPT_SSL_VERIFYPEER, 0L);
@@ -536,8 +604,10 @@ package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
     }
     else
     {
-        curl_easy_setopt(handle, CURLoption.CURLOPT_SSL_VERIFYPEER, 1L);
-        curl_easy_setopt(handle, CURLoption.CURLOPT_SSL_VERIFYHOST, 2L);
+        if (!config.verifyPeer || !config.verifyHost)
+            recordInsecureTlsAudit();
+        curl_easy_setopt(handle, CURLoption.CURLOPT_SSL_VERIFYPEER, config.verifyPeer ? 1L : 0L);
+        curl_easy_setopt(handle, CURLoption.CURLOPT_SSL_VERIFYHOST, config.verifyHost ? 2L : 0L);
     }
 
     if (config.acceptEncoding)
@@ -548,8 +618,6 @@ package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
     // 6. Custom CA certificate bundle (CURLOPT_CAINFO) with fast-fail check
     if (config.caInfo !is null && config.caInfo.length > 0)
     {
-        import core.sys.posix.unistd : access, R_OK;
-
         char[512] caBuf;
         const(char)* caCStr = null;
         if (config.caInfo.length + 1 <= caBuf.length)
@@ -557,8 +625,13 @@ package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
             caBuf[0 .. config.caInfo.length] = config.caInfo[];
             caBuf[config.caInfo.length] = '\0';
             caCStr = caBuf.ptr;
-            if (access(caCStr, R_OK) != 0)
-                throwCurlErrorNogc(CurlCode.CURLE_SSL_CACERT);
+            version (Posix)
+            {
+                import core.sys.posix.unistd : access, R_OK;
+
+                if (access(caCStr, R_OK) != 0)
+                    throwCurlErrorNogc(CurlCode.CURLE_SSL_CACERT);
+            }
             curl_easy_setopt(handle, CURLoption.CURLOPT_CAINFO, caCStr);
         }
         else
@@ -571,8 +644,13 @@ package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
             dynCa[0 .. config.caInfo.length] = config.caInfo[];
             dynCa[config.caInfo.length] = '\0';
             caCStr = dynCa;
-            if (access(caCStr, R_OK) != 0)
-                throwCurlErrorNogc(CurlCode.CURLE_SSL_CACERT);
+            version (Posix)
+            {
+                import core.sys.posix.unistd : access, R_OK;
+
+                if (access(caCStr, R_OK) != 0)
+                    throwCurlErrorNogc(CurlCode.CURLE_SSL_CACERT);
+            }
             curl_easy_setopt(handle, CURLoption.CURLOPT_CAINFO, caCStr);
         }
     }
@@ -593,6 +671,47 @@ package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
             curl_easy_setopt(handle, CURLoption.CURLOPT_DEBUGFUNCTION, &curlDebugCb);
             curl_easy_setopt(handle, CURLoption.CURLOPT_DEBUGDATA,
                     cast(void*)&config.debugContext);
+        }
+    }
+}
+
+/// Resets libcurl easy handle state and frees any allocated header slist (UN-3, F-59, F-66).
+package void resetHandleOptions(CURL* handle, ref curl_slist* headerList,
+        CancellationToken* cancel = null, bool hasDebug = false) @trusted @nogc nothrow
+{
+    if (handle is null)
+        return;
+    if (cancel !is null)
+    {
+        curl_easy_setopt(handle, CURLoption.CURLOPT_NOPROGRESS, 1L);
+        curl_easy_setopt(handle, CURLoption.CURLOPT_XFERINFOFUNCTION, null);
+        curl_easy_setopt(handle, CURLoption.CURLOPT_XFERINFODATA, null);
+    }
+    curl_easy_setopt(handle, CURLoption.CURLOPT_WRITEFUNCTION, null);
+    curl_easy_setopt(handle, CURLoption.CURLOPT_WRITEDATA, null);
+    curl_easy_setopt(handle, CURLoption.CURLOPT_HEADERFUNCTION, null);
+    curl_easy_setopt(handle, CURLoption.CURLOPT_HEADERDATA, null);
+    curl_easy_setopt(handle, CURLoption.CURLOPT_HTTPHEADER, null);
+    curl_easy_setopt(handle, CURLoption.CURLOPT_POSTFIELDS, cast(const(void)*) null);
+    curl_easy_setopt(handle, CURLoption.CURLOPT_POSTFIELDSIZE_LARGE, 0L);
+    curl_easy_setopt(handle, CURLoption.CURLOPT_CUSTOMREQUEST, cast(const(char)*) null);
+    curl_easy_setopt(handle, CURLoption.CURLOPT_POST, 0L);
+    curl_easy_setopt(handle, CURLoption.CURLOPT_NOBODY, 0L);
+    curl_easy_setopt(handle, CURLoption.CURLOPT_HTTPGET, 1L);
+    curl_easy_setopt(handle, CURLoption.CURLOPT_HTTP_VERSION, cast(long) CURL_HTTP_VERSION_NONE);
+    curl_easy_setopt(handle, CURLoption.CURLOPT_ACCEPT_ENCODING, cast(const(char)*) null);
+    curl_easy_setopt(handle, CURLoption.CURLOPT_VERBOSE, 0L);
+    if (headerList !is null)
+    {
+        curl_slist_free_all(headerList);
+        headerList = null;
+    }
+    version (SlateHttpDebug)
+    {
+        if (hasDebug)
+        {
+            curl_easy_setopt(handle, CURLoption.CURLOPT_DEBUGFUNCTION, cast(void*) null);
+            curl_easy_setopt(handle, CURLoption.CURLOPT_DEBUGDATA, cast(void*) null);
         }
     }
 }
@@ -741,6 +860,8 @@ struct Client
         }
 
         curl_slist* headerList = null;
+        scope (exit)
+            resetHandleOptions(_handle, headerList, cancel, _config.debugSink !is null);
         applyOptions(req, cUrl, headerList);
 
         BufferWriteCtx writeCtx = {buffer, 0, false};
@@ -755,37 +876,6 @@ struct Client
             curl_easy_setopt(_handle, CURLoption.CURLOPT_XFERINFODATA, cast(void*) cancel);
         }
 
-        // Enforce cleanup on all return and throw paths (UN-3)
-        scope (exit)
-        {
-            if (cancel !is null)
-            {
-                curl_easy_setopt(_handle, CURLoption.CURLOPT_NOPROGRESS, 1L);
-                curl_easy_setopt(_handle, CURLoption.CURLOPT_XFERINFOFUNCTION, null);
-                curl_easy_setopt(_handle, CURLoption.CURLOPT_XFERINFODATA, null);
-            }
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_WRITEFUNCTION, null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_WRITEDATA, null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_HTTPHEADER, null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_POSTFIELDS, cast(const(void)*) null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_POSTFIELDSIZE_LARGE, 0L);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_CUSTOMREQUEST, cast(const(char)*) null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_POST, 0L);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_NOBODY, 0L);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_HTTPGET, 1L);
-            if (headerList !is null)
-                curl_slist_free_all(headerList);
-            version (SlateHttpDebug)
-            {
-                if (_config.debugSink !is null)
-                {
-                    curl_easy_setopt(_handle, CURLoption.CURLOPT_VERBOSE, 0L);
-                    curl_easy_setopt(_handle, CURLoption.CURLOPT_DEBUGFUNCTION, cast(void*) null);
-                    curl_easy_setopt(_handle, CURLoption.CURLOPT_DEBUGDATA, cast(void*) null);
-                }
-            }
-        }
-
         auto res = curl_easy_perform(_handle);
         if (res != CURLcode.CURLE_OK)
         {
@@ -797,14 +887,12 @@ struct Client
             throwCurlErrorNogc(CurlCode.CURLE_WRITE_ERROR);
         }
 
-        long statusCode = 200;
+        long statusCode = 0;
         curl_easy_getinfo(_handle, CURLINFO.CURLINFO_RESPONSE_CODE, &statusCode);
         long rawVer = 0;
         curl_easy_getinfo(_handle, CURLINFO.CURLINFO_HTTP_VERSION, &rawVer);
 
         int finalStatus = cast(int) statusCode;
-        if (finalStatus < 100 || finalStatus > 599)
-            finalStatus = 200;
 
         return Response(finalStatus, null, buffer[0 .. writeCtx.written],
                 mapCurlHttpVersion(rawVer));
@@ -840,6 +928,8 @@ struct Client
         }
 
         curl_slist* headerList = null;
+        scope (exit)
+            resetHandleOptions(_handle, headerList, cancel, _config.debugSink !is null);
         applyOptions(req, cUrl, headerList);
 
         StreamWriteCtx streamCtx = {onChunk, userdata};
@@ -854,50 +944,18 @@ struct Client
             curl_easy_setopt(_handle, CURLoption.CURLOPT_XFERINFODATA, cast(void*) cancel);
         }
 
-        scope (exit)
-        {
-            if (cancel !is null)
-            {
-                curl_easy_setopt(_handle, CURLoption.CURLOPT_NOPROGRESS, 1L);
-                curl_easy_setopt(_handle, CURLoption.CURLOPT_XFERINFOFUNCTION, null);
-                curl_easy_setopt(_handle, CURLoption.CURLOPT_XFERINFODATA, null);
-            }
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_WRITEFUNCTION, null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_WRITEDATA, null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_HTTPHEADER, null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_POSTFIELDS, cast(const(void)*) null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_POSTFIELDSIZE_LARGE, 0L);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_CUSTOMREQUEST, cast(const(char)*) null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_POST, 0L);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_NOBODY, 0L);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_HTTPGET, 1L);
-            if (headerList !is null)
-                curl_slist_free_all(headerList);
-            version (SlateHttpDebug)
-            {
-                if (_config.debugSink !is null)
-                {
-                    curl_easy_setopt(_handle, CURLoption.CURLOPT_VERBOSE, 0L);
-                    curl_easy_setopt(_handle, CURLoption.CURLOPT_DEBUGFUNCTION, cast(void*) null);
-                    curl_easy_setopt(_handle, CURLoption.CURLOPT_DEBUGDATA, cast(void*) null);
-                }
-            }
-        }
-
         auto res = curl_easy_perform(_handle);
         if (res != CURLcode.CURLE_OK)
         {
             throwCurlErrorNogc(cast(CurlCode) res);
         }
 
-        long statusCode = 200;
+        long statusCode = 0;
         curl_easy_getinfo(_handle, CURLINFO.CURLINFO_RESPONSE_CODE, &statusCode);
         long rawVer = 0;
         curl_easy_getinfo(_handle, CURLINFO.CURLINFO_HTTP_VERSION, &rawVer);
 
         int finalStatus = cast(int) statusCode;
-        if (finalStatus < 100 || finalStatus > 599)
-            finalStatus = 200;
 
         return Response(finalStatus, null, null, mapCurlHttpVersion(rawVer));
     }
@@ -931,6 +989,9 @@ struct Client
         }
 
         curl_slist* headerList = null;
+        scope (exit)
+            resetHandleOptions(_handle, headerList, cancel, _config.debugSink !is null);
+
         try
         {
             applyOptions(req, cUrl, headerList);
@@ -949,7 +1010,17 @@ struct Client
         }
 
         DynamicBufferCtx bodyCtx;
+        bodyCtx.maxAllowed = _config.maxResponseBytes;
         DynamicBufferCtx headerCtx;
+        headerCtx.maxAllowed = _config.maxHeaderBytes;
+
+        scope (exit)
+        {
+            if (bodyCtx.ptr !is null)
+                free(bodyCtx.ptr);
+            if (headerCtx.ptr !is null)
+                free(headerCtx.ptr);
+        }
 
         curl_easy_setopt(_handle, CURLoption.CURLOPT_WRITEFUNCTION, &clientDynamicWriteCb);
         curl_easy_setopt(_handle, CURLoption.CURLOPT_WRITEDATA, &bodyCtx);
@@ -962,42 +1033,6 @@ struct Client
             curl_easy_setopt(_handle, CURLoption.CURLOPT_XFERINFOFUNCTION,
                     &xferInfoCancellationCb);
             curl_easy_setopt(_handle, CURLoption.CURLOPT_XFERINFODATA, cast(void*) cancel);
-        }
-
-        scope (exit)
-        {
-            if (cancel !is null)
-            {
-                curl_easy_setopt(_handle, CURLoption.CURLOPT_NOPROGRESS, 1L);
-                curl_easy_setopt(_handle, CURLoption.CURLOPT_XFERINFOFUNCTION, null);
-                curl_easy_setopt(_handle, CURLoption.CURLOPT_XFERINFODATA, null);
-            }
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_WRITEFUNCTION, null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_WRITEDATA, null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_HEADERFUNCTION, null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_HEADERDATA, null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_HTTPHEADER, null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_POSTFIELDS, cast(const(void)*) null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_POSTFIELDSIZE_LARGE, 0L);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_CUSTOMREQUEST, cast(const(char)*) null);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_POST, 0L);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_NOBODY, 0L);
-            curl_easy_setopt(_handle, CURLoption.CURLOPT_HTTPGET, 1L);
-            if (headerList !is null)
-                curl_slist_free_all(headerList);
-            if (bodyCtx.ptr !is null)
-                free(bodyCtx.ptr);
-            if (headerCtx.ptr !is null)
-                free(headerCtx.ptr);
-            version (SlateHttpDebug)
-            {
-                if (_config.debugSink !is null)
-                {
-                    curl_easy_setopt(_handle, CURLoption.CURLOPT_VERBOSE, 0L);
-                    curl_easy_setopt(_handle, CURLoption.CURLOPT_DEBUGFUNCTION, cast(void*) null);
-                    curl_easy_setopt(_handle, CURLoption.CURLOPT_DEBUGDATA, cast(void*) null);
-                }
-            }
         }
 
         auto res = curl_easy_perform(_handle);
@@ -1018,15 +1053,17 @@ struct Client
         {
             enforceCurl(CurlCode.CURLE_OUT_OF_MEMORY);
         }
+        if (bodyCtx.overflow || headerCtx.overflow)
+        {
+            enforceCurl(CurlCode.CURLE_FILESIZE_EXCEEDED);
+        }
 
-        long statusCode = 200;
+        long statusCode = 0;
         curl_easy_getinfo(_handle, CURLINFO.CURLINFO_RESPONSE_CODE, &statusCode);
         long rawVer = 0;
         curl_easy_getinfo(_handle, CURLINFO.CURLINFO_HTTP_VERSION, &rawVer);
 
         int finalStatus = cast(int) statusCode;
-        if (finalStatus < 100 || finalStatus > 599)
-            finalStatus = 200;
 
         Header[] headers;
         if (headerCtx.len > 0)
@@ -1078,7 +1115,7 @@ struct Client
 /// ---
 unittest
 {
-    // Best practice: verify error code preservation and handle cleanup on connection failure
+    // Spec: verify error code preservation and handle cleanup on connection failure
     auto client = Client(200); // 200ms timeout
     bool caught = false;
     try
@@ -1092,4 +1129,81 @@ unittest
                 "Expected connection error or timeout for unroutable port");
     }
     assert(caught, "TC-05: perform against closed port must throw CurlException");
+}
+
+// Spec: Intermediate redirect headers discarded on seeing subsequent HTTP/ status line (F-65)
+// Scenario: Redirect following preserves only terminal response headers
+/// Example:
+/// ---
+/// import slate.http.client : parseHeaders;
+/// const raw = "HTTP/1.1 302 Found\r\nLocation: /next\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n";
+/// auto headers = parseHeaders(raw);
+/// assert(headers.length == 1);
+/// assert(headers[0].name == "Content-Type");
+/// ---
+unittest
+{
+    // Spec: Verify intermediate 3xx headers are cleared when terminal 200 arrives
+    const raw = "HTTP/1.1 301 Moved Permanently\r\nLocation: https://example.com/target\r\nServer: Hop1\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: application/json\r\nServer: Terminal\r\n\r\n";
+    auto headers = parseHeaders(raw);
+    assert(headers.length == 2, "Expected only terminal response headers");
+    assert(headers[0].name == "Content-Type");
+    assert(headers[0].value == "application/json");
+    assert(headers[1].name == "Server");
+    assert(headers[1].value == "Terminal");
+}
+
+// Spec: Response body and header limits abort transfer with overflow (F-60)
+// Scenario: Exceeding maxAllowed in write callback sets overflow and aborts
+/// Example:
+/// ---
+/// import slate.http.client : DynamicBufferCtx, clientDynamicWriteCb;
+/// DynamicBufferCtx ctx;
+/// ctx.maxAllowed = 10;
+/// char[20] data = 'a';
+/// auto written = clientDynamicWriteCb(data.ptr, 1, data.length, &ctx);
+/// assert(written == 0 && ctx.overflow);
+/// ---
+unittest
+{
+    // Spec: Ensure dynamic buffer write callback enforces maxAllowed bound
+    DynamicBufferCtx ctx;
+    ctx.maxAllowed = 16;
+    char[32] data = 'x';
+    auto written = clientDynamicWriteCb(data.ptr, 1, data.length, &ctx);
+    assert(written == 0, "Callback must return 0 on overflow");
+    assert(ctx.overflow, "Overflow flag must be set");
+    if (ctx.ptr !is null)
+    {
+        import core.stdc.stdlib : free;
+
+        free(ctx.ptr);
+    }
+}
+
+// Spec: resetHandleOptions restores easy handle state and frees slists safely (F-59, F-66)
+// Scenario: Handle options are properly reset for handle reuse
+/// Example:
+/// ---
+/// import slate.http.client : resetHandleOptions;
+/// import slate.http.c_bind : curl_easy_init, curl_easy_cleanup, curl_slist, CURL;
+/// CURL* h = curl_easy_init();
+/// curl_slist* list = null;
+/// resetHandleOptions(h, list);
+/// curl_easy_cleanup(h);
+/// ---
+unittest
+{
+    // Spec: Test handle cleanup and slist deallocation
+    auto h = curl_easy_init();
+    assert(h !is null);
+    scope (exit)
+        curl_easy_cleanup(h);
+
+    curl_slist* list = null;
+    list = curl_slist_append(list, "X-Test: 1");
+    assert(list !is null);
+
+    resetHandleOptions(h, list, null, false);
+    assert(list is null, "Header slist should be freed and set to null");
 }

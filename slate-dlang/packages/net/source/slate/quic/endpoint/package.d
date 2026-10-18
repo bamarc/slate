@@ -10,13 +10,16 @@ module slate.quic.endpoint;
 public import slate.quic.endpoint.token;
 public import slate.quic.endpoint.endpoint;
 
-import slate.quic.crypto.tls_session : TlsContext;
-import slate.quic.crypto.aead : verifyRetryIntegrityTag;
-import slate.quic.crypto.kdf : Side;
-import slate.quic.wire.cid : ConnectionId, TransportErrorCode;
-import slate.quic.wire.packet : PacketType, PacketPrefix, parsePacketPrefix, WireError;
-import slate.quic.wire.transport_params : TransportParameters;
-import slate.quic.connection.connection : QuicConnection, ConnectionState;
+version (unittest)
+{
+    import slate.quic.crypto.tls_session : TlsContext;
+    import slate.quic.crypto.aead : verifyRetryIntegrityTag;
+    import slate.quic.crypto.kdf : Side;
+    import slate.quic.wire.cid : ConnectionId, TransportErrorCode;
+    import slate.quic.wire.packet : PacketType, PacketPrefix, parsePacketPrefix, WireError;
+    import slate.quic.wire.transport_params : TransportParameters;
+    import slate.quic.connection.connection : QuicConnection, ConnectionState;
+}
 
 /// Example:
 // Spec: RFC 9000 Section 8.1 & Section 17.2.5 - Server QuicEndpoint Stateless Retry, Token Verification & Tamper Rejection (covers U1, U2, U3, E4, W3, F3, Scenario T5)
@@ -29,7 +32,7 @@ import slate.quic.connection.connection : QuicConnection, ConnectionState;
     };
     auto makeClientCtx = () @trusted @nogc nothrow{
         alias ClientFn = TlsContext function() @nogc nothrow;
-        return (cast(ClientFn)&TlsContext.createClient)();
+        return TlsContext.createClientInsecure();
     };
 
     TlsContext serverCtx = makeServerCtx();
@@ -169,7 +172,7 @@ import slate.quic.connection.connection : QuicConnection, ConnectionState;
     };
     auto makeClientCtx = () @trusted @nogc nothrow{
         alias ClientFn = TlsContext function() @nogc nothrow;
-        return (cast(ClientFn)&TlsContext.createClient)();
+        return TlsContext.createClientInsecure();
     };
 
     TlsContext serverCtx = makeServerCtx();
@@ -420,7 +423,7 @@ import slate.quic.connection.connection : QuicConnection, ConnectionState;
     };
     auto makeClientCtx = () @trusted @nogc nothrow{
         alias ClientFn = TlsContext function() @nogc nothrow;
-        return (cast(ClientFn)&TlsContext.createClient)();
+        return TlsContext.createClientInsecure();
     };
 
     TlsContext serverCtx = makeServerCtx();
@@ -491,10 +494,72 @@ import slate.quic.connection.connection : QuicConnection, ConnectionState;
             now, respBuf[], respLen, replayedMatched) == TransportErrorCode.invalidToken);
     assert(replayedMatched is null);
     assert(serverEndpoint.connectionCount == 0);
+
+    // Two separate clients triggering Retry at the exact same now timestamp both succeed (F-13, D-12)
+    const SocketAddr c1Addr = SocketAddr.ipv4(192, 0, 2, 21, 50001);
+    const SocketAddr c2Addr = SocketAddr.ipv4(192, 0, 2, 22, 50002);
+    const ubyte[8] c1DcidBytes = [
+        0x21, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01
+    ];
+    const ubyte[8] c1ScidBytes = [
+        0x21, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02
+    ];
+    const ubyte[8] c2DcidBytes = [
+        0x22, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01
+    ];
+    const ubyte[8] c2ScidBytes = [
+        0x22, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02
+    ];
+    const ConnectionId c1Dcid = ConnectionId(c1DcidBytes[]);
+    const ConnectionId c1Scid = ConnectionId(c1ScidBytes[]);
+    const ConnectionId c2Dcid = ConnectionId(c2DcidBytes[]);
+    const ConnectionId c2Scid = ConnectionId(c2ScidBytes[]);
+
+    QuicConnection client1;
+    QuicConnection client2;
+    assert(QuicConnection.create(Side.client, clientCtx, c1Scid, c1Dcid, tp, now, client1));
+    assert(QuicConnection.create(Side.client, clientCtx, c2Scid, c2Dcid, tp, now, client2));
+
+    ubyte[4096] c1Dgram;
+    ubyte[4096] c2Dgram;
+    size_t c1Len = 0;
+    size_t c2Len = 0;
+    assert(client1.pollTransmit(c1Dgram[], now, c1Len));
+    assert(client2.pollTransmit(c2Dgram[], now, c2Len));
+
+    ubyte[1500] retry1Buf;
+    ubyte[1500] retry2Buf;
+    size_t retry1Len = 0;
+    size_t retry2Len = 0;
+    QuicConnection* m1 = null;
+    QuicConnection* m2 = null;
+    assert(serverEndpoint.handleDatagram(c1Addr, c1Dgram[0 .. c1Len], now,
+            retry1Buf[], retry1Len, m1) == TransportErrorCode.noError);
+    assert(serverEndpoint.handleDatagram(c2Addr, c2Dgram[0 .. c2Len], now,
+            retry2Buf[], retry2Len, m2) == TransportErrorCode.noError);
+
+    assert(client1.handleDatagram(retry1Buf[0 .. retry1Len], now) == TransportErrorCode.noError);
+    assert(client2.handleDatagram(retry2Buf[0 .. retry2Len], now) == TransportErrorCode.noError);
+
+    ubyte[4096] token1Dgram;
+    ubyte[4096] token2Dgram;
+    size_t token1Len = 0;
+    size_t token2Len = 0;
+    assert(client1.pollTransmit(token1Dgram[], now, token1Len));
+    assert(client2.pollTransmit(token2Dgram[], now, token2Len));
+
+    // Both clients send tokens generated at the exact same now timestamp; both must succeed because nonceCounter distinguishes them
+    assert(serverEndpoint.handleDatagram(c1Addr, token1Dgram[0 .. token1Len],
+            now, respBuf[], respLen, m1) == TransportErrorCode.noError);
+    assert(m1 !is null);
+    assert(serverEndpoint.handleDatagram(c2Addr, token2Dgram[0 .. token2Len],
+            now, respBuf[], respLen, m2) == TransportErrorCode.noError);
+    assert(m2 !is null);
+    assert(serverEndpoint.connectionCount == 2);
 }
 
 /// Example:
-// Best practice: Slot Recycling for Closed Connections
+// Spec: RFC 9000 Section 10.2 - Slot Recycling Protects Closing State & Checks Connection CID (D-09, D-12)
 @nogc unittest
 {
     auto makeServerCtx = () @trusted @nogc nothrow{
@@ -504,7 +569,7 @@ import slate.quic.connection.connection : QuicConnection, ConnectionState;
     };
     auto makeClientCtx = () @trusted @nogc nothrow{
         alias ClientFn = TlsContext function() @nogc nothrow;
-        return (cast(ClientFn)&TlsContext.createClient)();
+        return TlsContext.createClientInsecure();
     };
 
     TlsContext serverCtx = makeServerCtx();
@@ -550,11 +615,11 @@ import slate.quic.connection.connection : QuicConnection, ConnectionState;
     assert(conn1 !is null);
     assert(serverEndpoint.connectionCount == 1);
 
-    // Close connection 1 explicitly
+    // Close connection 1 explicitly -> transitions to closing
     conn1.close(0, true);
     assert(conn1.state == ConnectionState.closing || conn1.state == ConnectionState.draining);
 
-    // Now client 2 connects: server reclaims the closing/draining slot!
+    // While in closing state, slot must NOT be evicted (D-09)
     const SocketAddr client2Addr = SocketAddr.ipv4(10, 0, 0, 2, 5002);
     const ubyte[8] dcid2Bytes = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x01, 0x02];
     const ubyte[8] scid2Bytes = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
@@ -566,6 +631,15 @@ import slate.quic.connection.connection : QuicConnection, ConnectionState;
     assert(client2.pollTransmit(dgram[], now, len));
 
     QuicConnection* conn2 = null;
+    assert(serverEndpoint.handleDatagram(client2Addr, dgram[0 .. len], now,
+            respBuf[], respLen, conn2) == TransportErrorCode.internalError);
+    assert(conn2 is null);
+
+    // Explicit deallocate by localCid or conn.localCid frees the slot (D-09)
+    serverEndpoint.closeConnection(conn1.localCid);
+    assert(serverEndpoint.connectionCount == 0);
+
+    // Now client 2 connects successfully into the recycled slot
     assert(serverEndpoint.handleDatagram(client2Addr, dgram[0 .. len], now,
             respBuf[], respLen, conn2) == TransportErrorCode.noError);
     assert(conn2 !is null);

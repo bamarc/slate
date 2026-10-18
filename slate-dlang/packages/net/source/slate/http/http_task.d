@@ -12,6 +12,11 @@ import slate.http.request;
 import slate.http.response;
 import slate.tasks : TaskCancellation, runCompute, dispatchToUiEventLoop;
 
+version (unittest)
+{
+    import slate.http.test_server : HttpStubServer;
+}
+
 import std.typecons : Nullable;
 import core.atomic : atomicLoad, atomicStore;
 import core.stdc.stdlib : malloc, free;
@@ -45,6 +50,19 @@ private Nullable!Response performTaskTransfer(const Request req,
 {
     if (cancellation !is null && cancellation.isCancelled())
         return Nullable!Response.init;
+
+    DynamicBufferCtx bodyCtx;
+    bodyCtx.maxAllowed = config.maxResponseBytes;
+    DynamicBufferCtx headerCtx;
+    headerCtx.maxAllowed = config.maxHeaderBytes;
+
+    scope (exit)
+    {
+        if (bodyCtx.ptr !is null)
+            free(bodyCtx.ptr);
+        if (headerCtx.ptr !is null)
+            free(headerCtx.ptr);
+    }
 
     CURLM* multi = curl_multi_init();
     if (multi is null)
@@ -141,20 +159,6 @@ private Nullable!Response performTaskTransfer(const Request req,
         return Nullable!Response.init;
     }
 
-    DynamicBufferCtx bodyCtx;
-    scope (exit)
-    {
-        if (bodyCtx.ptr !is null)
-            free(bodyCtx.ptr);
-    }
-
-    DynamicBufferCtx headerCtx;
-    scope (exit)
-    {
-        if (headerCtx.ptr !is null)
-            free(headerCtx.ptr);
-    }
-
     curl_easy_setopt(easy, CURLoption.CURLOPT_WRITEFUNCTION, &clientDynamicWriteCb);
     curl_easy_setopt(easy, CURLoption.CURLOPT_WRITEDATA, &bodyCtx);
     curl_easy_setopt(easy, CURLoption.CURLOPT_HEADERFUNCTION, &clientHeaderCollectCb);
@@ -172,7 +176,9 @@ private Nullable!Response performTaskTransfer(const Request req,
     inMulti = true;
 
     int running = 0;
-    curl_multi_perform(multi, &running);
+    auto mc = curl_multi_perform(multi, &running);
+    if (mc != CURLMcode.CURLM_OK && mc != CURLMcode.CURLM_CALL_MULTI_PERFORM)
+        return Nullable!Response.init;
 
     while (running > 0)
     {
@@ -193,8 +199,12 @@ private Nullable!Response performTaskTransfer(const Request req,
         }
 
         int numfds = 0;
-        curl_multi_poll(multi, null, 0, 50, &numfds);
-        curl_multi_perform(multi, &running);
+        mc = curl_multi_poll(multi, null, 0, 50, &numfds);
+        if (mc != CURLMcode.CURLM_OK)
+            return Nullable!Response.init;
+        mc = curl_multi_perform(multi, &running);
+        if (mc != CURLMcode.CURLM_OK && mc != CURLMcode.CURLM_CALL_MULTI_PERFORM)
+            return Nullable!Response.init;
     }
 
     int msgsInQueue = 0;
@@ -213,17 +223,18 @@ private Nullable!Response performTaskTransfer(const Request req,
     if (result != CURLcode.CURLE_OK || (cancellation !is null && cancellation.isCancelled()))
         return Nullable!Response.init;
 
+    if (bodyCtx.oom || headerCtx.oom || bodyCtx.overflow || headerCtx.overflow)
+        return Nullable!Response.init;
+
     if (progress !is null)
         progress(1.0f);
 
-    long statusCode = 200;
+    long statusCode = 0;
     curl_easy_getinfo(easy, CURLINFO.CURLINFO_RESPONSE_CODE, &statusCode);
     long rawVer = 0;
     curl_easy_getinfo(easy, CURLINFO.CURLINFO_HTTP_VERSION, &rawVer);
 
     int finalStatus = cast(int) statusCode;
-    if (finalStatus < 100 || finalStatus > 599)
-        finalStatus = 200;
 
     Header[] headers;
     if (headerCtx.len > 0)
@@ -268,14 +279,30 @@ Nullable!Response runHttpTask(const Request req, void delegate(float) onProgress
 /// Returns a `TaskCancellation` handle allowing cooperative abortion of the transfer (EV-4, TC-08).
 /// On native builds, callbacks are dispatched through the Slint event loop (`slint.invokeFromEventLoop`).
 TaskCancellation spawnHttpTask(const Request req, ClientConfig config = ClientConfig.init,
-        void delegate(float) onProgress = null, void delegate(Nullable!Response) onComplete = null)
+        void delegate(float) onProgress = null, void delegate(Nullable!Response) onComplete = null) @trusted
 {
+    // Deep copy Request data to avoid cross-thread dangling stack references (F-64)
+    string copiedUrl = req.url.idup;
+    ubyte[] copiedBody = req.bodyData ? req.bodyData.dup : null;
+    Header[] copiedHeaders = null;
+    if (req.headers.length > 0)
+    {
+        copiedHeaders = new Header[req.headers.length];
+        foreach (i, h; req.headers)
+            copiedHeaders[i] = Header(h.name.idup, h.value.idup);
+    }
+    Request safeReq = Request(copiedUrl, req.method, req.httpVersion);
+    safeReq.headers = copiedHeaders;
+    safeReq.bodyData = copiedBody;
+    safeReq.connectTimeoutMs = req.connectTimeoutMs;
+    safeReq.timeoutMs = req.timeoutMs;
+
     auto cancellation = new TaskCancellation();
     auto worker = new Thread({
         void delegate(void delegate() job) dispatch = (void delegate() job) {
             dispatchToUiEventLoop(job);
         };
-        runHttpTask(req, config, onProgress, onComplete, cancellation, dispatch);
+        runHttpTask(safeReq, config, onProgress, onComplete, cancellation, dispatch);
     });
     worker.isDaemon = true;
     worker.start();
@@ -303,7 +330,7 @@ TaskCancellation spawnHttpGet(string url, void delegate(float) onProgress = null
 /// ---
 unittest
 {
-    // Best practice: verify background HTTP task runs to completion, reports progress, and notifies onComplete
+    // Spec: verify background HTTP task runs to completion, reports progress, and notifies onComplete
     auto stub = new HttpStubServer("Task Transfer Completed Successfully", false, 0);
     scope (exit)
         stub.close();
@@ -357,7 +384,7 @@ unittest
 /// ---
 unittest
 {
-    // Best practice: verify in-flight task cancellation aborts transfer cleanly and reports null result
+    // Spec: verify in-flight task cancellation aborts transfer cleanly and reports null result
     auto stub = new HttpStubServer("Delayed task response", false, 500);
     scope (exit)
         stub.close();
@@ -388,4 +415,24 @@ unittest
 
     assert(completed, "Cancelled task must complete");
     assert(finalResponse.isNull, "Cancelled task result must be null");
+}
+
+// Spec: spawnHttpTask deep-copies Request avoiding cross-thread stack dangling (F-64)
+// Scenario: Ephemeral request buffers on stack are safely copied before worker thread runs
+/// Example:
+/// ---
+/// import slate.http.http_task : spawnHttpTask;
+/// import slate.http.request : Request;
+/// auto cancel = spawnHttpTask(Request.get("http://127.0.0.1:1"));
+/// ---
+unittest
+{
+    // Spec: verify spawnHttpTask can be called with stack-allocated URL without memory corruption
+    char[32] stackUrl;
+    string src = "http://127.0.0.1:1/stack";
+    stackUrl[0 .. src.length] = src[];
+    auto req = Request.get(cast(string) stackUrl[0 .. src.length]);
+    auto cancel = spawnHttpTask(req);
+    assert(cancel !is null);
+    cancel.cancel();
 }

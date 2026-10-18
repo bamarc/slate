@@ -18,6 +18,7 @@ public import slate.quic.stream;
 public import slate.quic.recovery;
 public import slate.quic.connection;
 public import slate.quic.endpoint;
+public import slate.quic.udp;
 
 /// Example:
 // Spec: RFC 9000 Section 5 - Top-Level QUIC Umbrella Re-exports and Sanity Checks

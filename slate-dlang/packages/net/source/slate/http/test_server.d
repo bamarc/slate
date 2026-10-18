@@ -2,6 +2,7 @@ module slate.http.test_server;
 
 import std.socket;
 import core.thread;
+import core.atomic : atomicLoad, atomicStore, atomicOp;
 
 /// Lightweight local HTTP/1.1 test server stub binding to an ephemeral OS loopback port.
 package class HttpStubServer
@@ -10,10 +11,10 @@ package class HttpStubServer
     ushort port;
     Thread thread;
     string responsePayload;
-    bool running = true;
+    shared bool running = true;
     string lastMethod;
     string lastRawRequest;
-    int requestCount;
+    shared int requestCount;
     bool keepAlive;
     int delayMs;
 
@@ -36,12 +37,12 @@ package class HttpStubServer
     {
         import core.time : dur;
 
-        while (running)
+        while (atomicLoad(running))
         {
             try
             {
                 Socket client = listener.accept();
-                if (!running)
+                if (!atomicLoad(running))
                 {
                     client.close();
                     break;
@@ -51,7 +52,7 @@ package class HttpStubServer
                 client.setOption(SocketOptionLevel.SOCKET,
                         SocketOption.RCVTIMEO, dur!"seconds"(3));
 
-                while (running)
+                while (atomicLoad(running))
                 {
                     char[4096] reqBuf;
                     auto n = client.receive(reqBuf[]);
@@ -67,7 +68,7 @@ package class HttpStubServer
                     {
                         lastMethod = reqStr[0 .. spaceIdx];
                     }
-                    requestCount++;
+                    atomicOp!"+="(requestCount, 1);
 
                     if (delayMs > 0)
                     {
@@ -98,7 +99,7 @@ package class HttpStubServer
 
     void close()
     {
-        running = false;
+        atomicStore(running, false);
         try
         {
             auto s = new TcpSocket();

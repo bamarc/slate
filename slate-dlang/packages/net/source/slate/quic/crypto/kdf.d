@@ -46,6 +46,7 @@ enum QuicCryptoError : int
     handshakeFailed = 6,
     alpnMismatch = 7,
     internalError = 8,
+    transportParamsTooLarge = 9,
 }
 
 /**
@@ -145,9 +146,13 @@ immutable ubyte[20] INITIAL_SALT_V1 = [
 /**
  * HKDF-Extract(salt, IKM) as defined in RFC 5869 Section 2.2.
  */
-package(slate.quic) void hkdfExtract(const(EVP_MD)* md, const(ubyte)[] salt,
+package(slate.quic) bool hkdfExtract(const(EVP_MD)* md, const(ubyte)[] salt,
         const(ubyte)[] ikm, ubyte[] prkOut) @trusted @nogc nothrow
 {
+    const size_t hashLen = (md == EVP_sha384()) ? 48 : 32;
+    if (prkOut.length < hashLen)
+        return false;
+
     uint outLen = 0;
     ubyte[48] defaultSalt = 0;
     const(ubyte)* sPtr = salt.ptr;
@@ -156,30 +161,52 @@ package(slate.quic) void hkdfExtract(const(EVP_MD)* md, const(ubyte)[] salt,
     if (sLen == 0)
     {
         sPtr = defaultSalt.ptr;
-        sLen = (md == EVP_sha384()) ? 48 : 32;
+        sLen = cast(int) hashLen;
     }
 
-    HMAC(md, sPtr, sLen, ikm.ptr, ikm.length, prkOut.ptr, &outLen);
+    ubyte[48] tempPrk;
+    auto res = HMAC(md, sPtr, sLen, ikm.ptr, ikm.length, tempPrk.ptr, &outLen);
+    if (res is null || outLen < hashLen)
+    {
+        prkOut[0 .. hashLen] = 0;
+        return false;
+    }
+    prkOut[0 .. hashLen] = tempPrk[0 .. hashLen];
+    return true;
 }
 
 /// Public overload using CipherSuite
-void hkdfExtract(CipherSuite suite, const(ubyte)[] salt, const(ubyte)[] ikm, ubyte[] prkOut) @trusted @nogc nothrow
+bool hkdfExtract(CipherSuite suite, const(ubyte)[] salt, const(ubyte)[] ikm, ubyte[] prkOut) @trusted @nogc nothrow
 {
-    hkdfExtract(getEvpMd(suite), salt, ikm, prkOut);
+    return hkdfExtract(getEvpMd(suite), salt, ikm, prkOut);
 }
 
 /**
  * HKDF-Expand(PRK, info, L) as defined in RFC 5869 Section 2.3.
  */
-package(slate.quic) void hkdfExpand(const(EVP_MD)* md, const(ubyte)[] prk,
+package(slate.quic) bool hkdfExpand(const(EVP_MD)* md, const(ubyte)[] prk,
         const(ubyte)[] info, ubyte[] okmOut) @trusted @nogc nothrow
 {
     const size_t hashLen = (md == EVP_sha384()) ? 48 : 32;
+    if (prk.length < hashLen || okmOut.length == 0)
+    {
+        okmOut[] = 0;
+        return false;
+    }
+
     ubyte[256] hmacInput;
     if (info.length + hashLen + 1 > hmacInput.length)
-        return;
+    {
+        okmOut[] = 0;
+        return false;
+    }
 
     const size_t n = (okmOut.length + hashLen - 1) / hashLen;
+    if (n > 255)
+    {
+        okmOut[] = 0;
+        return false;
+    }
 
     ubyte[48] t;
     size_t tLen = 0;
@@ -199,7 +226,13 @@ package(slate.quic) void hkdfExpand(const(EVP_MD)* md, const(ubyte)[] prk,
         inputLen += 1;
 
         uint outLen = 0;
-        HMAC(md, prk.ptr, cast(int) prk.length, hmacInput.ptr, inputLen, t.ptr, &outLen);
+        auto res = HMAC(md, prk.ptr, cast(int) prk.length, hmacInput.ptr,
+                inputLen, t.ptr, &outLen);
+        if (res is null || outLen < hashLen)
+        {
+            okmOut[] = 0;
+            return false;
+        }
         tLen = outLen;
 
         const size_t toCopy = (okmOut.length - written < hashLen) ? (okmOut.length - written)
@@ -207,18 +240,19 @@ package(slate.quic) void hkdfExpand(const(EVP_MD)* md, const(ubyte)[] prk,
         okmOut[written .. written + toCopy] = t[0 .. toCopy];
         written += toCopy;
     }
+    return true;
 }
 
 /// Public overload using CipherSuite
-void hkdfExpand(CipherSuite suite, const(ubyte)[] prk, const(ubyte)[] info, ubyte[] okmOut) @trusted @nogc nothrow
+bool hkdfExpand(CipherSuite suite, const(ubyte)[] prk, const(ubyte)[] info, ubyte[] okmOut) @trusted @nogc nothrow
 {
-    hkdfExpand(getEvpMd(suite), prk, info, okmOut);
+    return hkdfExpand(getEvpMd(suite), prk, info, okmOut);
 }
 
 /**
  * HKDF-Expand-Label(Secret, Label, Context, Length) as defined in RFC 9001 Section 5.1 / RFC 8446 Section 7.1.
  */
-package(slate.quic) void hkdfExpandLabel(const(EVP_MD)* md,
+package(slate.quic) bool hkdfExpandLabel(const(EVP_MD)* md,
         const(ubyte)[] secret, const(char)[] label, const(ubyte)[] context, ubyte[] outBuf) @trusted @nogc nothrow
 {
     // HkdfLabel struct:
@@ -228,7 +262,10 @@ package(slate.quic) void hkdfExpandLabel(const(EVP_MD)* md,
     ubyte[128] labelBuf;
 
     if (10 + label.length + context.length > labelBuf.length)
-        return;
+    {
+        outBuf[] = 0;
+        return false;
+    }
 
     const ushort outLength = cast(ushort) outBuf.length;
     labelBuf[0] = cast(ubyte)(outLength >> 8);
@@ -249,14 +286,14 @@ package(slate.quic) void hkdfExpandLabel(const(EVP_MD)* md,
         pos += context.length;
     }
 
-    hkdfExpand(md, secret, labelBuf[0 .. pos], outBuf);
+    return hkdfExpand(md, secret, labelBuf[0 .. pos], outBuf);
 }
 
 /// Public overload using CipherSuite
-void hkdfExpandLabel(CipherSuite suite, const(ubyte)[] secret,
+bool hkdfExpandLabel(CipherSuite suite, const(ubyte)[] secret,
         const(char)[] label, const(ubyte)[] context, ubyte[] outBuf) @trusted @nogc nothrow
 {
-    hkdfExpandLabel(getEvpMd(suite), secret, label, context, outBuf);
+    return hkdfExpandLabel(getEvpMd(suite), secret, label, context, outBuf);
 }
 
 /**
@@ -264,6 +301,8 @@ void hkdfExpandLabel(CipherSuite suite, const(ubyte)[] secret,
  */
 void deriveInitialSecret(const(ubyte)[] dcid, ubyte[] secretOut) @trusted @nogc nothrow
 {
+    if (secretOut.length < 32)
+        return;
     hkdfExtract(EVP_sha256(), INITIAL_SALT_V1, dcid, secretOut);
 }
 
@@ -272,6 +311,8 @@ void deriveInitialSecret(const(ubyte)[] dcid, ubyte[] secretOut) @trusted @nogc 
  */
 void deriveClientInitialSecret(const(ubyte)[] initialSecret, ubyte[] clientSecretOut) @trusted @nogc nothrow
 {
+    if (initialSecret.length < 32 || clientSecretOut.length < 32)
+        return;
     hkdfExpandLabel(EVP_sha256(), initialSecret, "client in", null, clientSecretOut);
 }
 
@@ -280,6 +321,8 @@ void deriveClientInitialSecret(const(ubyte)[] initialSecret, ubyte[] clientSecre
  */
 void deriveServerInitialSecret(const(ubyte)[] initialSecret, ubyte[] serverSecretOut) @trusted @nogc nothrow
 {
+    if (initialSecret.length < 32 || serverSecretOut.length < 32)
+        return;
     hkdfExpandLabel(EVP_sha256(), initialSecret, "server in", null, serverSecretOut);
 }
 
@@ -288,6 +331,10 @@ void deriveServerInitialSecret(const(ubyte)[] initialSecret, ubyte[] serverSecre
  */
 void deriveKeyMaterial(CipherSuite suite, const(ubyte)[] secret, ref KeyMaterial km) @trusted @nogc nothrow
 {
+    const size_t reqHashLen = hashLength(suite);
+    if (secret.length < reqHashLen)
+        return;
+
     const(EVP_MD)* md = getEvpMd(suite);
     km.keyLen = keyLength(suite);
     km.hpLen = hpKeyLength(suite);
@@ -303,8 +350,12 @@ void deriveKeyMaterial(CipherSuite suite, const(ubyte)[] secret, ref KeyMaterial
 void deriveNextApplicationSecret(CipherSuite suite, const(ubyte)[] currentSecret,
         ubyte[] nextSecretOut) @trusted @nogc nothrow
 {
+    const size_t reqHashLen = hashLength(suite);
+    if (currentSecret.length < reqHashLen || nextSecretOut.length < reqHashLen)
+        return;
+
     const(EVP_MD)* md = getEvpMd(suite);
-    hkdfExpandLabel(md, currentSecret, "quic ku", null, nextSecretOut);
+    hkdfExpandLabel(md, currentSecret, "quic ku", null, nextSecretOut[0 .. reqHashLen]);
 }
 
 /// Example:
@@ -401,4 +452,33 @@ void deriveNextApplicationSecret(CipherSuite suite, const(ubyte)[] currentSecret
     ubyte[32] thirdSecret;
     deriveNextApplicationSecret(CipherSuite.TLS_AES_128_GCM_SHA256, nextSecret, thirdSecret);
     assert(thirdSecret != nextSecret, "Third secret must differ from second secret");
+}
+
+/// Example:
+// Spec: RFC 5869 / F-32 & F-41 - HKDF slice bounds validation and zero-fill on error
+@nogc unittest
+{
+    static immutable ubyte[3] sampleIkm = [1, 2, 3];
+    static immutable ubyte[1] sampleInfo = [1];
+
+    ubyte[16] shortPrkOut;
+    assert(!hkdfExtract(CipherSuite.TLS_AES_128_GCM_SHA256, null, sampleIkm[], shortPrkOut));
+
+    ubyte[32] validPrk;
+    assert(hkdfExtract(CipherSuite.TLS_AES_128_GCM_SHA256, null, sampleIkm[], validPrk));
+
+    ubyte[16] shortOkm;
+    ubyte[16] shortPrk = 0;
+    assert(!hkdfExpand(CipherSuite.TLS_AES_128_GCM_SHA256, shortPrk[], sampleInfo[], shortOkm));
+    assert(shortOkm == (ubyte[16]).init);
+
+    ubyte[0] emptyOkm;
+    assert(!hkdfExpand(CipherSuite.TLS_AES_128_GCM_SHA256, validPrk[], sampleInfo[], emptyOkm));
+
+    ubyte[32] outBuf;
+    char[150] hugeLabel;
+    hugeLabel[] = 'a';
+    assert(!hkdfExpandLabel(CipherSuite.TLS_AES_128_GCM_SHA256, validPrk[],
+            hugeLabel[], null, outBuf));
+    assert(outBuf == (ubyte[32]).init);
 }

@@ -117,13 +117,13 @@ VersionInfo getVersionInfo() @trusted @nogc nothrow
 }
 
 /// Pure helper to test if an arbitrary features bitmask has HTTP/2 enabled.
-pure @nogc nothrow bool hasHttp2(int features)
+pure @safe @nogc nothrow bool hasHttp2(int features)
 {
     return (features & CURL_VERSION_HTTP2) != 0;
 }
 
 /// Pure helper to test if an arbitrary features bitmask has HTTP/3 enabled.
-pure @nogc nothrow bool hasHttp3(int features)
+pure @safe @nogc nothrow bool hasHttp3(int features)
 {
     return (features & CURL_VERSION_HTTP3) != 0;
 }
@@ -240,7 +240,7 @@ string describeBackend() @safe
 /// ---
 unittest
 {
-    // Best practice: test bitmask decoding in isolation without side effects
+    // Spec: test bitmask decoding in isolation without side effects
     enum int featuresH2Only = CURL_VERSION_HTTP2;
     enum int featuresH3Only = CURL_VERSION_HTTP3;
     enum int featuresBoth = CURL_VERSION_HTTP2 | CURL_VERSION_HTTP3;
@@ -317,7 +317,7 @@ unittest
     assert(http3RequirementsMessage().length > 0);
 }
 
-// Best practice: verify hot path functions execute strictly under @nogc
+// Spec: verify hot path functions execute strictly under @nogc
 /// Example:
 /// ---
 /// import slate.http.version_;
@@ -345,7 +345,7 @@ unittest
     hotPathCheck();
 }
 
-// Best practice: verify describeBackend returns diagnostic string with details
+// Spec: verify describeBackend returns diagnostic string with details
 /// Example:
 /// ---
 /// import slate.http.version_;

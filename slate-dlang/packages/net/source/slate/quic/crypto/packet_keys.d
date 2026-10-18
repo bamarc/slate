@@ -23,6 +23,14 @@ struct DirectionalKeys
 
     void init(CipherSuite suite, const(ubyte)[] key, const(ubyte)[] iv, const(ubyte)[] hpKey) @trusted @nogc nothrow
     {
+        const size_t reqKeyLen = keyLength(suite);
+        const size_t reqHpLen = hpKeyLength(suite);
+        if (key.length < reqKeyLen || iv.length < 12 || hpKey.length < reqHpLen)
+        {
+            initialized = false;
+            return;
+        }
+
         aead.init(suite, key, iv);
         hp.init(suite, hpKey);
         initialized = aead.isInitialized && hp.isInitialized;
@@ -42,6 +50,8 @@ struct DirectionalKeys
 
     void moveFrom(ref DirectionalKeys other) @trusted @nogc nothrow
     {
+        if (&this is &other)
+            return;
         cleanup();
         aead.moveFrom(other.aead);
         hp.moveFrom(other.hp);
@@ -75,6 +85,8 @@ struct Keys
 
     void moveFrom(ref Keys other) @trusted @nogc nothrow
     {
+        if (&this is &other)
+            return;
         cleanup();
         local.moveFrom(other.local);
         remote.moveFrom(other.remote);
@@ -104,8 +116,16 @@ private:
 public:
     void init(CipherSuite suite, const(ubyte)[] appSecret, const(ubyte)[] hpKey) @trusted @nogc nothrow
     {
+        const size_t reqHashLen = hashLength(suite);
+        const size_t reqHpLen = hpKeyLength(suite);
+        if (appSecret.length < reqHashLen || hpKey.length < reqHpLen)
+        {
+            m_initialized = false;
+            return;
+        }
+
         m_suite = suite;
-        m_secretLen = hashLength(suite);
+        m_secretLen = reqHashLen;
         m_currentSecret[0 .. m_secretLen] = appSecret[0 .. m_secretLen];
         m_keyPhase = 0;
 
@@ -143,6 +163,8 @@ public:
 
     void cleanup() @trusted @nogc nothrow
     {
+        OPENSSL_cleanse(m_currentSecret.ptr, m_currentSecret.sizeof);
+        OPENSSL_cleanse(m_nextSecret.ptr, m_nextSecret.sizeof);
         m_currentAead.cleanup();
         m_nextAead.cleanup();
         m_hp.cleanup();
@@ -151,6 +173,8 @@ public:
 
     void moveFrom(ref KeyPhaseUpdater other) @trusted @nogc nothrow
     {
+        if (&this is &other)
+            return;
         cleanup();
         m_suite = other.m_suite;
         m_currentSecret = other.m_currentSecret;
@@ -203,6 +227,9 @@ QuicCryptoError protectPacket(ref DirectionalKeys keys, ulong packetNumber, size
     protectedPacketLen = 0;
     if (!keys.initialized)
         return QuicCryptoError.internalError;
+
+    if (pnLen < 1 || pnLen > 4)
+        return QuicCryptoError.invalidKeyLength;
 
     const size_t headerLen = pnOffset + pnLen;
     if (packetBuffer.length < headerLen + plaintextPayloadLen + 16)
@@ -668,4 +695,36 @@ QuicCryptoError unprotectPacket(ref DirectionalKeys keys, size_t pnOffset, ulong
 
     updater256.updateKeys();
     assert(updater256.keyPhase == 1, "Key phase must toggle to 1 for AES-256");
+}
+
+/// Example:
+// Spec: RFC 9001 / F-32, F-33 & F-41 - PacketKeys bounds validation, self-move guards, and cleanup
+@nogc unittest
+{
+    DirectionalKeys dKeys;
+    ubyte[10] shortKey;
+    ubyte[10] shortIv;
+    ubyte[10] shortHp;
+    dKeys.init(CipherSuite.TLS_AES_128_GCM_SHA256, shortKey, shortIv, shortHp);
+    assert(!dKeys.initialized);
+
+    // Self-move guard on DirectionalKeys
+    dKeys.moveFrom(dKeys);
+
+    Keys keys;
+    // Self-move guard on Keys
+    keys.moveFrom(keys);
+
+    KeyPhaseUpdater updater;
+    // Short secret / hpKey
+    updater.init(CipherSuite.TLS_AES_128_GCM_SHA256, shortKey, shortHp);
+    assert(!updater.isInitialized);
+
+    // Self-move guard on KeyPhaseUpdater
+    updater.moveFrom(updater);
+
+    // protectPacket with invalid pnLen
+    ubyte[64] pktBuf;
+    size_t protLen;
+    assert(protectPacket(dKeys, 0, 1, 0, pktBuf, 10, protLen) == QuicCryptoError.internalError);
 }

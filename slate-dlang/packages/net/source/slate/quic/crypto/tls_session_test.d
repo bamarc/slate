@@ -13,7 +13,7 @@ unittest
 {
     TlsContext serverCtx = TlsContext.createServer("test/fixtures/quic_cert.pem",
             "test/fixtures/quic_key.pem");
-    TlsContext clientCtx = TlsContext.createClient();
+    TlsContext clientCtx = TlsContext.createClientInsecure();
 
     const ubyte[4] dummyParams = [1, 2, 3, 4];
 
@@ -37,6 +37,70 @@ unittest
     assert(serverSession.quicErrorCode == 0x0178, "QUIC error code must be 0x0178 (0x0100 | 120)");
 }
 
+/// Example:
+// Spec: RFC 9001 Section 8.1 & Scenario T1 - Configurable ALPN negotiation ("smsp/1", "h3") and mismatch rejection (covers U1, W1)
+@nogc unittest
+{
+    TlsContext serverCtx = TlsContext.createServer("test/fixtures/quic_cert.pem",
+            "test/fixtures/quic_key.pem");
+    TlsContext clientCtx = TlsContext.createClientInsecure();
+    assert(serverCtx.isValid && clientCtx.isValid);
+
+    const ubyte[4] sParams = [1, 2, 3, 4];
+    const ubyte[4] cParams = [5, 6, 7, 8];
+
+    // 1. Default server context accepts "smsp/1" and reports negotiatedAlpn == "smsp/1"
+    {
+        TlsSession server;
+        server.init(serverCtx, Side.server, sParams);
+        TlsSession client;
+        client.init(clientCtx, Side.client, cParams, "smsp/1");
+
+        assert(client.stepHandshake() == QuicCryptoError.none);
+        ubyte[2048] chBuf;
+        const cHello = client.writeHandshake(EncryptionLevel.initial, chBuf);
+        assert(cHello.length > 0);
+
+        assert(server.readHandshake(EncryptionLevel.initial, cHello) == QuicCryptoError.none);
+        assert(server.negotiatedAlpn == "smsp/1");
+
+        ubyte[2048] sInitBuf;
+        const sInit = server.writeHandshake(EncryptionLevel.initial, sInitBuf);
+        ubyte[4096] sHsBuf;
+        const sHs = server.writeHandshake(EncryptionLevel.handshake, sHsBuf);
+
+        assert(client.readHandshake(EncryptionLevel.initial, sInit) == QuicCryptoError.none);
+        assert(client.readHandshake(EncryptionLevel.handshake, sHs) == QuicCryptoError.none);
+        assert(client.isHandshakeComplete);
+        assert(client.negotiatedAlpn == "smsp/1");
+
+        ubyte[2048] cFinBuf;
+        const cFin = client.writeHandshake(EncryptionLevel.handshake, cFinBuf);
+        assert(server.readHandshake(EncryptionLevel.handshake, cFin) == QuicCryptoError.none);
+        assert(server.isHandshakeComplete);
+        assert(server.negotiatedAlpn == "smsp/1");
+    }
+
+    // 2. Custom server ALPN list restricts accepted protocol and rejects others with alert 120
+    const(char)[][1] customProtos = ["smsp/1"];
+    assert(serverCtx.setAlpnProtocols(customProtos[]));
+    assert(!serverCtx.setAlpnProtocol("")); // empty protocol rejected
+
+    {
+        TlsSession server;
+        server.init(serverCtx, Side.server, sParams);
+        TlsSession client;
+        client.init(clientCtx, Side.client, cParams, "unknown/9");
+
+        assert(client.stepHandshake() == QuicCryptoError.none);
+        const cHello = client.getOutput(EncryptionLevel.initial);
+        const sErr = server.provideCryptoData(EncryptionLevel.initial, cHello);
+        assert(sErr == QuicCryptoError.alpnMismatch);
+        assert(server.alertCode == 120);
+        assert(server.negotiatedAlpn.length == 0);
+    }
+}
+
 /// Helper to create and return a TlsSession by value
 private TlsSession createMovedClientSession(ref TlsContext ctx, const(ubyte)[] params) @trusted
 {
@@ -53,7 +117,7 @@ unittest
 
     TlsContext serverCtx = TlsContext.createServer("test/fixtures/quic_cert.pem",
             "test/fixtures/quic_key.pem");
-    TlsContext clientCtx = TlsContext.createClient();
+    TlsContext clientCtx = TlsContext.createClientInsecure();
 
     const ubyte[4] sParams = [1, 1, 1, 1];
     const ubyte[4] cParams = [2, 2, 2, 2];
@@ -95,7 +159,7 @@ unittest
 {
     TlsContext serverCtx = TlsContext.createServer("test/fixtures/quic_cert.pem",
             "test/fixtures/quic_key.pem");
-    TlsContext clientCtx = TlsContext.createClient();
+    TlsContext clientCtx = TlsContext.createClientInsecure();
 
     const ubyte[4] dummyParams = [1, 2, 3, 4];
 
@@ -124,7 +188,7 @@ unittest
 }
 
 /// Example:
-// Best practice: Validation of Certificate & Key paths in TlsContext (covers Minor-6)
+// Spec: Validation of Certificate & Key paths in TlsContext (covers Minor-6)
 unittest
 {
     TlsContext badCtx = TlsContext.createServer("/nonexistent/path/cert.pem",
@@ -182,7 +246,7 @@ unittest
 {
     TlsContext serverCtx = TlsContext.createServer("test/fixtures/quic_cert.pem",
             "test/fixtures/quic_key.pem");
-    TlsContext clientCtx = TlsContext.createClient();
+    TlsContext clientCtx = TlsContext.createClientInsecure();
     assert(serverCtx.isValid && clientCtx.isValid);
 
     runNogcHandshake(serverCtx, clientCtx);
@@ -194,7 +258,7 @@ unittest
 {
     TlsContext serverCtx = TlsContext.createServer("test/fixtures/quic_cert.pem",
             "test/fixtures/quic_key.pem");
-    TlsContext clientCtx = TlsContext.createClient();
+    TlsContext clientCtx = TlsContext.createClientInsecure();
     assert(serverCtx.isValid && clientCtx.isValid);
 
     // Restrict cipher suite to TLS_AES_256_GCM_SHA384
@@ -223,7 +287,7 @@ unittest
 }
 
 /// Example:
-// Best practice: High-iteration RAII handle leak check for AeadKey, HeaderProtectionKey, and TlsSession (covers G5)
+// Spec: High-iteration RAII handle leak check for AeadKey, HeaderProtectionKey, and TlsSession (covers G5)
 unittest
 {
     // High-iteration AeadKey & HeaderProtectionKey handle creation/free
@@ -244,7 +308,7 @@ unittest
     // High-iteration TlsSession handle creation/free
     TlsContext serverCtx = TlsContext.createServer("test/fixtures/quic_cert.pem",
             "test/fixtures/quic_key.pem");
-    TlsContext clientCtx = TlsContext.createClient();
+    TlsContext clientCtx = TlsContext.createClientInsecure();
     assert(serverCtx.isValid && clientCtx.isValid);
 
     const ubyte[4] dummyParams = [1, 2, 3, 4];
@@ -254,5 +318,99 @@ unittest
         s.init(serverCtx, Side.server, dummyParams);
         TlsSession c;
         c.init(clientCtx, Side.client, dummyParams);
+    }
+}
+
+/// Example:
+// Spec: RFC 9001 Section 4.4 & Section 8.2 & Scenario T5 - Client Certificate Verification and Hostname Validation (covers U2, W2, F-31)
+@nogc unittest
+{
+    TlsContext serverCtx = TlsContext.createServer("test/fixtures/quic_cert.pem",
+            "test/fixtures/quic_key.pem");
+    assert(serverCtx.isValid);
+
+    const ubyte[4] sParams = [1, 2, 3, 4];
+    const ubyte[4] cParams = [5, 6, 7, 8];
+
+    // (a) createClient() with default CA verification rejects server's self-signed cert
+    {
+        TlsContext clientCtx = TlsContext.createClient();
+        assert(clientCtx.isValid);
+
+        TlsSession server;
+        server.init(serverCtx, Side.server, sParams);
+        TlsSession client;
+        client.init(clientCtx, Side.client, cParams);
+
+        assert(client.stepHandshake() == QuicCryptoError.none);
+        ubyte[2048] chBuf;
+        const cHello = client.writeHandshake(EncryptionLevel.initial, chBuf);
+        assert(cHello.length > 0);
+
+        assert(server.readHandshake(EncryptionLevel.initial, cHello) == QuicCryptoError.none);
+        ubyte[2048] sInitBuf;
+        const sInit = server.writeHandshake(EncryptionLevel.initial, sInitBuf);
+        ubyte[4096] sHsBuf;
+        const sHs = server.writeHandshake(EncryptionLevel.handshake, sHsBuf);
+
+        assert(client.readHandshake(EncryptionLevel.initial, sInit) == QuicCryptoError.none);
+        const hsErr = client.readHandshake(EncryptionLevel.handshake, sHs);
+        assert(hsErr != QuicCryptoError.none,
+                "Default createClient() must reject untrusted self-signed certificate");
+        assert(!client.isHandshakeComplete,
+                "Handshake must not complete when cert verification fails");
+    }
+
+    // (b) createClient("test/fixtures/quic_cert.pem") with serverName = "localhost" succeeds
+    {
+        TlsContext clientCtx = TlsContext.createClient("test/fixtures/quic_cert.pem");
+        assert(clientCtx.isValid);
+
+        TlsSession server;
+        server.init(serverCtx, Side.server, sParams);
+        TlsSession client;
+        client.init(clientCtx, Side.client, cParams, "h3", "localhost");
+
+        assert(client.stepHandshake() == QuicCryptoError.none);
+        ubyte[2048] chBuf;
+        const cHello = client.writeHandshake(EncryptionLevel.initial, chBuf);
+        assert(cHello.length > 0);
+
+        assert(server.readHandshake(EncryptionLevel.initial, cHello) == QuicCryptoError.none);
+        ubyte[2048] sInitBuf;
+        const sInit = server.writeHandshake(EncryptionLevel.initial, sInitBuf);
+        ubyte[4096] sHsBuf;
+        const sHs = server.writeHandshake(EncryptionLevel.handshake, sHsBuf);
+
+        assert(client.readHandshake(EncryptionLevel.initial, sInit) == QuicCryptoError.none);
+        assert(client.readHandshake(EncryptionLevel.handshake, sHs) == QuicCryptoError.none);
+        assert(client.isHandshakeComplete, "Valid CA and matching hostname must succeed");
+    }
+
+    // (c) createClient("test/fixtures/quic_cert.pem") with serverName = "evil.example.com" rejects cert due to hostname mismatch
+    {
+        TlsContext clientCtx = TlsContext.createClient("test/fixtures/quic_cert.pem");
+        assert(clientCtx.isValid);
+
+        TlsSession server;
+        server.init(serverCtx, Side.server, sParams);
+        TlsSession client;
+        client.init(clientCtx, Side.client, cParams, "h3", "evil.example.com");
+
+        assert(client.stepHandshake() == QuicCryptoError.none);
+        ubyte[2048] chBuf;
+        const cHello = client.writeHandshake(EncryptionLevel.initial, chBuf);
+        assert(cHello.length > 0);
+
+        assert(server.readHandshake(EncryptionLevel.initial, cHello) == QuicCryptoError.none);
+        ubyte[2048] sInitBuf;
+        const sInit = server.writeHandshake(EncryptionLevel.initial, sInitBuf);
+        ubyte[4096] sHsBuf;
+        const sHs = server.writeHandshake(EncryptionLevel.handshake, sHsBuf);
+
+        assert(client.readHandshake(EncryptionLevel.initial, sInit) == QuicCryptoError.none);
+        const hsErr = client.readHandshake(EncryptionLevel.handshake, sHs);
+        assert(hsErr != QuicCryptoError.none, "Mismatched hostname must fail handshake");
+        assert(!client.isHandshakeComplete, "Handshake must not complete on hostname mismatch");
     }
 }

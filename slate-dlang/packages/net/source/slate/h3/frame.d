@@ -185,9 +185,13 @@ public H3ErrorCode decodeSettingsPayload(const(ubyte)[] payload, out H3Settings 
 {
     settings = H3Settings.init;
 
+    bool seenMaxTable = false;
+    bool seenMaxField = false;
+    bool seenBlocked = false;
+
     enum size_t MAX_SETTINGS_TRACKED = 64;
-    ulong[MAX_SETTINGS_TRACKED] seenIds;
-    size_t seenCount = 0;
+    ulong[MAX_SETTINGS_TRACKED] seenUnknownIds;
+    size_t seenUnknownCount = 0;
 
     size_t offset = 0;
     while (offset < payload.length)
@@ -209,24 +213,39 @@ public H3ErrorCode decodeSettingsPayload(const(ubyte)[] payload, out H3Settings 
             return H3ErrorCode.settingsError;
 
         // RFC 9114 Section 7.2.4.1: Reject duplicate settings
-        foreach (i; 0 .. seenCount)
-        {
-            if (seenIds[i] == id)
-                return H3ErrorCode.settingsError;
-        }
-
-        if (seenCount >= MAX_SETTINGS_TRACKED)
-            return H3ErrorCode.settingsError;
-        seenIds[seenCount++] = id;
-
-        // Store recognized settings
         if (id == H3SettingId.qpackMaxTableCapacity)
+        {
+            if (seenMaxTable)
+                return H3ErrorCode.settingsError;
+            seenMaxTable = true;
             settings.qpackMaxTableCapacity = val;
+        }
         else if (id == H3SettingId.maxFieldSectionSize)
+        {
+            if (seenMaxField)
+                return H3ErrorCode.settingsError;
+            seenMaxField = true;
             settings.maxFieldSectionSize = val;
+        }
         else if (id == H3SettingId.qpackBlockedStreams)
+        {
+            if (seenBlocked)
+                return H3ErrorCode.settingsError;
+            seenBlocked = true;
             settings.qpackBlockedStreams = val;
-        // Unknown or GREASE setting IDs are cleanly ignored
+        }
+        else
+        {
+            // Unknown or GREASE setting IDs: reject duplicate if already in seenUnknownIds
+            foreach (i; 0 .. seenUnknownCount)
+            {
+                if (seenUnknownIds[i] == id)
+                    return H3ErrorCode.settingsError;
+            }
+            if (seenUnknownCount < MAX_SETTINGS_TRACKED)
+                seenUnknownIds[seenUnknownCount++] = id;
+            // Cleanly ignore unknown/GREASE setting values without erroring on > 64 settings
+        }
     }
 
     return H3ErrorCode.noError;
@@ -422,4 +441,24 @@ public H3ErrorCode decodeGoawayPayload(const(ubyte)[] payload, out ulong streamI
 
     // Empty payload
     assert(decodeGoawayPayload(null, streamId) == H3ErrorCode.frameError);
+}
+
+/// Example:
+// Spec: RFC 9114 Section 7.2.4.1 - Settings Payload Codec with 70 Distinct GREASE Settings Succeeds (F-58, D-12)
+@nogc unittest
+{
+    ubyte[1024] greaseBuf;
+    size_t written = 0;
+    size_t w = 0;
+    foreach (i; 0 .. 70)
+    {
+        const ulong greaseId = 0x1f * i + 0x21;
+        assert(encodeVarInt(greaseId, greaseBuf[written .. $], w) == WireError.none);
+        written += w;
+        assert(encodeVarInt(i + 1, greaseBuf[written .. $], w) == WireError.none);
+        written += w;
+    }
+
+    H3Settings s;
+    assert(decodeSettingsPayload(greaseBuf[0 .. written], s) == H3ErrorCode.noError);
 }

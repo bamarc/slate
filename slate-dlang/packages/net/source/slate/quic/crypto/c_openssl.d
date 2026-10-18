@@ -107,6 +107,27 @@ const(SSL_CIPHER)* SSL_get_current_cipher(const(SSL)* s);
 uint SSL_CIPHER_get_protocol_id(const(SSL_CIPHER)* c);
 uint SSL_CIPHER_get_id(const(SSL_CIPHER)* c);
 
+// --- Certificate Verification & Hostname Validation ---
+enum int SSL_VERIFY_NONE = 0x00;
+enum int SSL_VERIFY_PEER = 0x01;
+enum int SSL_VERIFY_FAIL_IF_NO_PEER_CERT = 0x02;
+enum int SSL_VERIFY_CLIENT_ONCE = 0x04;
+
+alias SSL_verify_cb = int function(int preverify_ok, void* x509_ctx) @nogc nothrow;
+void SSL_CTX_set_verify(SSL_CTX* ctx, int mode, SSL_verify_cb callback);
+int SSL_CTX_set_default_verify_paths(SSL_CTX* ctx);
+int SSL_CTX_load_verify_locations(SSL_CTX* ctx, const(char)* CAfile, const(char)* CApath);
+
+enum int SSL_CTRL_SET_TLSEXT_HOSTNAME = 55;
+enum int TLSEXT_NAMETYPE_host_name = 0;
+
+int SSL_set1_host(SSL* s, const(char)* hostname);
+long SSL_get_verify_result(const(SSL)* ssl);
+enum long X509_V_OK = 0;
+
+int CRYPTO_memcmp(const(void)* a, const(void)* b, size_t len);
+void OPENSSL_cleanse(void* ptr, size_t len);
+
 // --- OpenSSL 3.5 QUIC TLS API ---
 struct OSSL_DISPATCH
 {

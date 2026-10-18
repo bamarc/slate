@@ -9,134 +9,138 @@ public import slate.h3.qpack;
 public import slate.h3.frame;
 public import slate.h3.connection;
 
-import slate.quic.connection : QuicConnection;
-import slate.quic.crypto.tls_session : TlsContext;
-import slate.quic.crypto.kdf : Side;
-import slate.quic.wire.cid : ConnectionId, TransportErrorCode;
-import slate.quic.wire.transport_params : TransportParameters;
-import slate.quic.stream.id : StreamId, StreamDirection;
-
-private struct TestQuicPair
+version (unittest)
 {
-    QuicConnection client;
-    QuicConnection server;
-    ulong now = 1_000_000;
+    import slate.quic.connection : QuicConnection;
+    import slate.quic.crypto.tls_session : TlsContext;
+    import slate.quic.crypto.kdf : Side;
+    import slate.quic.wire.cid : ConnectionId, TransportErrorCode;
+    import slate.quic.wire.transport_params : TransportParameters;
+    import slate.quic.stream.id : StreamId, StreamDirection;
 
-    void pump() @trusted @nogc nothrow
+    private struct TestQuicPair
     {
-        ubyte[4096] buf;
-        size_t len = 0;
-        foreach (_; 0 .. 10)
+        QuicConnection client;
+        QuicConnection server;
+        ulong now = 1_000_000;
+
+        void pump() @trusted @nogc nothrow
         {
-            bool hadTraffic = false;
-            if (client.pollTransmit(buf[], now, len) && len > 0)
+            ubyte[4096] buf;
+            size_t len = 0;
+            foreach (_; 0 .. 10)
             {
-                server.handleDatagram(buf[0 .. len], now);
-                hadTraffic = true;
+                bool hadTraffic = false;
+                if (client.pollTransmit(buf[], now, len) && len > 0)
+                {
+                    server.handleDatagram(buf[0 .. len], now);
+                    hadTraffic = true;
+                }
+                if (server.pollTransmit(buf[], now, len) && len > 0)
+                {
+                    client.handleDatagram(buf[0 .. len], now);
+                    hadTraffic = true;
+                }
+                now += 1000;
+                if (!hadTraffic)
+                    break;
             }
-            if (server.pollTransmit(buf[], now, len) && len > 0)
-            {
-                client.handleDatagram(buf[0 .. len], now);
-                hadTraffic = true;
-            }
-            now += 1000;
-            if (!hadTraffic)
-                break;
         }
     }
-}
 
-private bool initTestQuicPair(out TestQuicPair pair) @trusted @nogc nothrow
-{
-    alias ServerFn = TlsContext function(const(char)[], const(char)[]) @nogc nothrow;
-    alias ClientFn = TlsContext function() @nogc nothrow;
+    private bool initTestQuicPair(out TestQuicPair pair) @trusted @nogc nothrow
+    {
+        TlsContext serverCtx = TlsContext.createServer("test/fixtures/quic_cert.pem",
+                "test/fixtures/quic_key.pem");
+        if (!serverCtx.isValid)
+            serverCtx = TlsContext.createServer("packages/net/test/fixtures/quic_cert.pem",
+                    "packages/net/test/fixtures/quic_key.pem");
+        if (!serverCtx.isValid)
+            serverCtx = TlsContext.createServer("slate-dlang/packages/net/test/fixtures/quic_cert.pem",
+                    "slate-dlang/packages/net/test/fixtures/quic_key.pem");
+        if (!serverCtx.isValid)
+            return false;
 
-    TlsContext serverCtx = (cast(ServerFn)&TlsContext.createServer)(
-            "test/fixtures/quic_cert.pem", "test/fixtures/quic_key.pem");
-    if (!serverCtx.isValid)
-        serverCtx = (cast(ServerFn)&TlsContext.createServer)("packages/net/test/fixtures/quic_cert.pem",
-                "packages/net/test/fixtures/quic_key.pem");
-    if (!serverCtx.isValid)
-        serverCtx = (cast(ServerFn)&TlsContext.createServer)("slate-dlang/packages/net/test/fixtures/quic_cert.pem",
-                "slate-dlang/packages/net/test/fixtures/quic_key.pem");
-    if (!serverCtx.isValid)
-        return false;
+        TlsContext clientCtx = TlsContext.createClientInsecure();
+        if (!clientCtx.isValid)
+            return false;
 
-    TlsContext clientCtx = (cast(ClientFn)&TlsContext.createClient)();
-    if (!clientCtx.isValid)
-        return false;
+        const ubyte[8] dcidBytes = [
+            0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08
+        ];
+        const ubyte[8] scidBytes = [
+            0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8
+        ];
+        ConnectionId clientDcid = ConnectionId(dcidBytes[]);
+        ConnectionId clientScid = ConnectionId(scidBytes[]);
 
-    const ubyte[8] dcidBytes = [0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08];
-    const ubyte[8] scidBytes = [0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8];
-    ConnectionId clientDcid = ConnectionId(dcidBytes[]);
-    ConnectionId clientScid = ConnectionId(scidBytes[]);
+        TransportParameters clientTp;
+        clientTp.hasInitialSourceConnectionId = true;
+        clientTp.initialSourceConnectionId = clientScid;
+        clientTp.initialMaxData = 10_000_000;
+        clientTp.initialMaxStreamsBidi = 100;
+        clientTp.initialMaxStreamsUni = 100;
+        clientTp.initialMaxStreamDataBidiLocal = 1_000_000;
+        clientTp.initialMaxStreamDataBidiRemote = 1_000_000;
+        clientTp.initialMaxStreamDataUni = 1_000_000;
 
-    TransportParameters clientTp;
-    clientTp.hasInitialSourceConnectionId = true;
-    clientTp.initialSourceConnectionId = clientScid;
-    clientTp.initialMaxData = 10_000_000;
-    clientTp.initialMaxStreamsBidi = 100;
-    clientTp.initialMaxStreamsUni = 100;
-    clientTp.initialMaxStreamDataBidiLocal = 1_000_000;
-    clientTp.initialMaxStreamDataBidiRemote = 1_000_000;
-    clientTp.initialMaxStreamDataUni = 1_000_000;
+        TransportParameters serverTp;
+        serverTp.hasOriginalDestinationConnectionId = true;
+        serverTp.originalDestinationConnectionId = clientDcid;
+        serverTp.hasInitialSourceConnectionId = true;
+        serverTp.initialSourceConnectionId = clientDcid;
+        serverTp.initialMaxData = 20_000_000;
+        serverTp.initialMaxStreamsBidi = 100;
+        serverTp.initialMaxStreamsUni = 100;
+        serverTp.initialMaxStreamDataBidiLocal = 1_000_000;
+        serverTp.initialMaxStreamDataBidiRemote = 1_000_000;
+        serverTp.initialMaxStreamDataUni = 1_000_000;
 
-    TransportParameters serverTp;
-    serverTp.hasOriginalDestinationConnectionId = true;
-    serverTp.originalDestinationConnectionId = clientDcid;
-    serverTp.hasInitialSourceConnectionId = true;
-    serverTp.initialSourceConnectionId = clientDcid;
-    serverTp.initialMaxData = 20_000_000;
-    serverTp.initialMaxStreamsBidi = 200;
-    serverTp.initialMaxStreamsUni = 100;
-    serverTp.initialMaxStreamDataBidiLocal = 1_000_000;
-    serverTp.initialMaxStreamDataBidiRemote = 1_000_000;
-    serverTp.initialMaxStreamDataUni = 1_000_000;
+        ulong now = 1_000_000;
+        pair.now = now;
 
-    ulong now = 1_000_000;
-    pair.now = now;
+        if (!QuicConnection.create(Side.client, clientCtx, clientScid,
+                clientDcid, clientTp, now, pair.client))
+            return false;
+        if (!QuicConnection.create(Side.server, serverCtx, clientDcid,
+                ConnectionId.init, serverTp, now, pair.server))
+            return false;
 
-    if (!QuicConnection.create(Side.client, clientCtx, clientScid, clientDcid,
-            clientTp, now, pair.client))
-        return false;
-    if (!QuicConnection.create(Side.server, serverCtx, clientDcid,
-            ConnectionId.init, serverTp, now, pair.server))
-        return false;
+        // Handshake 4 flights per RFC 9000 & connection_test.d
+        ubyte[4096] dgramBuf;
+        size_t dgramLen = 0;
 
-    // Handshake 4 flights per RFC 9000 & connection_test.d
-    ubyte[4096] dgramBuf;
-    size_t dgramLen = 0;
+        // Flight 1: Client Initial -> Server
+        if (!pair.client.pollTransmit(dgramBuf[], now, dgramLen) || dgramLen == 0)
+            return false;
+        if (pair.server.handleDatagram(dgramBuf[0 .. dgramLen], now) != TransportErrorCode.noError)
+            return false;
 
-    // Flight 1: Client Initial -> Server
-    if (!pair.client.pollTransmit(dgramBuf[], now, dgramLen) || dgramLen == 0)
-        return false;
-    if (pair.server.handleDatagram(dgramBuf[0 .. dgramLen], now) != TransportErrorCode.noError)
-        return false;
+        // Flight 2: Server Initial + Handshake -> Client
+        now += 10_000;
+        if (!pair.server.pollTransmit(dgramBuf[], now, dgramLen) || dgramLen == 0)
+            return false;
+        if (pair.client.handleDatagram(dgramBuf[0 .. dgramLen], now) != TransportErrorCode.noError)
+            return false;
 
-    // Flight 2: Server Initial + Handshake -> Client
-    now += 10_000;
-    if (!pair.server.pollTransmit(dgramBuf[], now, dgramLen) || dgramLen == 0)
-        return false;
-    if (pair.client.handleDatagram(dgramBuf[0 .. dgramLen], now) != TransportErrorCode.noError)
-        return false;
+        // Flight 3: Client Handshake -> Server
+        now += 10_000;
+        if (!pair.client.pollTransmit(dgramBuf[], now, dgramLen) || dgramLen == 0)
+            return false;
+        if (pair.server.handleDatagram(dgramBuf[0 .. dgramLen], now) != TransportErrorCode.noError)
+            return false;
 
-    // Flight 3: Client Handshake -> Server
-    now += 10_000;
-    if (!pair.client.pollTransmit(dgramBuf[], now, dgramLen) || dgramLen == 0)
-        return false;
-    if (pair.server.handleDatagram(dgramBuf[0 .. dgramLen], now) != TransportErrorCode.noError)
-        return false;
+        // Flight 4: Server 1-RTT with HANDSHAKE_DONE -> Client
+        now += 10_000;
+        if (!pair.server.pollTransmit(dgramBuf[], now, dgramLen) || dgramLen == 0)
+            return false;
+        if (pair.client.handleDatagram(dgramBuf[0 .. dgramLen], now) != TransportErrorCode.noError)
+            return false;
 
-    // Flight 4: Server 1-RTT with HANDSHAKE_DONE -> Client
-    now += 10_000;
-    if (!pair.server.pollTransmit(dgramBuf[], now, dgramLen) || dgramLen == 0)
-        return false;
-    if (pair.client.handleDatagram(dgramBuf[0 .. dgramLen], now) != TransportErrorCode.noError)
-        return false;
-
-    now += 10_000;
-    pair.now = now;
-    return pair.client.handshakeConfirmed;
+        now += 10_000;
+        pair.now = now;
+        return pair.client.handshakeConfirmed;
+    }
 }
 
 /// Example:
@@ -211,8 +215,9 @@ private bool initTestQuicPair(out TestQuicPair pair) @trusted @nogc nothrow
     assert(ev.streamId == reqStream1);
 
     // 4. Client sends POST "/api/echo" with body and content-length
-    const H3HeaderField[5] postHeaders = [
+    const H3HeaderField[6] postHeaders = [
         H3HeaderField(":method", "POST"), H3HeaderField(":scheme", "https"),
+        H3HeaderField(":authority", "localhost"),
         H3HeaderField(":path", "/api/echo"), H3HeaderField("content-length",
                 "9"), H3HeaderField("content-type", "text/plain")
     ];
@@ -319,8 +324,9 @@ private bool initTestQuicPair(out TestQuicPair pair) @trusted @nogc nothrow
     assert(server.pollEvent(quic.server, ev));
 
     // Content-length mismatch: header declares content-length: 5, but sends 10 bytes DATA
-    const H3HeaderField[4] headers = [
+    const H3HeaderField[5] headers = [
         H3HeaderField(":method", "POST"), H3HeaderField(":scheme", "https"),
+        H3HeaderField(":authority", "localhost"),
         H3HeaderField(":path", "/bad-length"),
         H3HeaderField("content-length", "5")
     ];
@@ -547,8 +553,9 @@ private bool initTestQuicPair(out TestQuicPair pair) @trusted @nogc nothrow
     assert(server.pollEvent(quic.server, ev));
 
     // Client sends GET "/" request
-    const H3HeaderField[4] reqHdrs = [
+    const H3HeaderField[5] reqHdrs = [
         H3HeaderField(":method", "GET"), H3HeaderField(":scheme", "https"),
+        H3HeaderField(":authority", "localhost"),
         H3HeaderField(":path", "/stream"), H3HeaderField("te", "trailers")
     ];
     StreamId reqStream;
@@ -1038,4 +1045,389 @@ private bool initTestQuicPair(out TestQuicPair pair) @trusted @nogc nothrow
     assert(serverF.pollEvent(quicF.server, ev));
     assert(ev.type == H3EventType.connectionClosed);
     assert(ev.errorCode == H3ErrorCode.messageError);
+}
+
+/// Example:
+// Spec: RFC 9114 Section 4.3.1 - :authority and Host Header Validation (F-48)
+@nogc unittest
+{
+    // (a) Missing both :authority and host
+    const H3HeaderField[3] noAuthNoHost = [
+        H3HeaderField(":method", "GET"), H3HeaderField(":scheme", "https"),
+        H3HeaderField(":path", "/")
+    ];
+    assert(validateHeaders(noAuthNoHost[], false) == H3ErrorCode.messageError);
+
+    // (b) Mismatch between :authority and host
+    const H3HeaderField[5] authHostMismatch = [
+        H3HeaderField(":method", "GET"), H3HeaderField(":scheme", "https"),
+        H3HeaderField(":authority", "example.com"), H3HeaderField(":path",
+                "/"), H3HeaderField("host", "other.com")
+    ];
+    assert(validateHeaders(authHostMismatch[], false) == H3ErrorCode.messageError);
+
+    // (c) Matching :authority and host is valid
+    const H3HeaderField[5] authHostMatch = [
+        H3HeaderField(":method", "GET"), H3HeaderField(":scheme", "https"),
+        H3HeaderField(":authority", "example.com"), H3HeaderField(":path",
+                "/"), H3HeaderField("host", "example.com")
+    ];
+    assert(validateHeaders(authHostMatch[], false) == H3ErrorCode.noError);
+
+    // (d) Duplicate host header
+    const H3HeaderField[5] dupHost = [
+        H3HeaderField(":method", "GET"), H3HeaderField(":scheme", "https"),
+        H3HeaderField(":path", "/"), H3HeaderField("host", "example.com"),
+        H3HeaderField("host", "example.com")
+    ];
+    assert(validateHeaders(dupHost[], false) == H3ErrorCode.messageError);
+
+    // (e) Empty host header value
+    const H3HeaderField[4] emptyHost = [
+        H3HeaderField(":method", "GET"), H3HeaderField(":scheme", "https"),
+        H3HeaderField(":path", "/"), H3HeaderField("host", "")
+    ];
+    assert(validateHeaders(emptyHost[], false) == H3ErrorCode.messageError);
+}
+
+/// Example:
+// Spec: RFC 9114 Section 6.2 - GREASE Unidirectional Stream 1 MiB Direct Drain (F-50)
+@nogc unittest
+{
+    TestQuicPair quic;
+    assert(initTestQuicPair(quic));
+    H3Connection client = H3Connection(Side.client);
+    H3Connection server = H3Connection(Side.server);
+    assert(client.initConnection(quic.client));
+    assert(server.initConnection(quic.server));
+    quic.pump();
+
+    H3Event ev;
+    assert(client.pollEvent(quic.client, ev));
+    assert(server.pollEvent(quic.server, ev));
+
+    // Open GREASE unidirectional stream (type 0x1f * N + 0x21, e.g. 0x21 = 33)
+    StreamId greaseStream;
+    assert(quic.client.openStream(StreamDirection.unidirectional,
+            greaseStream) == TransportErrorCode.noError);
+    ubyte[1] greaseType = [0x21];
+    assert(quic.client.streamWrite(greaseStream, greaseType[], false));
+    quic.pump();
+    assert(!server.pollEvent(quic.server, ev));
+
+    // Send 1 MiB of GREASE payload in 64 KiB chunks
+    ubyte[65536] junk;
+    foreach (ref b; junk)
+        b = 0xAA;
+    foreach (i; 0 .. 16)
+    {
+        const bool isFin = (i == 15);
+        assert(quic.client.streamWrite(greaseStream, junk[], isFin));
+        quic.pump();
+        assert(!server.pollEvent(quic.server, ev));
+        assert(!server.isClosed);
+    }
+}
+
+/// Example:
+// Spec: RFC 9114 Section 6.2, RFC 9204 - QPACK Stream Data Rejection When Table Cap is 0 (F-49)
+@nogc unittest
+{
+    // Client sends data on QPACK encoder stream -> qpackEncoderStreamError (0x0201)
+    TestQuicPair quic1;
+    assert(initTestQuicPair(quic1));
+    H3Connection client1 = H3Connection(Side.client);
+    H3Connection server1 = H3Connection(Side.server);
+    assert(client1.initConnection(quic1.client));
+    assert(server1.initConnection(quic1.server));
+    quic1.pump();
+
+    H3Event ev;
+    assert(server1.pollEvent(quic1.server, ev));
+
+    // Send instruction byte on client's existing QPACK encoder stream
+    ubyte[1] encPayload = [0x80]; // Set dynamic table cap
+    assert(quic1.client.streamWrite(client1.localQpackEncStreamId, encPayload[], false));
+    quic1.pump();
+
+    assert(server1.pollEvent(quic1.server, ev));
+    assert(ev.type == H3EventType.connectionClosed);
+    assert(ev.errorCode == H3ErrorCode.qpackEncoderStreamError);
+
+    // Client sends data on QPACK decoder stream -> qpackDecoderStreamError (0x0202)
+    TestQuicPair quic2;
+    assert(initTestQuicPair(quic2));
+    H3Connection client2 = H3Connection(Side.client);
+    H3Connection server2 = H3Connection(Side.server);
+    assert(client2.initConnection(quic2.client));
+    assert(server2.initConnection(quic2.server));
+    quic2.pump();
+    assert(server2.pollEvent(quic2.server, ev));
+
+    ubyte[1] decPayload = [0x01]; // Section ack
+    assert(quic2.client.streamWrite(client2.localQpackDecStreamId, decPayload[], false));
+    quic2.pump();
+
+    assert(server2.pollEvent(quic2.server, ev));
+    assert(ev.type == H3EventType.connectionClosed);
+    assert(ev.errorCode == H3ErrorCode.qpackDecoderStreamError);
+}
+
+/// Example:
+// Spec: RFC 9114 Section 4.6, Section 7.2.7 - MAX_PUSH_ID Monotonic Increase & Rejection of Decreases (F-54)
+@nogc unittest
+{
+    TestQuicPair quic;
+    assert(initTestQuicPair(quic));
+    H3Connection client = H3Connection(Side.client);
+    H3Connection server = H3Connection(Side.server);
+    assert(client.initConnection(quic.client));
+    assert(server.initConnection(quic.server));
+    quic.pump();
+
+    H3Event ev;
+    assert(client.pollEvent(quic.client, ev));
+    assert(server.pollEvent(quic.server, ev));
+
+    // Client sends MAX_PUSH_ID 10 on control stream
+    ubyte[16] fhdr;
+    size_t fhl = 0;
+    ubyte[8] p1;
+    size_t pl1 = 0;
+    assert(encodeVarInt(10, p1[], pl1) == WireError.none);
+    assert(encodeH3FrameHeader(H3FrameType.maxPushId, pl1, fhdr[], fhl));
+    assert(quic.client.streamWrite(client.localControlStreamId, fhdr[0 .. fhl], false));
+    assert(quic.client.streamWrite(client.localControlStreamId, p1[0 .. pl1], false));
+    quic.pump();
+
+    assert(!server.pollEvent(quic.server, ev));
+    assert(server.hasMaxPushId && server.maxPushId == 10);
+
+    // Client sends MAX_PUSH_ID 5 (decrease) -> idError (0x0108)
+    ubyte[8] p2;
+    size_t pl2 = 0;
+    assert(encodeVarInt(5, p2[], pl2) == WireError.none);
+    assert(encodeH3FrameHeader(H3FrameType.maxPushId, pl2, fhdr[], fhl));
+    assert(quic.client.streamWrite(client.localControlStreamId, fhdr[0 .. fhl], false));
+    assert(quic.client.streamWrite(client.localControlStreamId, p2[0 .. pl2], false));
+    quic.pump();
+
+    assert(server.pollEvent(quic.server, ev));
+    assert(ev.type == H3EventType.connectionClosed);
+    assert(ev.errorCode == H3ErrorCode.idError);
+}
+
+/// Example:
+// Spec: RFC 9114 Section 4.1.2 - 204 No Content with Content-Length Permitted Without Data (F-55)
+@nogc unittest
+{
+    TestQuicPair quic;
+    assert(initTestQuicPair(quic));
+    H3Connection client = H3Connection(Side.client);
+    H3Connection server = H3Connection(Side.server);
+    assert(client.initConnection(quic.client));
+    assert(server.initConnection(quic.server));
+    quic.pump();
+
+    H3Event ev;
+    assert(client.pollEvent(quic.client, ev));
+    assert(server.pollEvent(quic.server, ev));
+
+    const H3HeaderField[4] getReq = [
+        H3HeaderField(":method", "DELETE"), H3HeaderField(":scheme", "https"),
+        H3HeaderField(":authority", "example.com"),
+        H3HeaderField(":path", "/item/1")
+    ];
+    StreamId reqId;
+    assert(client.sendRequest(quic.client, getReq[], null, true, reqId));
+    quic.pump();
+
+    assert(server.pollEvent(quic.server, ev));
+    assert(server.pollEvent(quic.server, ev));
+
+    // Server responds 204 No Content with non-zero Content-Length: 0 or 100, and 0 bytes DATA
+    const H3HeaderField[1] respHdrs = [H3HeaderField("content-length", "100")];
+    assert(server.sendResponse(quic.server, reqId, 204, respHdrs[], null, true));
+    quic.pump();
+
+    // Client receives headersReceived and requestFinished without error
+    assert(client.pollEvent(quic.client, ev));
+    assert(ev.type == H3EventType.headersReceived);
+    assert(ev.headers[0].value == "204");
+    assert(client.pollEvent(quic.client, ev));
+    assert(ev.type == H3EventType.requestFinished);
+    assert(!client.isClosed);
+}
+
+/// Example:
+// Spec: RFC 9114 Section 4.1 - 300 Sequential Requests Reaping Finished Streams and Replenishing MAX_STREAMS (F-46, D-02, D-12)
+@nogc unittest
+{
+    TestQuicPair quic;
+    assert(initTestQuicPair(quic));
+    H3Connection client = H3Connection(Side.client);
+    H3Connection server = H3Connection(Side.server);
+    assert(client.initConnection(quic.client));
+    assert(server.initConnection(quic.server));
+    quic.pump();
+
+    H3Event ev;
+    assert(client.pollEvent(quic.client, ev));
+    assert(server.pollEvent(quic.server, ev));
+
+    const H3HeaderField[4] reqHdrs = [
+        H3HeaderField(":method", "GET"), H3HeaderField(":scheme", "https"),
+        H3HeaderField(":authority", "example.com"),
+        H3HeaderField(":path", "/test")
+    ];
+
+    foreach (iter; 0 .. 300)
+    {
+        StreamId sid;
+        assert(client.sendRequest(quic.client, reqHdrs[], null, true, sid));
+        quic.pump();
+
+        assert(server.pollEvent(quic.server, ev)); // headersReceived
+        assert(server.pollEvent(quic.server, ev)); // requestFinished
+
+        assert(server.sendResponse(quic.server, sid, 200, null, cast(const(ubyte)[]) "ok", true));
+        quic.pump();
+
+        assert(client.pollEvent(quic.client, ev)); // headersReceived
+        assert(client.pollEvent(quic.client, ev)); // dataReceived
+        assert(client.pollEvent(quic.client, ev)); // requestFinished
+    }
+}
+
+/// Example:
+// Spec: RFC 9114 Section 6.1 - Client Rejection of Server-Initiated Bidirectional Streams (F-52)
+@nogc unittest
+{
+    TestQuicPair quic;
+    assert(initTestQuicPair(quic));
+    H3Connection client = H3Connection(Side.client);
+    H3Connection server = H3Connection(Side.server);
+    assert(client.initConnection(quic.client));
+    assert(server.initConnection(quic.server));
+    quic.pump();
+
+    H3Event ev;
+    assert(client.pollEvent(quic.client, ev));
+    assert(server.pollEvent(quic.server, ev));
+
+    // Server opens a bidirectional stream (server-initiated bidi, type 0x01)
+    StreamId srvBidi;
+    assert(quic.server.openStream(StreamDirection.bidirectional,
+            srvBidi) == TransportErrorCode.noError);
+    ubyte[4] dummy = [0x00, 0x00, 0x00, 0x00];
+    assert(quic.server.streamWrite(srvBidi, dummy[], false));
+    quic.pump();
+
+    // Client detects server-initiated bidi and aborts with streamCreationError (0x0103)
+    assert(client.pollEvent(quic.client, ev));
+    assert(ev.type == H3EventType.connectionClosed);
+    assert(ev.errorCode == H3ErrorCode.streamCreationError);
+}
+
+/// Example:
+// Spec: RFC 9114 Section 5.2 - GOAWAY Enforcement: Reject sendRequest After GOAWAY & Enforce Monotonic Decreases (F-53)
+@nogc unittest
+{
+    TestQuicPair quic;
+    assert(initTestQuicPair(quic));
+    H3Connection client = H3Connection(Side.client);
+    H3Connection server = H3Connection(Side.server);
+    assert(client.initConnection(quic.client));
+    assert(server.initConnection(quic.server));
+    quic.pump();
+
+    H3Event ev;
+    assert(client.pollEvent(quic.client, ev));
+    assert(server.pollEvent(quic.server, ev));
+
+    // Server sends GOAWAY with StreamId 0
+    assert(server.sendGoaway(quic.server, 0));
+    quic.pump();
+
+    assert(client.pollEvent(quic.client, ev));
+    assert(ev.type == H3EventType.goawayReceived);
+
+    // Client attempts sendRequest after GOAWAY -> must be rejected
+    const H3HeaderField[4] reqHdrs = [
+        H3HeaderField(":method", "GET"), H3HeaderField(":scheme", "https"),
+        H3HeaderField(":authority", "example.com"), H3HeaderField(":path", "/")
+    ];
+    StreamId sid;
+    assert(!client.sendRequest(quic.client, reqHdrs[], null, true, sid));
+
+    // Server attempts sendGoaway with larger stream ID (increase) -> rejected
+    assert(!server.sendGoaway(quic.server, 4));
+}
+
+/// Example:
+// Spec: RFC 9114 Section 6.2.1 - Control Stream Frame Parsing Before FIN & Critical Stream Closure (F-51)
+@nogc unittest
+{
+    // Peer opens Control Stream, writes incomplete frame header, and sends FIN -> frameError (0x0106)
+    TestQuicPair quic;
+    assert(initTestQuicPair(quic));
+    H3Connection server = H3Connection(Side.server);
+    H3Event ev;
+
+    StreamId ctlStream;
+    assert(quic.client.openStream(StreamDirection.unidirectional,
+            ctlStream) == TransportErrorCode.noError);
+    // Write stream type 0x00, but partial frame header (1 byte of frame type 0x04) with FIN = true
+    ubyte[2] partialFrame = [0x00, 0x04];
+    assert(quic.client.streamWrite(ctlStream, partialFrame[], true));
+    quic.pump();
+
+    assert(server.pollEvent(quic.server, ev));
+    assert(ev.type == H3EventType.connectionClosed);
+    assert(ev.errorCode == H3ErrorCode.frameError);
+}
+
+/// Example:
+// Spec: RFC 9114 Section 4.3.1, Section 7.2.4.1 - 8 KiB HTTP/3 Header Block & maxFieldSectionSize Enforcement (F-56, D-11, D-12)
+@nogc unittest
+{
+    TestQuicPair quic;
+    assert(initTestQuicPair(quic));
+    H3Connection client = H3Connection(Side.client);
+    H3Connection server = H3Connection(Side.server);
+    assert(client.initConnection(quic.client));
+    assert(server.initConnection(quic.server));
+    quic.pump();
+
+    H3Event ev;
+    assert(client.pollEvent(quic.client, ev));
+    assert(server.pollEvent(quic.server, ev));
+
+    // Construct 8 KiB header value
+    char[8000] bigVal;
+    foreach (ref c; bigVal)
+        c = 'a';
+
+    const H3HeaderField[5] bigHdrs = [
+        H3HeaderField(":method", "GET"), H3HeaderField(":scheme", "https"),
+        H3HeaderField(":authority", "example.com"), H3HeaderField(":path",
+                "/"), H3HeaderField("x-large", bigVal[])
+    ];
+
+    StreamId sid;
+    assert(client.sendRequest(quic.client, bigHdrs[], null, true, sid));
+    quic.pump();
+
+    assert(server.pollEvent(quic.server, ev));
+    assert(ev.type == H3EventType.headersReceived);
+    assert(ev.headerCount == 5);
+    assert(ev.headers[4].name == "x-large");
+    assert(ev.headers[4].value.length == 8000);
+    assert(server.pollEvent(quic.server, ev));
+    assert(ev.type == H3EventType.requestFinished);
+
+    // Verify rejection when outbound headers exceed peerSettings.maxFieldSectionSize
+    client.peerSettings.maxFieldSectionSize = 100;
+    StreamId badSid;
+    assert(!client.sendRequest(quic.client, bigHdrs[], null, true, badSid));
 }

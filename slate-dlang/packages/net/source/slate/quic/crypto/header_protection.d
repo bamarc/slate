@@ -19,7 +19,7 @@ void encodePacketNumber(ulong fullPn, size_t pnLen, ubyte[] outBuf) @safe @nogc 
  */
 size_t packetNumberLength(ulong fullPn, ulong largestAcked) @safe @nogc nothrow pure
 {
-    const ulong numUnacked = fullPn - largestAcked;
+    const ulong numUnacked = fullPn > largestAcked ? (fullPn - largestAcked) : 1;
     const ulong minWin = numUnacked * 2;
     if (minWin < (1UL << 8))
         return 1;
@@ -34,7 +34,15 @@ size_t packetNumberLength(ulong fullPn, ulong largestAcked) @safe @nogc nothrow 
  * Decodes a truncated packet number given the largest acknowledged packet number (RFC 9000 Appendix A.3).
  */
 ulong decodePacketNumber(ulong largestPn, ulong truncatedPn, size_t pnLen) @safe @nogc nothrow pure
+in
 {
+    assert(pnLen >= 1 && pnLen <= 4);
+}
+do
+{
+    if (pnLen < 1 || pnLen > 4)
+        return truncatedPn;
+
     const ulong expectedPn = largestPn + 1;
     const ulong pnWin = 1UL << (pnLen * 8);
     const ulong pnHwin = pnWin / 2;
@@ -77,9 +85,13 @@ public:
     /**
      * Initializes or re-initializes in-place.
      */
-    void init(CipherSuite suite, const(ubyte)[] hpKey) @trusted @nogc nothrow
+    bool init(CipherSuite suite, const(ubyte)[] hpKey) @trusted @nogc nothrow
     {
         cleanup();
+
+        const size_t reqHpLen = hpKeyLength(suite);
+        if (hpKey.length < reqHpLen)
+            return false;
 
         m_suite = suite;
         const(EVP_CIPHER)* cipher;
@@ -101,13 +113,18 @@ public:
         m_ctx = EVP_CIPHER_CTX_new();
         if (m_ctx !is null && cipher !is null)
         {
-            EVP_EncryptInit_ex(m_ctx, cipher, null, hpKey.ptr, null);
-            if (suite != CipherSuite.TLS_CHACHA20_POLY1305_SHA256)
+            if (EVP_EncryptInit_ex(m_ctx, cipher, null, hpKey.ptr, null) > 0)
             {
-                EVP_CIPHER_CTX_set_padding(m_ctx, 0);
+                if (suite != CipherSuite.TLS_CHACHA20_POLY1305_SHA256)
+                {
+                    EVP_CIPHER_CTX_set_padding(m_ctx, 0);
+                }
+                m_initialized = true;
+                return true;
             }
-            m_initialized = true;
         }
+        cleanup();
+        return false;
     }
 
     ~this() @trusted @nogc nothrow
@@ -130,6 +147,8 @@ public:
      */
     void moveFrom(ref HeaderProtectionKey other) @trusted @nogc nothrow
     {
+        if (&this == &other)
+            return;
         cleanup();
         m_ctx = other.m_ctx;
         m_suite = other.m_suite;
@@ -193,7 +212,10 @@ public:
      */
     QuicCryptoError apply(ubyte[] packet, size_t pnOffset, size_t pnLen) @trusted @nogc nothrow
     {
-        if (packet.length < pnOffset + 4 + 16)
+        if (pnLen < 1 || pnLen > 4)
+            return QuicCryptoError.internalError;
+
+        if (pnOffset > packet.length || packet.length - pnOffset < 4 + 16)
             return QuicCryptoError.packetTooShort;
 
         const size_t sampleOffset = pnOffset + 4;
@@ -233,7 +255,7 @@ public:
         decodedPnLen = 0;
         decodedPn = 0;
 
-        if (packet.length < pnOffset + 4 + 16)
+        if (pnOffset > packet.length || packet.length - pnOffset < 4 + 16)
             return QuicCryptoError.packetTooShort;
 
         const size_t sampleOffset = pnOffset + 4;

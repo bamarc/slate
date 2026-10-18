@@ -17,11 +17,14 @@ public import slate.quic.wire.packet;
 public import slate.quic.wire.frame;
 public import slate.quic.wire.transport_params;
 
-import slate.quic.crypto.kdf;
-import slate.quic.crypto.aead;
-import slate.quic.crypto.header_protection;
-import slate.quic.crypto.packet_keys;
-import slate.quic.crypto.tls_session;
+version (unittest)
+{
+    import slate.quic.crypto.kdf;
+    import slate.quic.crypto.aead;
+    import slate.quic.crypto.header_protection;
+    import slate.quic.crypto.packet_keys;
+    import slate.quic.crypto.tls_session;
+}
 
 /// Example:
 // Spec: RFC 9001 Appendix A.2 & A.3 - Full Packet Wire-to-Frame Pipeline (covers E2, E3, E5, Scenario T5)
@@ -229,7 +232,7 @@ import slate.quic.crypto.tls_session;
     };
     auto makeClientCtx = () @trusted @nogc nothrow{
         alias ClientFn = TlsContext function() @nogc nothrow;
-        return (cast(ClientFn)&TlsContext.createClient)();
+        return TlsContext.createClientInsecure();
     };
 
     TlsContext serverCtx = makeServerCtx();
