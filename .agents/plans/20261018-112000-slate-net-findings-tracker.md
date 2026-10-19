@@ -115,3 +115,34 @@
 | `F-68` | **MEDIUM** | `bin/durl.d:85-98, 257-266, 289, 321, 327, 343-362`, `http/debug_.d` | Validate CLI arguments in `durl.d` (non-empty URL, `maxRedirects >= 0`, `connectTimeoutMs >= 0`, `maxTimeMs >= 0`, non-empty header name) to return exit code `2` instead of throwing `AssertError`; write `-o <file>` even for 0-byte bodies; and redact `Authorization` / `Proxy-Authorization` headers in `debug_.d`. | `[x]` | `durl.d` & `integration_test.d` |
 | `F-69` | **MEDIUM** | `http/test_server.d:13-18`, `http/integration_test.d:30-31, 202, 356-357` | Use `core.atomic` (`atomicLoad` / `atomicStore` / `atomicOp`) or mutex synchronization for shared state in `HttpStubServer`, `H2LoopbackServer`, and `Http1LoopbackServer`, and use PID/UUID-scoped temp paths in `integration_test.d`. | `[x]` | `client_test.d` & `integration_test.d` |
 | `F-70` | **LOW** | `http/client.d:29, 551`, `version_.d`, `error_test.d`, `client_test.d`, `multi.d`, `durl.d` | Guard `HttpStubServer` import in `client.d` with `version (unittest)` and `unistd` with `version (Posix)`; add missing `// Spec:` comments on all 7 `unittest` blocks; add `@safe` to `hasHttp2`/`hasHttp3`/`spawnHttpTask`; and clean `libslate-net.a` and `slate-net-test-library`. | `[x]` | `just d-lint` & `just clean` |
+
+---
+
+## Round-2 corrections (2026-10-19)
+
+A re-review after `ce3ce86` found that several entries above were marked `[x]` even though they were incomplete, introduced regressions, or had tests that asserted the wrong behaviour. They were reopened and closed by [`20261018-190431-slate-net-round2-remediation.md`](20261018-190431-slate-net-round2-remediation.md) (items `R-01`–`R-45`, `PB-1`–`PB-7`, `PC-1`–`PC-7`). Each phase was approved by a fresh read-only reviewer and a fresh security auditor.
+
+| Original entry | Problem found in round 2 | Closed by |
+|---|---|---|
+| `F-01` | Test could not detect the original bug | `R-10` |
+| `F-05`, `F-09` | Connection credit leak on reset/reaped streams; late frames on reaped streams closed the connection | `R-04`, `R-13`, `R-14` |
+| `F-10` | Test never asserted cwnd gating | `R-11` |
+| `F-13`, `F-25` | Static, unadvertised stateless-reset token; predictable Retry SCID | `R-30` |
+| `F-17` | Stream reaped before RESET_STREAM was acked | `R-14` |
+| `F-18` | Persistent congestion did not follow RFC 9002 §7.6.2 | `R-16` |
+| `F-21` | Second Retry closed the connection; test asserted that | `R-17` |
+| `F-23` | Old read key never discarded; no KEY_UPDATE_ERROR | `R-41`, Phase C |
+| `F-31` | Empty server name skipped hostname check; IP literals sent in SNI | `R-06` |
+| `F-32`, `F-41` | Unknown suites fell back to AES-128; `derive*` dropped HKDF errors | `R-28`, `R-31` |
+| `F-34` | Claimed test missing; partial `onCryptoSend` write | `R-29`, `R-45` |
+| `F-39` | `preferred_address` with zero-length CID accepted; test asserted that | `R-21` |
+| `F-42` | ACK with ≥32 ranges rejected (regression); test asserted that | `R-03` |
+| `F-46` | Use-after-free of event slices on slot reclaim; late notifications leaked trackers | `R-23`, Phase A |
+| `F-49` | Legal QPACK instructions (Set Capacity 0, Stream Cancellation) aborted the connection | `R-22` |
+| `F-55` | HEAD + content-length aborted; message errors aborted the whole connection | `R-08`, `R-12` |
+| `F-56` | Read-offset change introduced a heap overflow in `appendRecv`; no back-pressure | `R-01`, `R-07` |
+| `F-60` | Size-cap error mapping unreachable | `R-25` |
+| `F-63` | Status 0/≥600 tripped the `Response` invariant | `R-24` |
+| `F-64` | Test asserted nothing | `R-45` |
+| `F-66` | Custom methods kept their method after 303; later fix called setopt mid-transfer | `R-26` (manual redirect following) |
+| `F-67` | "No DONE message" check was a no-op | `R-09` |
