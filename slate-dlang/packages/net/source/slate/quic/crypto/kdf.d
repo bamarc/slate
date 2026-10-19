@@ -47,6 +47,11 @@ enum QuicCryptoError : int
     alpnMismatch = 7,
     internalError = 8,
     transportParamsTooLarge = 9,
+    /// A peer-verifying client was initialised without a server name (RFC 9001 Section 4.4, RFC 6125).
+    missingServerName = 10,
+    /// The server name is malformed: empty after removing IPv6 brackets, contains NUL or other
+    /// control characters, or is too long for a DNS name / the TLS SNI field.
+    invalidServerName = 11,
 }
 
 /**
@@ -59,6 +64,23 @@ struct KeyMaterial
     ubyte[12] iv;
     ubyte[32] hp;
     size_t hpLen;
+}
+
+/**
+ * Whether `suite` is one of the three TLS 1.3 suites QUIC v1 defines (RFC 9001 Section 5.3).
+ * Every derivation and cipher setup refuses anything else instead of falling back to AES-128.
+ */
+bool isSupportedSuite(CipherSuite suite) @safe @nogc nothrow pure
+{
+    switch (suite)
+    {
+    case CipherSuite.TLS_AES_128_GCM_SHA256:
+    case CipherSuite.TLS_AES_256_GCM_SHA384:
+    case CipherSuite.TLS_CHACHA20_POLY1305_SHA256:
+        return true;
+    default:
+        return false;
+    }
 }
 
 /**
@@ -212,8 +234,9 @@ package(slate.quic) bool hkdfExpand(const(EVP_MD)* md, const(ubyte)[] prk,
     size_t tLen = 0;
     size_t written = 0;
 
-    foreach (ubyte i; 1 .. cast(ubyte)(n + 1))
+    foreach (uint counter; 1 .. cast(uint)(n + 1))
     {
+        const ubyte i = cast(ubyte) counter; // counter <= 255 (n <= 255 checked above)
         size_t inputLen = 0;
         if (tLen > 0)
         {
@@ -298,67 +321,134 @@ bool hkdfExpandLabel(CipherSuite suite, const(ubyte)[] secret,
 
 /**
  * Derives the initial secret from the Destination Connection ID (RFC 9001 Section 5.2).
+ * Returns false (and zeroes `secretOut`'s first 32 bytes) when the HKDF step fails.
  */
-void deriveInitialSecret(const(ubyte)[] dcid, ubyte[] secretOut) @trusted @nogc nothrow
+bool deriveInitialSecret(const(ubyte)[] dcid, ubyte[] secretOut) @trusted @nogc nothrow
 {
     if (secretOut.length < 32)
-        return;
-    hkdfExtract(EVP_sha256(), INITIAL_SALT_V1, dcid, secretOut);
+        return false;
+    return hkdfExtract(EVP_sha256(), INITIAL_SALT_V1, dcid, secretOut);
 }
 
 /**
  * Derives the client initial secret from the initial secret (RFC 9001 Section 5.2).
  */
-void deriveClientInitialSecret(const(ubyte)[] initialSecret, ubyte[] clientSecretOut) @trusted @nogc nothrow
+bool deriveClientInitialSecret(const(ubyte)[] initialSecret, ubyte[] clientSecretOut) @trusted @nogc nothrow
 {
     if (initialSecret.length < 32 || clientSecretOut.length < 32)
-        return;
-    hkdfExpandLabel(EVP_sha256(), initialSecret, "client in", null, clientSecretOut);
+        return false;
+    return hkdfExpandLabel(EVP_sha256(), initialSecret, "client in", null,
+            clientSecretOut[0 .. 32]);
 }
 
 /**
  * Derives the server initial secret from the initial secret (RFC 9001 Section 5.2).
  */
-void deriveServerInitialSecret(const(ubyte)[] initialSecret, ubyte[] serverSecretOut) @trusted @nogc nothrow
+bool deriveServerInitialSecret(const(ubyte)[] initialSecret, ubyte[] serverSecretOut) @trusted @nogc nothrow
 {
     if (initialSecret.length < 32 || serverSecretOut.length < 32)
-        return;
-    hkdfExpandLabel(EVP_sha256(), initialSecret, "server in", null, serverSecretOut);
+        return false;
+    return hkdfExpandLabel(EVP_sha256(), initialSecret, "server in", null,
+            serverSecretOut[0 .. 32]);
 }
 
 /**
- * Derives packet protection key, IV, and header protection key from a traffic secret (RFC 9001 Section 5.1).
+ * Derives packet protection key, IV, and header protection key from a traffic secret
+ * (RFC 9001 Section 5.1). `km` is written only when every HKDF step succeeded; an unknown
+ * suite, a short secret or an HKDF failure returns false and leaves `km` zeroed.
  */
-void deriveKeyMaterial(CipherSuite suite, const(ubyte)[] secret, ref KeyMaterial km) @trusted @nogc nothrow
+bool deriveKeyMaterial(CipherSuite suite, const(ubyte)[] secret, ref KeyMaterial km) @trusted @nogc nothrow
 {
+    km = KeyMaterial.init;
+    if (!isSupportedSuite(suite))
+        return false;
     const size_t reqHashLen = hashLength(suite);
     if (secret.length < reqHashLen)
-        return;
+        return false;
 
     const(EVP_MD)* md = getEvpMd(suite);
-    km.keyLen = keyLength(suite);
-    km.hpLen = hpKeyLength(suite);
+    KeyMaterial tmp;
+    tmp.keyLen = keyLength(suite);
+    tmp.hpLen = hpKeyLength(suite);
 
-    hkdfExpandLabel(md, secret, "quic key", null, km.key[0 .. km.keyLen]);
-    hkdfExpandLabel(md, secret, "quic iv", null, km.iv[0 .. 12]);
-    hkdfExpandLabel(md, secret, "quic hp", null, km.hp[0 .. km.hpLen]);
+    if (!hkdfExpandLabel(md, secret, "quic key", null,
+            tmp.key[0 .. tmp.keyLen]) || !hkdfExpandLabel(md, secret, "quic iv",
+            null, tmp.iv[0 .. 12]) || !hkdfExpandLabel(md, secret, "quic hp",
+            null, tmp.hp[0 .. tmp.hpLen]))
+    {
+        OPENSSL_cleanse(tmp.key.ptr, tmp.key.length);
+        OPENSSL_cleanse(tmp.hp.ptr, tmp.hp.length);
+        return false;
+    }
+    km = tmp;
+    OPENSSL_cleanse(tmp.key.ptr, tmp.key.length);
+    OPENSSL_cleanse(tmp.hp.ptr, tmp.hp.length);
+    return true;
 }
 
 /**
  * Derives the next application traffic secret during a Key Update (RFC 9001 Section 6.1).
+ * On failure `nextSecretOut` is not modified.
  */
-void deriveNextApplicationSecret(CipherSuite suite, const(ubyte)[] currentSecret,
+bool deriveNextApplicationSecret(CipherSuite suite, const(ubyte)[] currentSecret,
         ubyte[] nextSecretOut) @trusted @nogc nothrow
 {
+    if (!isSupportedSuite(suite))
+        return false;
     const size_t reqHashLen = hashLength(suite);
     if (currentSecret.length < reqHashLen || nextSecretOut.length < reqHashLen)
-        return;
+        return false;
 
-    const(EVP_MD)* md = getEvpMd(suite);
-    hkdfExpandLabel(md, currentSecret, "quic ku", null, nextSecretOut[0 .. reqHashLen]);
+    ubyte[48] tmp;
+    scope (exit)
+        OPENSSL_cleanse(tmp.ptr, tmp.length);
+    if (!hkdfExpandLabel(getEvpMd(suite), currentSecret, "quic ku", null, tmp[0 .. reqHashLen]))
+        return false;
+    nextSecretOut[0 .. reqHashLen] = tmp[0 .. reqHashLen];
+    return true;
+}
+
+/**
+ * Derives the client and server Initial key material for `dcid` (RFC 9001 Section 5.2).
+ * Returns false, with both outputs zeroed, if any derivation step fails.
+ */
+bool deriveInitialKeyMaterial(const(ubyte)[] dcid, ref KeyMaterial clientKm, ref KeyMaterial serverKm) @trusted @nogc nothrow
+{
+    ubyte[32] initSecret;
+    ubyte[32] clientSecret;
+    ubyte[32] serverSecret;
+    scope (exit)
+    {
+        OPENSSL_cleanse(initSecret.ptr, initSecret.length);
+        OPENSSL_cleanse(clientSecret.ptr, clientSecret.length);
+        OPENSSL_cleanse(serverSecret.ptr, serverSecret.length);
+    }
+    const bool ok = deriveInitialSecret(dcid, initSecret) && deriveClientInitialSecret(initSecret,
+            clientSecret) && deriveServerInitialSecret(initSecret, serverSecret)
+        && deriveKeyMaterial(CipherSuite.TLS_AES_128_GCM_SHA256, clientSecret,
+                clientKm) && deriveKeyMaterial(CipherSuite.TLS_AES_128_GCM_SHA256,
+                serverSecret, serverKm);
+    if (!ok)
+    {
+        clientKm = KeyMaterial.init;
+        serverKm = KeyMaterial.init;
+    }
+    return ok;
 }
 
 /// Example:
+/// ---
+/// const ubyte[8] dcid = [0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08];   // RFC 9001 A.1
+/// KeyMaterial clientKm, serverKm;
+/// assert(deriveInitialKeyMaterial(dcid[], clientKm, serverKm));
+///
+/// const ubyte[16] expectedServerKey = [
+///     0xcf, 0x3a, 0x53, 0x31, 0x65, 0x3c, 0x36, 0x4c, 0x88, 0xf0, 0xf3, 0x79, 0xb6, 0x06, 0x7e, 0x37
+/// ];
+/// const ubyte[12] expectedServerIv = [0x0a, 0xc1, 0x49, 0x3c, 0xa1, 0x90, 0x58, 0x53, 0xb0, 0xbb, 0xa0, 0x3e];
+/// assert(serverKm.key[0 .. 16] == expectedServerKey);
+/// assert(serverKm.iv == expectedServerIv);
+/// ---
 // Spec: RFC 9001 Appendix A.1 - Keys (covers U2, U4, E1, Scenario T1)
 @nogc unittest
 {
@@ -437,6 +527,14 @@ void deriveNextApplicationSecret(CipherSuite suite, const(ubyte)[] currentSecret
 }
 
 /// Example:
+/// ---
+/// ubyte[32] currentSecret = 0x11;
+/// ubyte[32] nextSecret, thirdSecret;
+/// assert(deriveNextApplicationSecret(CipherSuite.TLS_AES_128_GCM_SHA256, currentSecret, nextSecret));
+/// assert(deriveNextApplicationSecret(CipherSuite.TLS_AES_128_GCM_SHA256, nextSecret, thirdSecret));
+/// assert(nextSecret != currentSecret);   // every key update yields a fresh secret
+/// assert(thirdSecret != nextSecret);
+/// ---
 // Spec: RFC 9001 Section 6.1 - Key Update secret derivation
 @nogc unittest
 {
@@ -455,6 +553,20 @@ void deriveNextApplicationSecret(CipherSuite suite, const(ubyte)[] currentSecret
 }
 
 /// Example:
+/// ---
+/// static immutable ubyte[1] info = [1];
+/// ubyte[32] validPrk;
+/// assert(hkdfExtract(CipherSuite.TLS_AES_128_GCM_SHA256, null, cast(const(ubyte)[]) "ikm", validPrk));
+///
+/// // A PRK shorter than the hash length is refused and the output is left zeroed.
+/// ubyte[16] shortPrk = 0;
+/// ubyte[16] okm;
+/// assert(!hkdfExpand(CipherSuite.TLS_AES_128_GCM_SHA256, shortPrk[], info[], okm));
+/// assert(okm == (ubyte[16]).init);
+///
+/// ubyte[0] emptyOkm;   // an empty output buffer is refused as well
+/// assert(!hkdfExpand(CipherSuite.TLS_AES_128_GCM_SHA256, validPrk[], info[], emptyOkm));
+/// ---
 // Spec: RFC 5869 / F-32 & F-41 - HKDF slice bounds validation and zero-fill on error
 @nogc unittest
 {
@@ -481,4 +593,46 @@ void deriveNextApplicationSecret(CipherSuite suite, const(ubyte)[] currentSecret
     assert(!hkdfExpandLabel(CipherSuite.TLS_AES_128_GCM_SHA256, validPrk[],
             hugeLabel[], null, outBuf));
     assert(outBuf == (ubyte[32]).init);
+}
+
+/// Example:
+/// ---
+/// ubyte[32] prk = 0x0b;
+/// const ubyte[3] info = [0xf0, 0xf1, 0xf2];
+/// ubyte[8160] okm;   // 255 blocks of SHA-256, the largest output RFC 5869 allows
+/// assert(hkdfExpand(CipherSuite.TLS_AES_128_GCM_SHA256, prk[], info[], okm[]));
+/// ---
+// Spec: RFC 5869 Section 2.3 "T(1) = HMAC-Hash(PRK, T(0) | info | 0x01)" and
+// "T(3) = HMAC-Hash(PRK, T(2) | info | 0x03)" (one counter byte per block): with N == 255
+// the counter byte of the last block is 0xff, and all 255 blocks must be produced (R-31, W13)
+@nogc unittest
+{
+    ubyte[32] prk = 0x0b;
+    const ubyte[3] info = [0xf0, 0xf1, 0xf2];
+    ubyte[255 * 32] okm;
+    okm[] = 0xAA;
+    assert(hkdfExpand(CipherSuite.TLS_AES_128_GCM_SHA256, prk[], info[], okm[]));
+
+    // Reference: recompute T(1), T(2) and the last block T(255) independently.
+    ubyte[32] t;
+    ubyte[64] in1;
+    in1[0 .. 3] = info[];
+    in1[3] = 1;
+    uint outLen;
+    assert(HMAC(EVP_sha256(), prk.ptr, 32, in1.ptr, 4, t.ptr, &outLen) !is null);
+    assert(okm[0 .. 32] == t[], "first block");
+    ubyte[64] inN;
+    ubyte[32] prev = okm[254 * 32 - 32 .. 254 * 32];
+    inN[0 .. 32] = prev[];
+    inN[32 .. 35] = info[];
+    inN[35] = 0xff;
+    assert(HMAC(EVP_sha256(), prk.ptr, 32, inN.ptr, 36, t.ptr, &outLen) !is null);
+    assert(okm[254 * 32 .. 255 * 32] == t[], "block 255 (counter 0xff) must be produced");
+
+    // One byte more than 255 blocks is refused and leaves no key material behind.
+    ubyte[255 * 32 + 1] tooBig;
+    tooBig[] = 0x55;
+    assert(!hkdfExpand(CipherSuite.TLS_AES_128_GCM_SHA256, prk[], info[], tooBig[]));
+    foreach (b; tooBig)
+        assert(b == 0);
 }

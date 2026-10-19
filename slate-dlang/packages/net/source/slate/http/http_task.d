@@ -234,7 +234,9 @@ private Nullable!Response performTaskTransfer(const Request req,
     long rawVer = 0;
     curl_easy_getinfo(easy, CURLINFO.CURLINFO_HTTP_VERSION, &rawVer);
 
-    int finalStatus = cast(int) statusCode;
+    if (statusCode < 100 || statusCode > 599)
+        return Nullable!Response.init; // not a valid HTTP status (R-24)
+    const int finalStatus = cast(int) statusCode;
 
     Header[] headers;
     if (headerCtx.len > 0)
@@ -274,6 +276,24 @@ Nullable!Response runHttpTask(const Request req, void delegate(float) onProgress
     return runHttpTask(req, ClientConfig.init, onProgress, onComplete, cancellation, dispatch);
 }
 
+/// Copies every buffer a `Request` refers to (URL, header names and values, body) onto the GC
+/// heap, so the copy stays valid after the caller's stack frame is gone (F-64).
+package Request detachRequest(const Request req) @trusted
+{
+    Request safeReq = Request(req.url.idup, req.method, req.httpVersion);
+    if (req.headers.length > 0)
+    {
+        auto copiedHeaders = new Header[req.headers.length];
+        foreach (i, h; req.headers)
+            copiedHeaders[i] = Header(h.name.idup, h.value.idup);
+        safeReq.headers = copiedHeaders;
+    }
+    safeReq.bodyData = req.bodyData ? req.bodyData.dup : null;
+    safeReq.connectTimeoutMs = req.connectTimeoutMs;
+    safeReq.timeoutMs = req.timeoutMs;
+    return safeReq;
+}
+
 /// Spawns an HTTP request on a dedicated background worker thread.
 ///
 /// Returns a `TaskCancellation` handle allowing cooperative abortion of the transfer (EV-4, TC-08).
@@ -282,20 +302,7 @@ TaskCancellation spawnHttpTask(const Request req, ClientConfig config = ClientCo
         void delegate(float) onProgress = null, void delegate(Nullable!Response) onComplete = null) @trusted
 {
     // Deep copy Request data to avoid cross-thread dangling stack references (F-64)
-    string copiedUrl = req.url.idup;
-    ubyte[] copiedBody = req.bodyData ? req.bodyData.dup : null;
-    Header[] copiedHeaders = null;
-    if (req.headers.length > 0)
-    {
-        copiedHeaders = new Header[req.headers.length];
-        foreach (i, h; req.headers)
-            copiedHeaders[i] = Header(h.name.idup, h.value.idup);
-    }
-    Request safeReq = Request(copiedUrl, req.method, req.httpVersion);
-    safeReq.headers = copiedHeaders;
-    safeReq.bodyData = copiedBody;
-    safeReq.connectTimeoutMs = req.connectTimeoutMs;
-    safeReq.timeoutMs = req.timeoutMs;
+    Request safeReq = detachRequest(req);
 
     auto cancellation = new TaskCancellation();
     auto worker = new Thread({
@@ -417,22 +424,108 @@ unittest
     assert(finalResponse.isNull, "Cancelled task result must be null");
 }
 
-// Spec: spawnHttpTask deep-copies Request avoiding cross-thread stack dangling (F-64)
-// Scenario: Ephemeral request buffers on stack are safely copied before worker thread runs
 /// Example:
 /// ---
-/// import slate.http.http_task : spawnHttpTask;
-/// import slate.http.request : Request;
-/// auto cancel = spawnHttpTask(Request.get("http://127.0.0.1:1"));
+/// char[32] stackUrl;
+/// const src = "http://127.0.0.1:1/stack";
+/// stackUrl[0 .. src.length] = src[];
+/// auto req = Request.get(cast(string) stackUrl[0 .. src.length]);   // built over a stack buffer
+/// auto safe = detachRequest(req);
+/// assert(safe.url.ptr !is req.url.ptr && safe.url == src);
+/// stackUrl[] = 'X';                   // the caller's frame is reused
+/// assert(safe.url == "http://127.0.0.1:1/stack");
 /// ---
+// Spec: spawnHttpTask hands the request to another thread, so every buffer it refers to is
+// copied first (F-64): the URL, header names and values, and the body must live in memory that
+// no longer aliases the caller's stack, and survive that stack being overwritten (R-45)
 unittest
 {
-    // Spec: verify spawnHttpTask can be called with stack-allocated URL without memory corruption
     char[32] stackUrl;
-    string src = "http://127.0.0.1:1/stack";
+    const src = "http://127.0.0.1:1/stack";
     stackUrl[0 .. src.length] = src[];
-    auto req = Request.get(cast(string) stackUrl[0 .. src.length]);
-    auto cancel = spawnHttpTask(req);
+    char[8] stackName = "X-Stack:"[0 .. 8];
+    char[5] stackValue = "value";
+    ubyte[4] stackBody = [1, 2, 3, 4];
+
+    auto req = Request.post(cast(string) stackUrl[0 .. src.length], stackBody[]);
+    req.headers = [
+        Header(cast(string) stackName[0 .. 7], cast(string) stackValue[])
+    ];
+    req.timeoutMs = 1234;
+    req.connectTimeoutMs = 99;
+
+    auto safe = detachRequest(req);
+    assert(safe.url.ptr !is req.url.ptr && safe.url == src);
+    assert(safe.headers.length == 1);
+    assert(safe.headers[0].name.ptr !is req.headers[0].name.ptr);
+    assert(safe.headers[0].value.ptr !is req.headers[0].value.ptr);
+    assert(safe.bodyData.ptr !is stackBody.ptr);
+    assert(safe.method == Method.POST && safe.timeoutMs == 1234 && safe.connectTimeoutMs == 99);
+
+    // The caller's frame is reused: the detached copy is unaffected.
+    stackUrl[] = 'X';
+    stackName[] = 'Y';
+    stackValue[] = 'Z';
+    stackBody[] = 0xff;
+    assert(safe.url == src);
+    assert(safe.headers[0].name == "X-Stack" && safe.headers[0].value == "value");
+    assert(safe.bodyData == [1, 2, 3, 4]);
+
+    // spawnHttpTask itself still works on such a request.
+    auto cancel = spawnHttpTask(Request.get(src.idup));
     assert(cancel !is null);
     cancel.cancel();
+}
+
+/// Example:
+/// ---
+/// import std.format : format;
+///
+/// auto stub = new HttpStubServer("body", false, 0);
+/// scope (exit)
+///     stub.close();
+/// stub.statusCode = 600;                           // not a valid HTTP status
+/// auto res = runHttpTask(Request.get(format("http://127.0.0.1:%d/weird", stub.port)));
+/// assert(res.isNull);                              // no Response is built; onComplete gets null
+/// ---
+// Spec: RFC 9110 Section 15 - "All valid status codes are within the range of 100 to 599,
+// inclusive." The background task reports failure through an empty Nullable (it has no exception
+// channel), so a status outside that range completes with Nullable.init instead of building a
+// Response whose invariant would fail; the other perform variants throw CURLE_WEIRD_SERVER_REPLY
+// (R-24, W9)
+unittest
+{
+    import std.format : format;
+
+    foreach (status; [600, 99])
+    {
+        auto stub = new HttpStubServer("body", false, 0);
+        scope (exit)
+            stub.close();
+        stub.statusCode = status;
+        const url = format("http://127.0.0.1:%d/weird", stub.port);
+
+        bool completed = false;
+        Nullable!Response seen;
+        auto res = runHttpTask(Request.get(url), ClientConfig.init, null, (Nullable!Response r) {
+            completed = true;
+            seen = r;
+        }, null, (void delegate() job) { job(); });
+        assert(res.isNull, "an invalid status must not produce a Response");
+        assert(completed && seen.isNull, "onComplete still runs, with no response");
+
+        // `runCompute` turns any Throwable into an empty result, so also check the transfer
+        // itself: it must return an empty Nullable and not trip Response's contract.
+        auto direct = performTaskTransfer(Request.get(url), ClientConfig.init,
+                new TaskCancellation(), (float) {});
+        assert(direct.isNull, "the transfer reports an invalid status as no response");
+    }
+
+    // A valid status in the same setup does produce one.
+    auto ok = new HttpStubServer("body", false, 0);
+    scope (exit)
+        ok.close();
+    ok.statusCode = 599;
+    auto res = runHttpTask(Request.get(format("http://127.0.0.1:%d/edge", ok.port)));
+    assert(!res.isNull && res.get.status == 599, "599 is the highest valid status");
 }

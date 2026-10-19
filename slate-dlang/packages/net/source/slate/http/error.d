@@ -700,8 +700,54 @@ private __gshared TooManyRedirectsException _preallocatedTooManyRedirects;
 private __gshared CurlMultiException[16] _preallocatedMultiErrors;
 private __gshared CurlMultiException _globalMultiFallbackError;
 
+/**
+ * A trace that records nothing. druntime fills in `Throwable.info` on every `throw` of an
+ * exception whose `info` is null, and that trace is allocated outside the GC and never freed
+ * for a long-lived preallocated exception, so each throw would leak about 1 KiB. A non-null
+ * `info` on every preallocated exception stops druntime from attaching a new trace (PC-5).
+ */
+private final class NullTraceInfo : Throwable.TraceInfo
+{
+    override int opApply(scope int delegate(ref const(char[])) dg) const
+    {
+        return 0;
+    }
+
+    override int opApply(scope int delegate(ref size_t, ref const(char[])) dg) const
+    {
+        return 0;
+    }
+
+    override string toString() const
+    {
+        return "";
+    }
+}
+
+private __gshared NullTraceInfo _nullTrace;
+
+/// Pins the shared empty trace on a preallocated exception and returns it.
+private T pinTrace(T : Throwable)(T t)
+{
+    if (t !is null)
+        t.info = _nullTrace;
+    return t;
+}
+
 static this()
 {
+    scope (exit)
+    {
+        pinTrace(_tlsGlobalFallbackError);
+        pinTrace(_tlsPreallocatedCancelled);
+        pinTrace(_tlsPreallocatedTimeout);
+        pinTrace(_tlsPreallocatedTooManyRedirects);
+        pinTrace(_tlsGlobalMultiFallbackError);
+        foreach (e; _tlsPreallocatedErrors)
+            pinTrace(e);
+        foreach (e; _tlsPreallocatedMultiErrors)
+            pinTrace(e);
+    }
     _tlsGlobalFallbackError = new CurlException(cast(CurlCode)-1, "Unknown libcurl error");
     _tlsPreallocatedCancelled = new CancelledException("Transfer was cancelled");
     _tlsPreallocatedTimeout = new TimeoutException("Operation timed out");
@@ -726,6 +772,19 @@ static this()
 
 shared static this()
 {
+    _nullTrace = new NullTraceInfo;
+    scope (exit)
+    {
+        pinTrace(_globalFallbackError);
+        pinTrace(_preallocatedCancelled);
+        pinTrace(_preallocatedTimeout);
+        pinTrace(_preallocatedTooManyRedirects);
+        pinTrace(_globalMultiFallbackError);
+        foreach (e; _preallocatedErrors)
+            pinTrace(e);
+        foreach (e; _preallocatedMultiErrors)
+            pinTrace(e);
+    }
     _globalFallbackError = new CurlException(cast(CurlCode)-1, "Unknown libcurl error");
     _preallocatedCancelled = new CancelledException("Transfer was cancelled");
     _preallocatedTimeout = new TimeoutException("Operation timed out");
@@ -1115,4 +1174,48 @@ unittest
         assert(nativeMsg == c.expectedNative, "curlStrerror mismatch for " ~ c.expectedSymbol
                 ~ ": got '" ~ nativeMsg.idup ~ "', expected '" ~ c.expectedNative ~ "'");
     }
+}
+
+/// Example:
+/// ---
+/// try throwCurlErrorNogc(CurlCode.CURLE_COULDNT_CONNECT);
+/// catch (CurlException e) assert(e.info !is null);   // no trace is attached (and leaked) per throw
+/// ---
+// Spec: druntime object.d `_d_throw`: "if (throwable.info is null) throwable.info = traceContext()" -
+// the trace of a preallocated exception is never freed; keeping `info` non-null on every
+// preallocated exception means a throw allocates nothing, so repeated errors do not leak (PC-5)
+@system unittest
+{
+    Throwable.TraceInfo pinned;
+    foreach (round; 0 .. 5)
+    {
+        try
+            throwCurlErrorNogc(CurlCode.CURLE_COULDNT_CONNECT);
+        catch (CurlException e)
+        {
+            assert(e.info !is null, "preallocated exceptions carry a pinned trace");
+            if (pinned is null)
+                pinned = e.info;
+            assert(e.info is pinned,
+                    "the same trace object every time: nothing is allocated per throw");
+        }
+    }
+    foreach (code; [
+        CurlCode.CURLE_OPERATION_TIMEDOUT, CurlCode.CURLE_ABORTED_BY_CALLBACK,
+        CurlCode.CURLE_TOO_MANY_REDIRECTS
+    ])
+    {
+        try
+            throwCurlErrorNogc(code);
+        catch (CurlException e)
+            assert(e.info is pinned);
+    }
+    try
+        throwCurlMultiErrorNogc(CurlMCode.CURLM_BAD_HANDLE);
+    catch (CurlMultiException e)
+        assert(e.info is pinned);
+    try
+        throwCancelledNogc();
+    catch (CancelledException e)
+        assert(e.info is pinned);
 }

@@ -77,15 +77,26 @@ enum RedirectMode
 }
 
 /// Policy for automatic HTTP 3xx redirect following (TC-11).
+///
+/// Credentials: when a hop in the chain the client follows itself leaves the origin (scheme, host
+/// or port), only the `Authorization`, `Proxy-Authorization`, `Cookie` and `Cookie2` headers are
+/// removed. Custom credential headers (for example `X-Api-Key`) are not recognised and are sent to
+/// the new origin. The removal is sticky: once dropped, the credentials stay dropped for the rest
+/// of the chain, also on a later hop back to the first origin.
 struct RedirectPolicy
 {
-    RedirectMode mode = RedirectMode.off; /// Opt-in redirect following (default off)
-    int maxRedirects = 5; /// Maximum redirect hops (default 5)
+    /// Opt-in redirect following (default off). For PUT, DELETE, PATCH and OPTIONS `Client` follows
+    /// the chain itself (303 -> GET without body, credentials dropped on another origin); the
+    /// multi and background-task paths reject that combination with CURLE_BAD_FUNCTION_ARGUMENT.
+    RedirectMode mode = RedirectMode.off;
+    /// Maximum redirect hops (default 5). -1 means unlimited, like libcurl's `CURLOPT_MAXREDIRS`
+    /// (no loop protection beyond the transfer timeouts); 0 refuses to follow any redirect.
+    int maxRedirects = 5;
     bool allowHttpsToHttpDowngrade = false; /// Refuse HTTPS -> HTTP downgrade redirects by default
 
     invariant
     {
-        assert(maxRedirects >= 0, "maxRedirects must be non-negative");
+        assert(maxRedirects >= -1, "maxRedirects must be -1 (unlimited) or non-negative");
     }
 }
 
@@ -149,8 +160,14 @@ struct ClientConfig
         return redirects.maxRedirects;
     }
 
+    /// Sets the redirect limit. -1 is unlimited; a value below -1 is treated as 0 (no redirect
+    /// is followed) and one above `int.max` is clamped to `int.max`, never truncated.
     @property void maxRedirects(long max) pure @safe @nogc nothrow
     {
+        if (max < -1)
+            max = 0;
+        else if (max > int.max)
+            max = int.max;
         redirects.maxRedirects = cast(int) max;
     }
 
@@ -175,12 +192,77 @@ struct ClientConfig
     }
 }
 
+/**
+ * Tracks whether the response being received is a redirect the client follows itself, so the
+ * write callbacks drop its body like libcurl does when it follows (R-26). libcurl reports
+ * `CURLINFO_REDIRECT_URL` only after the body, hence a non-empty `Location` header is observed
+ * directly. A dropped body belongs to a response that ends in a hop or an error (too many
+ * redirects, unsupported scheme); a 3xx without a `Location` value is not dropped and is
+ * delivered like any other response (PC-3). Known limit: a non-empty `Location` that libcurl
+ * cannot turn into a redirect URL (`CURLINFO_REDIRECT_URL` null) ends the chain with that
+ * response's status and headers but an empty body, because libcurl reports the URL only after the
+ * body has been consumed.
+ */
+package struct RedirectProbe
+{
+    CURL* handle; /// Handle whose status code is consulted.
+    bool location; /// A `Location` header was seen in the current response head.
+
+    /// Resets on a status line, sets on a `Location` header; call for every raw header line.
+    void observe(const(char)[] line) @safe @nogc nothrow
+    {
+        if (line.length >= 5 && line[0 .. 5] == "HTTP/")
+        {
+            location = false;
+            return;
+        }
+        enum name = "location:";
+        if (line.length < name.length)
+            return;
+        foreach (i, c; name)
+        {
+            const l = (line[i] >= 'A' && line[i] <= 'Z') ? cast(char)(line[i] + 32) : line[i];
+            if (l != c)
+                return;
+        }
+        // An empty value names no target: libcurl reports no redirect URL, so the body is the
+        // response and must be delivered.
+        size_t v = name.length;
+        while (v < line.length && (line[v] == ' ' || line[v] == '\t'))
+            v++;
+        location = v < line.length && line[v] != '\r' && line[v] != '\n';
+    }
+
+    /// Whether body bytes arriving now belong to a redirect response that is followed.
+    bool discarding() @trusted @nogc nothrow
+    {
+        if (handle is null || !location)
+            return false;
+        long status = 0;
+        curl_easy_getinfo(handle, CURLINFO.CURLINFO_RESPONSE_CODE, &status);
+        return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+    }
+}
+
+/// Header callback feeding a `RedirectProbe` (buffer and stream performs of the manual chain).
+package extern (C) size_t redirectProbeHeaderCb(char* buffer, size_t size,
+        size_t nitems, void* userdata) @nogc nothrow
+{
+    if (userdata is null || (size != 0 && size_t.max / size < nitems))
+        return 0;
+    const total = size * nitems;
+    (cast(RedirectProbe*) userdata).observe(buffer[0 .. total]);
+    return total;
+}
+
 /// Internal context passed to write callback for caller-buffer execution.
 package struct BufferWriteCtx
 {
     ubyte[] dest;
     size_t written;
     bool overflow;
+    /// Set when the client follows redirects itself: redirect bodies are dropped (R-26).
+    RedirectProbe* probe;
 }
 
 /// Write callback writing directly into a caller-provided fixed buffer (UB-4, UN-1).
@@ -195,6 +277,8 @@ package extern (C) size_t clientBufferWriteCb(char* ptr, size_t size, size_t nme
         return 0;
 
     auto ctx = cast(BufferWriteCtx*) userdata;
+    if (ctx.probe !is null && ctx.probe.discarding())
+        return total;
     if (ctx.written + total < ctx.written || ctx.written + total > ctx.dest.length)
     {
         ctx.overflow = true;
@@ -210,6 +294,9 @@ private struct StreamWriteCtx
 {
     ChunkStreamHandler onChunk;
     void* userdata;
+    /// Set when the client follows redirects itself: bodies of redirect responses are dropped
+    /// like libcurl drops them when it follows (R-26).
+    RedirectProbe* probe;
 }
 
 /// Write callback streaming each received chunk directly to caller handler (EV-3a, UN-1).
@@ -224,6 +311,8 @@ private extern (C) size_t clientStreamWriteCb(char* ptr, size_t size, size_t nme
         return 0;
 
     auto ctx = cast(StreamWriteCtx*) userdata;
+    if (ctx.probe !is null && ctx.probe.discarding())
+        return total;
     if (ctx.onChunk !is null)
     {
         ctx.onChunk(cast(const(ubyte)[]) ptr[0 .. total], ctx.userdata);
@@ -240,6 +329,10 @@ package struct DynamicBufferCtx
     size_t maxAllowed; /// Max permitted bytes (F-60)
     bool oom;
     bool overflow;
+    /// Set when the client follows redirects itself: redirect bodies are dropped (R-26).
+    RedirectProbe* probe;
+    /// Header context only: observes every header line (R-26).
+    RedirectProbe* headerProbe;
 }
 
 /// Write callback accumulating data onto the C heap using malloc/realloc without D GC (UN-1).
@@ -254,6 +347,13 @@ package extern (C) size_t clientDynamicWriteCb(char* ptr, size_t size, size_t nm
         return 0;
 
     auto ctx = cast(DynamicBufferCtx*) userdata;
+    if (ctx.probe !is null && ctx.probe.discarding())
+        return total;
+    return dynamicAppend(ctx, ptr, total);
+}
+
+private size_t dynamicAppend(DynamicBufferCtx* ctx, char* ptr, size_t total) @nogc nothrow
+{
     if (ctx.maxAllowed > 0 && (ctx.len + total > ctx.maxAllowed || ctx.len + total < ctx.len))
     {
         ctx.overflow = true;
@@ -292,7 +392,228 @@ package extern (C) size_t clientDynamicWriteCb(char* ptr, size_t size, size_t nm
 package extern (C) size_t clientHeaderCollectCb(char* buffer, size_t size,
         size_t nitems, void* userdata) @nogc nothrow
 {
-    return clientDynamicWriteCb(buffer, size, nitems, userdata);
+    if (userdata is null)
+        return 0;
+    if (size != 0 && size_t.max / size < nitems)
+        return 0;
+    const total = size * nitems;
+    if (total == 0)
+        return 0;
+    auto ctx = cast(DynamicBufferCtx*) userdata;
+    if (ctx.headerProbe !is null)
+        ctx.headerProbe.observe(buffer[0 .. total]);
+    return dynamicAppend(ctx, buffer, total);
+}
+
+/// Request-body / credential handling flags for `applyRequestOptions` (R-26).
+package enum uint HOP_MANUAL = 1; /// The caller follows redirects itself (libcurl does not).
+package enum uint HOP_STRIP_CREDENTIALS = 2; /// Drop Authorization, Proxy-Authorization and Cookie.
+package enum uint HOP_STRIP_CONTENT = 4; /// Drop Content-* headers (the body was dropped).
+
+/// Methods that libcurl sends through `CURLOPT_CUSTOMREQUEST`. libcurl keeps such a method on every
+/// redirect it follows, including a 303, which RFC 9110 Section 15.4.4 turns into a GET, so the
+/// client follows redirects for them itself (R-26).
+package bool isCustomMethod(Method m) @safe pure @nogc nothrow
+{
+    return m == Method.PUT || m == Method.DELETE || m == Method.PATCH || m == Method.OPTIONS;
+}
+
+private bool headerNameIs(const(char)[] name, const(char)[] lower) @safe pure @nogc nothrow
+{
+    if (name.length != lower.length)
+        return false;
+    foreach (i, c; name)
+    {
+        const char l = (c >= 'A' && c <= 'Z') ? cast(char)(c + 32) : c;
+        if (l != lower[i])
+            return false;
+    }
+    return true;
+}
+
+/// Whether header `name` is dropped under `flags` (HOP_STRIP_*).
+package bool isStrippedHeader(const(char)[] name, uint flags) @safe pure @nogc nothrow
+{
+    if ((flags & HOP_STRIP_CREDENTIALS) != 0 && (headerNameIs(name, "authorization")
+            || headerNameIs(name, "proxy-authorization") || headerNameIs(name,
+            "cookie") || headerNameIs(name, "cookie2")))
+        return true;
+    if ((flags & HOP_STRIP_CONTENT) != 0 && name.length > 8 && headerNameIs(name[0 .. 8],
+            "content-"))
+        return true;
+    return false;
+}
+
+/// Splits `url` into lower-cased scheme and `host:port` (default port filled in, userinfo
+/// removed). Returns false for URLs without "scheme://".
+package bool urlOrigin(const(char)[] url, out char[8] scheme, out size_t schemeLen,
+        out char[264] hostPort, out size_t hostPortLen) @safe pure @nogc nothrow
+{
+    schemeLen = 0;
+    hostPortLen = 0;
+    size_t i = 0;
+    while (i < url.length && url[i] != ':' && schemeLen < scheme.length)
+    {
+        const char c = url[i];
+        scheme[schemeLen++] = (c >= 'A' && c <= 'Z') ? cast(char)(c + 32) : c;
+        i++;
+    }
+    if (i + 3 > url.length || url[i .. i + 3] != "://")
+        return false;
+    i += 3;
+    size_t end = i;
+    while (end < url.length && url[end] != '/' && url[end] != '?' && url[end] != '#')
+        end++;
+    const(char)[] auth = url[i .. end];
+    foreach_reverse (k, c; auth)
+        if (c == '@')
+        {
+            auth = auth[k + 1 .. $];
+            break;
+        }
+    bool hasPort = false;
+    foreach_reverse (c; auth)
+    {
+        if (c == ']')
+            break;
+        if (c == ':')
+        {
+            hasPort = true;
+            break;
+        }
+    }
+    foreach (c; auth)
+    {
+        if (hostPortLen >= hostPort.length - 8)
+            return false;
+        hostPort[hostPortLen++] = (c >= 'A' && c <= 'Z') ? cast(char)(c + 32) : c;
+    }
+    if (!hasPort)
+    {
+        const(char)[] def = (schemeLen == 5 && scheme[0 .. 5] == "https") ? ":443" : ":80";
+        hostPort[hostPortLen .. hostPortLen + def.length] = def[];
+        hostPortLen += def.length;
+    }
+    return true;
+}
+
+/// Whether two absolute URLs share scheme, host and port.
+package bool sameOrigin(const(char)[] a, const(char)[] b) @safe pure @nogc nothrow
+{
+    char[8] sa, sb;
+    char[264] ha, hb;
+    size_t sal, sbl, hal, hbl;
+    if (!urlOrigin(a, sa, sal, ha, hal) || !urlOrigin(b, sb, sbl, hb, hbl))
+        return false;
+    return sa[0 .. sal] == sb[0 .. sbl] && ha[0 .. hal] == hb[0 .. hbl];
+}
+
+/**
+ * Whether a redirect from `cur` to `target` may be followed: the target must be http or https and
+ * a hop from https to http needs `allowDowngrade`. Fails closed: a URL whose origin cannot be
+ * parsed (for example a host longer than 256 bytes) is never followed (R-26).
+ */
+package bool redirectPermitted(const(char)[] cur, const(char)[] target, bool allowDowngrade) @safe pure @nogc nothrow
+{
+    char[8] tSch, cSch;
+    char[264] tHost, cHost;
+    size_t tSchLen, tHostLen, cSchLen, cHostLen;
+    if (!urlOrigin(target, tSch, tSchLen, tHost, tHostLen))
+        return false;
+    const targetHttps = tSchLen == 5 && tSch[0 .. 5] == "https";
+    const targetHttp = tSchLen == 4 && tSch[0 .. 4] == "http";
+    if (!targetHttps && !targetHttp)
+        return false;
+    if (!urlOrigin(cur, cSch, cSchLen, cHost, cHostLen))
+        return false;
+    if (cSchLen == 5 && cSch[0 .. 5] == "https" && targetHttp && !allowDowngrade)
+        return false;
+    return true;
+}
+
+/// State of the redirect chain the client follows itself for custom methods (R-26).
+package struct ManualRedirect
+{
+    @disable this(this);
+
+    int hops; /// Redirects followed so far.
+    uint flags = HOP_MANUAL; /// HOP_* flags in effect for the next hop.
+    Method method; /// Method of the next hop.
+    bool dropBody; /// 303 was seen: the next hops carry no body.
+    char* url; /// NUL-terminated absolute URL of the next hop (malloc).
+    size_t urlLen;
+
+    ~this() @trusted @nogc nothrow
+    {
+        if (url !is null)
+            free(url);
+    }
+
+    /**
+     * Inspects the finished transfer on `handle` (sent to `curUrl`, which may alias `url`: it is
+     * only read before `url` is replaced). Returns false when the
+     * response is final. Otherwise `url`, `method`, `flags` and `dropBody` describe the next hop.
+     * Throws `CURLE_TOO_MANY_REDIRECTS` past `maxRedirects` and `CURLE_UNSUPPORTED_PROTOCOL` for a
+     * target that is not http/https or that downgrades https to http (unless allowed).
+     */
+    bool next(CURL* handle, const ref ClientConfig config, const(char)[] curUrl) @trusted @nogc
+    {
+        long status = 0;
+        curl_easy_getinfo(handle, CURLINFO.CURLINFO_RESPONSE_CODE, &status);
+        if (status != 301 && status != 302 && status != 303 && status != 307 && status != 308)
+            return false;
+        char* loc = null;
+        curl_easy_getinfo(handle, CURLINFO.CURLINFO_REDIRECT_URL, &loc);
+        if (loc is null || loc[0] == '\0')
+            return false;
+        size_t n = 0;
+        while (loc[n] != '\0')
+            n++;
+        const(char)[] target = loc[0 .. n];
+
+        if (config.redirects.maxRedirects >= 0 && hops >= config.redirects.maxRedirects)
+            throwCurlErrorNogc(CurlCode.CURLE_TOO_MANY_REDIRECTS);
+
+        if (!redirectPermitted(curUrl, target, config.redirects.allowHttpsToHttpDowngrade))
+            throwCurlErrorNogc(CurlCode.CURLE_UNSUPPORTED_PROTOCOL);
+
+        // Decide on the origin change while `curUrl` (which may be `url` itself, freed below) is
+        // still alive.
+        const crossOrigin = !sameOrigin(curUrl, target);
+
+        char* copy = cast(char*) malloc(n + 1);
+        if (copy is null)
+            throwCurlErrorNogc(CurlCode.CURLE_OUT_OF_MEMORY);
+        copy[0 .. n] = target[];
+        copy[n] = '\0';
+        if (url !is null)
+            free(url);
+        url = copy;
+        urlLen = n;
+
+        if (crossOrigin)
+            flags |= HOP_STRIP_CREDENTIALS;
+        if (status == 303 && method != Method.HEAD)
+        {
+            method = Method.GET;
+            dropBody = true;
+            flags |= HOP_STRIP_CONTENT;
+        }
+        hops++;
+        return true;
+    }
+}
+
+/**
+ * Returns `statusCode` as int if it is a valid HTTP status (RFC 9110 Section 15: three digits,
+ * 100..599); otherwise throws `CURLE_WEIRD_SERVER_REPLY` instead of letting a `Response` be
+ * built with an invalid status (R-24).
+ */
+package int validatedStatus(long statusCode) @safe @nogc
+{
+    if (statusCode < 100 || statusCode > 599)
+        throwCurlErrorNogc(CurlCode.CURLE_WEIRD_SERVER_REPLY);
+    return cast(int) statusCode;
 }
 
 /// Parses raw HTTP headers into an array of `Header` structs (cold path).
@@ -366,8 +687,13 @@ package pure @safe @nogc nothrow HttpVersion mapCurlHttpVersion(long rawVer)
 /// Applies standard request configuration options to a libcurl easy handle (ST-1, ST-2, ST-3).
 package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
         const ref Request req, const(char)* cUrl, out curl_slist* headerList,
-        const(char)* altSvcPath = null, long altSvcCtrl = 0) @trusted @nogc
+        const(char)* altSvcPath = null, long altSvcCtrl = 0, uint hopFlags = 0) @trusted @nogc
 {
+    // A custom method on a followed redirect needs the caller to follow redirects itself (R-26):
+    // calling `curl_easy_setopt` from a header callback is not allowed, so libcurl cannot do it.
+    if (config.followRedirects && isCustomMethod(req.method) && (hopFlags & HOP_MANUAL) == 0)
+        throwCurlErrorNogc(CurlCode.CURLE_BAD_FUNCTION_ARGUMENT);
+
     // Validate URL and headers for CRLF/NUL injection and empty header names (F-62)
     foreach (c; req.url)
     {
@@ -521,6 +847,8 @@ package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
 
     foreach (ref h; req.headers)
     {
+        if (isStrippedHeader(h.name, hopFlags))
+            continue;
         char[512] hBuf;
         size_t n = 0;
         if (h.name.length + 2 + h.value.length + 1 <= hBuf.length)
@@ -555,8 +883,9 @@ package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
             headerList = next;
         }
     }
-    if (headerList !is null)
-        curl_easy_setopt(handle, CURLoption.CURLOPT_HTTPHEADER, headerList);
+    // Always set, a null list included: a handle reused for a redirect hop must not keep pointing
+    // at the previous (freed) list, nor resend its headers (R-26).
+    curl_easy_setopt(handle, CURLoption.CURLOPT_HTTPHEADER, headerList);
 
     // 5. Configured Timeouts & Networking (TC-11)
     long effectiveTimeoutMs = (req.timeoutMs > 0) ? req.timeoutMs : config.timeouts.totalMs;
@@ -568,7 +897,9 @@ package void applyRequestOptions(CURL* handle, const ref ClientConfig config,
 
     // Redirects (TC-11)
     bool follow = (config.redirects.mode == RedirectMode.follow);
-    curl_easy_setopt(handle, CURLoption.CURLOPT_FOLLOWLOCATION, follow ? 1L : 0L);
+    // A manually followed chain (custom methods, R-26) keeps libcurl from following itself.
+    curl_easy_setopt(handle, CURLoption.CURLOPT_FOLLOWLOCATION, (follow
+            && (hopFlags & HOP_MANUAL) == 0) ? 1L : 0L);
     curl_easy_setopt(handle, CURLoption.CURLOPT_MAXREDIRS,
             cast(long) config.redirects.maxRedirects);
 
@@ -796,7 +1127,8 @@ struct Client
 
     // --- Low-level setup helper ---
 
-    private void applyOptions(const Request req, const(char)* cUrl, out curl_slist* headerList) @trusted @nogc
+    private void applyOptions(const Request req, const(char)* cUrl,
+            out curl_slist* headerList, uint hopFlags = 0) @trusted @nogc
     {
         ensureHandle();
         char[512] altSvcBuf;
@@ -824,8 +1156,52 @@ struct Client
             if (altSvcCStr !is null && altSvcCStr != altSvcBuf.ptr)
                 free(cast(void*) altSvcCStr);
         }
+        // Custom methods follow redirects in `performFollowing` (R-26).
+        if (isCustomMethod(req.method))
+            hopFlags |= HOP_MANUAL;
         applyRequestOptions(_handle, _config, req, cUrl, headerList,
-                altSvcCStr, _config.altSvcCtrl);
+                altSvcCStr, _config.altSvcCtrl, hopFlags);
+    }
+
+    /**
+     * Runs `curl_easy_perform` and, for a custom method with `followRedirects`, follows the
+     * redirects itself (R-26): libcurl would keep the custom method on a 303 and `curl_easy_setopt`
+     * cannot be called from a callback. `onHop` discards the output of the redirect response.
+     * Policy: `maxRedirects`, http/https targets only, no https->http downgrade unless allowed;
+     * a 303 becomes a GET without body, and a hop to another origin loses credential headers.
+     */
+    private CURLcode performFollowing(const Request req, const(char)* cUrl,
+            ref curl_slist* headerList, scope void delegate() @nogc nothrow onHop) @trusted @nogc
+    {
+        if (!(_config.followRedirects && isCustomMethod(req.method)))
+            return curl_easy_perform(_handle);
+
+        ManualRedirect st;
+        st.method = req.method;
+        Request hop = cast() req; // only url, method and bodyData are replaced, never mutated in place
+        const(char)* curUrl = cUrl;
+        size_t curLen = req.url.length;
+        for (;;)
+        {
+            const res = curl_easy_perform(_handle);
+            if (res != CURLcode.CURLE_OK)
+                return res;
+            if (!st.next(_handle, _config, curUrl[0 .. curLen]))
+                return res;
+            onHop();
+            hop.url = cast(string) st.url[0 .. st.urlLen];
+            hop.method = st.method;
+            if (st.dropBody)
+                hop.bodyData = null;
+            curl_slist* fresh = null;
+            applyOptions(hop, st.url, fresh, st.flags);
+            // The handle references `fresh` now; only then is the previous list released.
+            if (headerList !is null)
+                curl_slist_free_all(headerList);
+            headerList = fresh;
+            curUrl = st.url;
+            curLen = st.urlLen;
+        }
     }
 
     // --- Hot-Path Execution (@nogc, caller-provided buffer) ---
@@ -864,7 +1240,14 @@ struct Client
             resetHandleOptions(_handle, headerList, cancel, _config.debugSink !is null);
         applyOptions(req, cUrl, headerList);
 
-        BufferWriteCtx writeCtx = {buffer, 0, false};
+        RedirectProbe probe = RedirectProbe(_handle);
+        const probing = _config.followRedirects && isCustomMethod(req.method);
+        BufferWriteCtx writeCtx = {buffer, 0, false, probing ? &probe : null};
+        if (probing)
+        {
+            curl_easy_setopt(_handle, CURLoption.CURLOPT_HEADERFUNCTION, &redirectProbeHeaderCb);
+            curl_easy_setopt(_handle, CURLoption.CURLOPT_HEADERDATA, &probe);
+        }
         curl_easy_setopt(_handle, CURLoption.CURLOPT_WRITEFUNCTION, &clientBufferWriteCb);
         curl_easy_setopt(_handle, CURLoption.CURLOPT_WRITEDATA, &writeCtx);
 
@@ -876,15 +1259,19 @@ struct Client
             curl_easy_setopt(_handle, CURLoption.CURLOPT_XFERINFODATA, cast(void*) cancel);
         }
 
-        auto res = curl_easy_perform(_handle);
+        auto res = performFollowing(req, cUrl, headerList, () @nogc nothrow{
+            writeCtx.written = 0;
+            writeCtx.overflow = false;
+        });
+        // An overflow aborts the transfer from the write callback, which libcurl reports as
+        // CURLE_WRITE_ERROR; the recorded cause is the real error (R-25).
+        if (writeCtx.overflow)
+        {
+            throwCurlErrorNogc(CurlCode.CURLE_FILESIZE_EXCEEDED);
+        }
         if (res != CURLcode.CURLE_OK)
         {
             throwCurlErrorNogc(cast(CurlCode) res);
-        }
-
-        if (writeCtx.overflow)
-        {
-            throwCurlErrorNogc(CurlCode.CURLE_WRITE_ERROR);
         }
 
         long statusCode = 0;
@@ -892,7 +1279,7 @@ struct Client
         long rawVer = 0;
         curl_easy_getinfo(_handle, CURLINFO.CURLINFO_HTTP_VERSION, &rawVer);
 
-        int finalStatus = cast(int) statusCode;
+        const int finalStatus = validatedStatus(statusCode);
 
         return Response(finalStatus, null, buffer[0 .. writeCtx.written],
                 mapCurlHttpVersion(rawVer));
@@ -932,7 +1319,14 @@ struct Client
             resetHandleOptions(_handle, headerList, cancel, _config.debugSink !is null);
         applyOptions(req, cUrl, headerList);
 
-        StreamWriteCtx streamCtx = {onChunk, userdata};
+        RedirectProbe probe = RedirectProbe(_handle);
+        const probing = _config.followRedirects && isCustomMethod(req.method);
+        StreamWriteCtx streamCtx = {onChunk, userdata, probing ? &probe : null};
+        if (probing)
+        {
+            curl_easy_setopt(_handle, CURLoption.CURLOPT_HEADERFUNCTION, &redirectProbeHeaderCb);
+            curl_easy_setopt(_handle, CURLoption.CURLOPT_HEADERDATA, &probe);
+        }
         curl_easy_setopt(_handle, CURLoption.CURLOPT_WRITEFUNCTION, &clientStreamWriteCb);
         curl_easy_setopt(_handle, CURLoption.CURLOPT_WRITEDATA, &streamCtx);
 
@@ -944,7 +1338,7 @@ struct Client
             curl_easy_setopt(_handle, CURLoption.CURLOPT_XFERINFODATA, cast(void*) cancel);
         }
 
-        auto res = curl_easy_perform(_handle);
+        auto res = performFollowing(req, cUrl, headerList, () @nogc nothrow{});
         if (res != CURLcode.CURLE_OK)
         {
             throwCurlErrorNogc(cast(CurlCode) res);
@@ -955,7 +1349,7 @@ struct Client
         long rawVer = 0;
         curl_easy_getinfo(_handle, CURLINFO.CURLINFO_HTTP_VERSION, &rawVer);
 
-        int finalStatus = cast(int) statusCode;
+        const int finalStatus = validatedStatus(statusCode);
 
         return Response(finalStatus, null, null, mapCurlHttpVersion(rawVer));
     }
@@ -1011,8 +1405,12 @@ struct Client
 
         DynamicBufferCtx bodyCtx;
         bodyCtx.maxAllowed = _config.maxResponseBytes;
+        RedirectProbe probe = RedirectProbe(_handle);
+        if (_config.followRedirects && isCustomMethod(req.method))
+            bodyCtx.probe = &probe;
         DynamicBufferCtx headerCtx;
         headerCtx.maxAllowed = _config.maxHeaderBytes;
+        headerCtx.headerProbe = bodyCtx.probe;
 
         scope (exit)
         {
@@ -1035,7 +1433,20 @@ struct Client
             curl_easy_setopt(_handle, CURLoption.CURLOPT_XFERINFODATA, cast(void*) cancel);
         }
 
-        auto res = curl_easy_perform(_handle);
+        auto res = performFollowing(req, cUrl, headerList, () @nogc nothrow{
+            bodyCtx.len = 0;
+            headerCtx.len = 0;
+        });
+        // A cap or OOM abort comes back from libcurl as CURLE_WRITE_ERROR; report the recorded
+        // cause instead (R-25).
+        if (bodyCtx.oom || headerCtx.oom)
+        {
+            enforceCurl(CurlCode.CURLE_OUT_OF_MEMORY);
+        }
+        if (bodyCtx.overflow || headerCtx.overflow)
+        {
+            enforceCurl(CurlCode.CURLE_FILESIZE_EXCEEDED);
+        }
         if (res != CURLcode.CURLE_OK)
         {
             if (res == CURLcode.CURLE_SSL_CACERT && _config.caInfo.length > 0)
@@ -1049,21 +1460,12 @@ struct Client
             enforceCurl(cast(CurlCode) res);
         }
 
-        if (bodyCtx.oom || headerCtx.oom)
-        {
-            enforceCurl(CurlCode.CURLE_OUT_OF_MEMORY);
-        }
-        if (bodyCtx.overflow || headerCtx.overflow)
-        {
-            enforceCurl(CurlCode.CURLE_FILESIZE_EXCEEDED);
-        }
-
         long statusCode = 0;
         curl_easy_getinfo(_handle, CURLINFO.CURLINFO_RESPONSE_CODE, &statusCode);
         long rawVer = 0;
         curl_easy_getinfo(_handle, CURLINFO.CURLINFO_HTTP_VERSION, &rawVer);
 
-        int finalStatus = cast(int) statusCode;
+        const int finalStatus = validatedStatus(statusCode);
 
         Header[] headers;
         if (headerCtx.len > 0)

@@ -516,7 +516,22 @@ WireError encodeRetryPacket(uint version_, const ref ConnectionId dcid,
 WireError encodeVersionNegotiationPacket(const ref ConnectionId dcid, const ref ConnectionId scid,
         const(uint)[] supportedVersions, ubyte[] outBuf, out size_t bytesWritten) @safe pure @nogc nothrow
 {
+    return encodeVersionNegotiationPacket(dcid.asSlice(), scid.asSlice(),
+            supportedVersions, outBuf, bytesWritten);
+}
+
+/**
+ * Encodes a Version Negotiation Packet from raw connection ID bytes. A client may send an
+ * unsupported version with connection IDs of up to 255 bytes (RFC 8999 Section 5.1), which do
+ * not fit a `ConnectionId` (limited to the 20 bytes of version 1) but must be echoed back.
+ */
+WireError encodeVersionNegotiationPacket(const(ubyte)[] dcid,
+        const(ubyte)[] scid, const(uint)[] supportedVersions, ubyte[] outBuf,
+        out size_t bytesWritten) @safe pure @nogc nothrow
+{
     bytesWritten = 0;
+    if (dcid.length > 255 || scid.length > 255)
+        return WireError.invalidPacketHeader;
     WireWriter writer = WireWriter(outBuf);
 
     // Byte 0: Header Form (1) | Unpredictable bits
@@ -528,14 +543,14 @@ WireError encodeVersionNegotiationPacket(const ref ConnectionId dcid, const ref 
     if (writer.writeU32(QUIC_VERSION_NEGOTIATION) != WireError.none)
         return WireError.bufferTooSmall;
 
-    if (writer.writeU8(dcid.len) != WireError.none)
+    if (writer.writeU8(cast(ubyte) dcid.length) != WireError.none)
         return WireError.bufferTooSmall;
-    if (dcid.len > 0 && writer.writeBytes(dcid.asSlice()) != WireError.none)
+    if (dcid.length > 0 && writer.writeBytes(dcid) != WireError.none)
         return WireError.bufferTooSmall;
 
-    if (writer.writeU8(scid.len) != WireError.none)
+    if (writer.writeU8(cast(ubyte) scid.length) != WireError.none)
         return WireError.bufferTooSmall;
-    if (scid.len > 0 && writer.writeBytes(scid.asSlice()) != WireError.none)
+    if (scid.length > 0 && writer.writeBytes(scid) != WireError.none)
         return WireError.bufferTooSmall;
 
     foreach (ver; supportedVersions)
@@ -549,6 +564,34 @@ WireError encodeVersionNegotiationPacket(const ref ConnectionId dcid, const ref 
 }
 
 /// Example:
+/// ---
+/// const ubyte[8] dcidBytes = [1, 2, 3, 4, 5, 6, 7, 8];
+/// const ubyte[8] scidBytes = [0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18];
+/// ConnectionId dcid = ConnectionId(dcidBytes[]);
+/// ConnectionId scid = ConnectionId(scidBytes[]);
+///
+/// // One datagram: an Initial, a Handshake and a 1-RTT packet back to back.
+/// ubyte[1024] datagramBuf;
+/// size_t total, pnOff, hdrLen;
+/// assert(encodeLongHeader(PacketType.initial, QUIC_VERSION_1, dcid, scid, null, 1UL, 2, 20,
+///         datagramBuf[total .. $], pnOff, hdrLen) == WireError.none);
+/// total += hdrLen + 20 + 16;
+/// assert(encodeLongHeader(PacketType.handshake, QUIC_VERSION_1, dcid, scid, null, 2UL, 2, 30,
+///         datagramBuf[total .. $], pnOff, hdrLen) == WireError.none);   // second packet
+/// total += hdrLen + 30 + 16;
+/// assert(encodeShortHeader(dcid, 3UL, 1, true, false, datagramBuf[total .. $], pnOff,
+///         hdrLen) == WireError.none);
+/// total += hdrLen + 40 + 16;
+///
+/// CoalescedPacketIterator iter = CoalescedPacketIterator(datagramBuf[0 .. total], 8);
+/// const(ubyte)[] pkt;
+/// PacketPrefix prefix;
+/// WireError splitErr;
+/// assert(iter.next(pkt, prefix, splitErr) && prefix.type == PacketType.initial);
+/// assert(iter.next(pkt, prefix, splitErr) && prefix.type == PacketType.handshake);
+/// assert(iter.next(pkt, prefix, splitErr) && prefix.type == PacketType.oneRttShort);
+/// assert(iter.empty);
+/// ---
 // Spec: RFC 9000 Section 17.2 & Section 12.2 - Packet Headers & Coalesced Datagram Splitting (covers U1, U2, U3, E2, Scenario T2)
 @nogc unittest
 {
@@ -651,6 +694,30 @@ WireError encodeVersionNegotiationPacket(const ref ConnectionId dcid, const ref 
 }
 
 /// Example:
+/// ---
+/// const ubyte[8] dcidBytes = [1, 2, 3, 4, 5, 6, 7, 8];
+/// ConnectionId dcid = ConnectionId(dcidBytes[]);
+/// ubyte[128] buf;
+/// size_t pnOff, hdrLen;
+/// assert(encodeLongHeader(PacketType.initial, QUIC_VERSION_1, dcid, dcid, null, 1UL, 1, 10,
+///         buf[], pnOff, hdrLen) == WireError.none);
+/// PacketPrefix prefix;
+/// assert(parsePacketPrefix(buf[0 .. hdrLen + 10 + 16], 8, prefix) == WireError.none);
+///
+/// buf[0] |= 0x08;                          // a reserved bit that is only checked after unprotection
+/// DecodedPacketHeader hdr;
+/// TransportErrorCode te;
+/// assert(completeHeaderAfterUnprotect(buf[0 .. hdrLen + 10 + 16], prefix, 0, hdr, te)
+///         == WireError.reservedBitsSet);
+/// assert(te == TransportErrorCode.protocolViolation);
+///
+/// buf[0] |= 0x40;
+/// foreach (len; 0 .. hdrLen + 10 + 16)     // every truncation is reported, none reads out of bounds
+/// {
+///     PacketPrefix truncated;
+///     assert(parsePacketPrefix(buf[0 .. len], 8, truncated) == WireError.unexpectedEof);
+/// }
+/// ---
 // Spec: RFC 9000 Section 17.2 & Section 17.3.1 - Reserved Bits & Truncation (covers W2, G4, Scenario W2)
 @nogc unittest
 {
@@ -703,6 +770,27 @@ WireError encodeVersionNegotiationPacket(const ref ConnectionId dcid, const ref 
 }
 
 /// Example:
+/// ---
+/// const ubyte[8] dcidBytes = [10, 11, 12, 13, 14, 15, 16, 17];
+/// const ubyte[8] scidBytes = [20, 21, 22, 23, 24, 25, 26, 27];
+/// ConnectionId dcid = ConnectionId(dcidBytes[]);
+/// ConnectionId scid = ConnectionId(scidBytes[]);
+///
+/// // A 0-RTT header round-trips through the prefix parser.
+/// ubyte[128] buf;
+/// size_t pnOff, hdrLen;
+/// assert(encodeLongHeader(PacketType.zeroRtt, QUIC_VERSION_1, dcid, scid, null, 42UL, 2, 20,
+///         buf[], pnOff, hdrLen) == WireError.none);
+/// PacketPrefix prefix;
+/// assert(parsePacketPrefix(buf[0 .. hdrLen + 20 + 16], 8, prefix) == WireError.none);
+/// assert(prefix.type == PacketType.zeroRtt && prefix.dcid == dcid && prefix.scid == scid);
+///
+/// // A Retry packet must carry a token, both when encoding and when parsing.
+/// const ubyte[16] tag = 0xAB;
+/// size_t written;
+/// assert(encodeRetryPacket(QUIC_VERSION_1, dcid, scid, null, tag, buf[], written)
+///         == WireError.invalidPacketHeader);
+/// ---
 // Spec: RFC 9000 Section 17.2 & 17.3 - Packet Header Edge Cases, 0-RTT, Retry, Version Negotiation (covers W2, Scenario W2)
 @nogc unittest
 {

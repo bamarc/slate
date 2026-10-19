@@ -6,6 +6,18 @@ import slate.quic.wire.cid;
 import slate.quic.wire.packet : PacketType;
 
 /// Example:
+/// ---
+/// ubyte[512] buf;
+/// size_t written, readLen;
+/// TransportErrorCode te;
+/// Frame hd;
+/// hd.type = FrameType.handshakeDone;
+/// assert(encodeFrame(hd, buf[], written) == WireError.none);
+///
+/// Frame outFrame;
+/// assert(decodeFrame(buf[0 .. written], outFrame, readLen, te) == WireError.none);
+/// assert(outFrame.type == FrameType.handshakeDone && readLen == written);
+/// ---
 // Spec: RFC 9000 Section 19 - Frame Types Round-Trip & ACK Compression (covers U1, U2, U3, E3, Scenario T3)
 @nogc unittest
 {
@@ -270,6 +282,22 @@ import slate.quic.wire.packet : PacketType;
 }
 
 /// Example:
+/// ---
+/// ubyte[128] buf;
+/// Frame outF;
+/// size_t readLen;
+/// TransportErrorCode te;
+///
+/// // An ACK whose first range (10) is larger than the largest acknowledged packet (5).
+/// WireWriter writer = WireWriter(buf[]);
+/// writer.writeVarInt(0x02);   // ACK
+/// writer.writeVarInt(5);      // largest acknowledged
+/// writer.writeVarInt(0);      // ack delay
+/// writer.writeVarInt(0);      // range count
+/// writer.writeVarInt(10);     // first range
+/// assert(decodeFrame(writer.writtenSlice, outF, readLen, te) == WireError.invalidFrame);
+/// assert(te == TransportErrorCode.frameEncodingError);
+/// ---
 // Spec: RFC 9000 Section 12.4 & Section 19 - Frame Semantics, Packet Constraints & Truncation (covers W2, W3, G4, Scenario W3)
 @nogc unittest
 {
@@ -386,6 +414,17 @@ import slate.quic.wire.packet : PacketType;
 }
 
 /// Example:
+/// ---
+/// ubyte[128] buf;
+/// Frame outF;
+/// size_t readLen;
+/// TransportErrorCode te;
+///
+/// // PING (0x01) written as a two-byte varint is not minimal and is rejected.
+/// static immutable ubyte[2] nonMinimalPing = [0x40, 0x01];
+/// assert(decodeFrame(nonMinimalPing[], outF, readLen, te) == WireError.invalidFrame);
+/// assert(te == TransportErrorCode.frameEncodingError);
+/// ---
 // Spec: RFC 9000 Section 19 / F-36, F-37, F-38, F-42 - Frame Encoding & Decoding Hardening
 @nogc unittest
 {
@@ -401,14 +440,7 @@ import slate.quic.wire.packet : PacketType;
     assert(decodeFrame(nonMinimalPing[], outF, readLen, te) == WireError.invalidFrame);
     assert(te == TransportErrorCode.frameEncodingError);
 
-    // 2. Excess ACK ranges rejection on decode (F-42)
-    WireWriter writer = WireWriter(buf[]);
-    writer.writeVarInt(0x02); // ACK
-    writer.writeVarInt(100); // largestAcked
-    writer.writeVarInt(0); // ackDelay
-    writer.writeVarInt(MAX_ACK_RANGES + 1); // excess ranges!
-    assert(decodeFrame(writer.writtenSlice, outF, readLen, te) == WireError.invalidFrame);
-    assert(te == TransportErrorCode.frameEncodingError);
+    // 2. (R-03) Excess ACK ranges on decode are accepted; see the T3 unittest below.
 
     // 3. Excess ACK ranges rejection on encode (F-36)
     Frame excessAck;
@@ -444,4 +476,195 @@ import slate.quic.wire.packet : PacketType;
     badMaxStreams.type = FrameType.maxStreamsBidi;
     badMaxStreams.maxStreams.maximumStreams = (1UL << 60) + 1;
     assert(encodeFrame(badMaxStreams, buf[], written) == WireError.invalidFrame);
+}
+
+/// Example:
+/// ---
+/// ubyte[512] buf;
+/// Frame outF;
+/// size_t readLen;
+/// TransportErrorCode te;
+///
+/// WireWriter writer = WireWriter(buf[]);
+/// writer.writeVarInt(0x02);     // ACK
+/// writer.writeVarInt(1000);     // largest acknowledged
+/// writer.writeVarInt(0);        // ack delay
+/// writer.writeVarInt(39);       // 39 additional ranges: 40 in total
+/// writer.writeVarInt(0);        // first range
+/// foreach (i; 0 .. 39)
+/// {
+///     writer.writeVarInt(2);    // gap
+///     writer.writeVarInt(0);    // range length
+/// }
+/// assert(decodeFrame(writer.writtenSlice, outF, readLen, te) == WireError.none);
+/// assert(outF.ack.numRanges == MAX_ACK_RANGES && outF.ack.truncated);
+/// ---
+// Spec: RFC 9000 Section 19.3 - ACK Range Count is bounded only by the frame; a receiver
+// may retain a subset of ranges (R-03, U1, Scenario T3).
+@nogc unittest
+{
+    ubyte[512] buf;
+    Frame outF;
+    size_t readLen = 0;
+    TransportErrorCode te;
+
+    // T3: 40 ranges total. Range i covers exactly PN (1000 - 4*i); gap 2 between ranges.
+    WireWriter writer = WireWriter(buf[]);
+    writer.writeVarInt(0x02); // ACK
+    writer.writeVarInt(1000); // largestAcked
+    writer.writeVarInt(0); // ackDelay
+    writer.writeVarInt(39); // ACK Range Count (additional ranges)
+    writer.writeVarInt(0); // first ACK range: [1000, 1000]
+    foreach (i; 0 .. 39)
+    {
+        writer.writeVarInt(2); // gap: next largest = smallest - 2 - 2
+        writer.writeVarInt(0); // range length 0
+    }
+    writer.writeVarInt(0x01); // trailing PING must remain unread
+    const(ubyte)[] wire = writer.writtenSlice;
+
+    assert(decodeFrame(wire, outF, readLen, te) == WireError.none);
+    assert(te == TransportErrorCode.noError);
+    assert(outF.type == FrameType.ack);
+    assert(outF.ack.numRanges == MAX_ACK_RANGES);
+    assert(outF.ack.truncated);
+    assert(outF.ack.largestAcknowledged == 1000);
+    foreach (i; 0 .. MAX_ACK_RANGES)
+    {
+        assert(outF.ack.ranges[i].largest == 1000 - 4 * i);
+        assert(outF.ack.ranges[i].smallest == 1000 - 4 * i);
+    }
+    // The whole frame, including the 8 dropped ranges, was consumed.
+    assert(readLen == wire.length - 1);
+
+    // Exactly MAX_ACK_RANGES ranges are not truncated.
+    WireWriter w2 = WireWriter(buf[]);
+    w2.writeVarInt(0x02);
+    w2.writeVarInt(1000);
+    w2.writeVarInt(0);
+    w2.writeVarInt(MAX_ACK_RANGES - 1);
+    w2.writeVarInt(0);
+    foreach (i; 0 .. MAX_ACK_RANGES - 1)
+    {
+        w2.writeVarInt(2);
+        w2.writeVarInt(0);
+    }
+    assert(decodeFrame(w2.writtenSlice, outF, readLen, te) == WireError.none);
+    assert(outF.ack.numRanges == MAX_ACK_RANGES);
+    assert(!outF.ack.truncated);
+
+    // W: an invalid range beyond the retained set is still validated (gap underflow).
+    WireWriter w3 = WireWriter(buf[]);
+    w3.writeVarInt(0x02);
+    w3.writeVarInt(140);
+    w3.writeVarInt(0);
+    w3.writeVarInt(40);
+    w3.writeVarInt(0);
+    foreach (i; 0 .. 40)
+    {
+        w3.writeVarInt(2);
+        w3.writeVarInt(0);
+    }
+    assert(decodeFrame(w3.writtenSlice, outF, readLen, te) == WireError.invalidFrame);
+    assert(te == TransportErrorCode.frameEncodingError);
+
+    // W: a range count claiming more ranges than the frame carries is truncated input.
+    WireWriter w4 = WireWriter(buf[]);
+    w4.writeVarInt(0x02);
+    w4.writeVarInt(1000);
+    w4.writeVarInt(0);
+    w4.writeVarInt(1UL << 40);
+    w4.writeVarInt(0);
+    w4.writeVarInt(2);
+    w4.writeVarInt(0);
+    te = TransportErrorCode.noError;
+    assert(decodeFrame(w4.writtenSlice, outF, readLen, te) == WireError.unexpectedEof);
+    // A malformed frame closes the connection with FRAME_ENCODING_ERROR (RFC 9000 Section 20.1);
+    // the iterator, which drives the connection's close code, reports it too.
+    assert(te == TransportErrorCode.frameEncodingError);
+    FrameIterator it = FrameIterator(w4.writtenSlice, PacketType.oneRttShort);
+    Frame iterFrame;
+    WireError iterErr = WireError.none;
+    TransportErrorCode iterTe = TransportErrorCode.noError;
+    assert(!it.next(iterFrame, iterErr, iterTe));
+    assert(iterErr == WireError.unexpectedEof);
+    assert(iterTe == TransportErrorCode.frameEncodingError);
+}
+
+/// Example:
+/// ---
+/// ubyte[16] buf;
+/// size_t n;
+/// Frame f;
+/// f.type = FrameType.maxStreamsBidi;   // the discriminant decides, whatever the flag says
+/// f.maxStreams.isBidirectional = false;
+/// f.maxStreams.maximumStreams = 5;
+/// assert(encodeFrame(f, buf[], n) == WireError.none && buf[0] == 0x12);
+/// f.type = FrameType.maxStreamsUni;
+/// assert(encodeFrame(f, buf[], n) == WireError.none && buf[0] == 0x13);
+/// ---
+// Spec: RFC 9000 Section 19.11 "A MAX_STREAMS frame (type=0x12 or 0x13) informs the peer" (0x12 bidirectional,
+// 0x13 unidirectional) and Section 19.14 (STREAMS_BLOCKED 0x16 / 0x17): the frame type byte
+// follows the frame's discriminant, never a flag that merely defaults to false (R-32, W16)
+unittest
+{
+    ubyte[16] buf;
+    size_t n;
+    foreach (flag; [false, true])
+    {
+        Frame ms;
+        ms.type = FrameType.maxStreamsBidi;
+        ms.maxStreams.isBidirectional = flag;
+        ms.maxStreams.maximumStreams = 5;
+        assert(encodeFrame(ms, buf[], n) == WireError.none);
+        assert(buf[0] == 0x12, "maxStreamsBidi must encode as 0x12");
+
+        ms.type = FrameType.maxStreamsUni;
+        assert(encodeFrame(ms, buf[], n) == WireError.none);
+        assert(buf[0] == 0x13, "maxStreamsUni must encode as 0x13");
+
+        Frame sb;
+        sb.type = FrameType.streamsBlockedBidi;
+        sb.streamsBlocked.isBidirectional = flag;
+        sb.streamsBlocked.streamLimit = 5;
+        assert(encodeFrame(sb, buf[], n) == WireError.none);
+        assert(buf[0] == 0x16, "streamsBlockedBidi must encode as 0x16");
+
+        sb.type = FrameType.streamsBlockedUni;
+        assert(encodeFrame(sb, buf[], n) == WireError.none);
+        assert(buf[0] == 0x17, "streamsBlockedUni must encode as 0x17");
+    }
+
+    // The decoder sets discriminant and flag consistently, so a round trip is stable.
+    Frame back;
+    TransportErrorCode te;
+    size_t rd;
+    Frame ms;
+    ms.type = FrameType.maxStreamsBidi;
+    ms.maxStreams.maximumStreams = 9;
+    assert(encodeFrame(ms, buf[], n) == WireError.none);
+    assert(decodeFrame(buf[0 .. n], back, rd, te) == WireError.none);
+    assert(back.type == FrameType.maxStreamsBidi && back.maxStreams.isBidirectional);
+}
+
+/// Example:
+/// ---
+/// assert(!isAckElicitingFrame(FrameType.ackEcn));   // like ACK, never ack-eliciting
+/// assert(isAckElicitingFrame(FrameType.ping));
+/// ---
+// Spec: RFC 9002 Section 2 "Ack-eliciting frames: All frames other than ACK, PADDING, and
+// CONNECTION_CLOSE are considered ack-eliciting." (ACK_ECN is an ACK frame, RFC 9000 Section
+// 19.3) - a packet carrying only ACK_ECN must not be answered with an ACK of its own (R-38, W19)
+unittest
+{
+    assert(!isAckElicitingFrame(FrameType.ack));
+    assert(!isAckElicitingFrame(FrameType.ackEcn));
+    assert(!isAckElicitingFrame(FrameType.padding));
+    assert(!isAckElicitingFrame(FrameType.connectionCloseQuic));
+    assert(!isAckElicitingFrame(FrameType.connectionCloseApp));
+    assert(isAckElicitingFrame(FrameType.ping));
+    assert(isAckElicitingFrame(FrameType.crypto));
+    assert(isAckElicitingFrame(FrameType.stream));
+    assert(isAckElicitingFrame(FrameType.handshakeDone));
+    assert(isAckElicitingFrame(FrameType.maxData));
 }

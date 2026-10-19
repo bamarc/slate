@@ -28,7 +28,7 @@ public struct QpackStaticEntry
     string value;
 }
 
-public enum size_t MAX_H3_HEADERS = 64;
+public enum size_t MAX_H3_HEADERS = 256;
 
 public immutable QpackStaticEntry[99] QPACK_STATIC_TABLE = [
     QpackStaticEntry(":authority", ""), // 0
@@ -856,8 +856,10 @@ public H3ErrorCode decodeQpackFieldSection(const(ubyte)[] input, H3HeaderField[]
     // 3. Header Representations
     while (inOffset < input.length)
     {
+        // Too many field lines is a load limit, reported as H3_EXCESSIVE_LOAD so that the caller
+        // can fail just the stream (RFC 9114 Section 4.2.2).
         if (headerCount >= outHeaders.length || headerCount >= MAX_H3_HEADERS)
-            return H3ErrorCode.qpackDecompressionFailed;
+            return H3ErrorCode.excessiveLoad;
 
         const ubyte first = input[inOffset];
         const(char)[] name;
@@ -941,10 +943,10 @@ public H3ErrorCode decodeQpackFieldSection(const(ubyte)[] input, H3HeaderField[]
         // Accumulate RFC 7541 / RFC 9114 field size: name.length + value.length + 32
         const ulong entrySize = name.length + value.length + 32;
         if (ulong.max - totalSectionSize < entrySize)
-            return H3ErrorCode.qpackDecompressionFailed;
+            return H3ErrorCode.excessiveLoad;
         totalSectionSize += entrySize;
         if (totalSectionSize > maxFieldSectionSize)
-            return H3ErrorCode.qpackDecompressionFailed;
+            return H3ErrorCode.excessiveLoad;
 
         outHeaders[headerCount++] = H3HeaderField(name, value);
     }
@@ -953,6 +955,19 @@ public H3ErrorCode decodeQpackFieldSection(const(ubyte)[] input, H3HeaderField[]
 }
 
 /// Example:
+/// ---
+/// ubyte[32] buf;
+/// size_t offset;
+/// assert(encodePrefixedInt(98, 6, 0xC0, buf[], offset));   // QPACK's highest static index
+/// size_t decOffset;
+/// ulong decVal;
+/// assert(decodePrefixedInt(buf[0 .. offset], decOffset, 6, decVal));
+/// assert(decVal == 98);
+/// // eleven continuation bytes overflow 62 bits and are refused
+/// ubyte[12] overflowBuf = [0x1F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F];
+/// decOffset = 0;
+/// assert(!decodePrefixedInt(overflowBuf[], decOffset, 5, decVal));
+/// ---
 // Spec: RFC 7541 Section 5.1, RFC 9204 Section 4.1.1 - Prefixed Integer Encoding and Overflow Protection (covers Scenario T1, U1, U3, E1)
 @nogc unittest
 {
@@ -1000,6 +1015,11 @@ public H3ErrorCode decodeQpackFieldSection(const(ubyte)[] input, H3HeaderField[]
 }
 
 /// Example:
+/// ---
+/// assert(findStaticName(":method") == 15);
+/// assert(findStaticName("content-type") == 44);
+/// assert(findStaticName("unknown-header") == -1);
+/// ---
 // Spec: RFC 9204 Appendix A - QPACK 99-Entry Static Table Verification (covers Scenario T1, U1, U3, E1)
 @nogc unittest
 {
@@ -1040,6 +1060,18 @@ public H3ErrorCode decodeQpackFieldSection(const(ubyte)[] input, H3HeaderField[]
 }
 
 /// Example:
+/// ---
+/// // RFC 7541 C.4.1: "www.example.com" is f1e3c2e5f23a6ba0ab90f4ff
+/// const ubyte[12] encoded = [0xf1, 0xe3, 0xc2, 0xe5, 0xf2, 0x3a, 0x6b, 0xa0, 0xab, 0x90, 0xf4, 0xff];
+/// char[32] decBuf;
+/// size_t decLen;
+/// assert(decodeHuffman(encoded[], decBuf[], decLen) == H3ErrorCode.noError);
+/// assert(decBuf[0 .. decLen] == "www.example.com");
+/// // the padding must be the most significant bits of EOS (all ones), and shorter than a byte
+/// ubyte[12] badPad = encoded;
+/// badPad[11] &= 0xFE;
+/// assert(decodeHuffman(badPad[], decBuf[], decLen) == H3ErrorCode.qpackDecompressionFailed);
+/// ---
 // Spec: RFC 7541 Appendix B, Appendix C.4, RFC 9204 Section 4.1.2 - Huffman Codec, RFC Test Vectors & Security Padding (covers Scenario T1, U1, U3, E1, W2, F4)
 @nogc unittest
 {
@@ -1088,6 +1120,21 @@ public H3ErrorCode decodeQpackFieldSection(const(ubyte)[] input, H3HeaderField[]
 }
 
 /// Example:
+/// ---
+/// H3HeaderField[4] reqHeaders = [H3HeaderField(":method", "GET"), H3HeaderField(":scheme", "https"),
+///         H3HeaderField(":path", "/api/v1/users?id=123"),
+///         H3HeaderField("x-custom-slate-header", "high-assurance-value")];
+/// ubyte[4096] encBuf;
+/// const size_t encLen = encodeQpackFieldSection(reqHeaders[], encBuf[], true);
+/// H3HeaderField[16] decReq;
+/// size_t decCount;
+/// char[4096] strBuf;
+/// size_t strBufUsed;
+/// assert(decodeQpackFieldSection(encBuf[0 .. encLen], decReq[], decCount, strBuf[], strBufUsed)
+///         == H3ErrorCode.noError);
+/// assert(decCount == 4 && decReq[2].value == "/api/v1/users?id=123");
+/// assert(decReq[3].name == "x-custom-slate-header" && decReq[3].value == "high-assurance-value");
+/// ---
 // Spec: RFC 9204 Section 4.5, Section 4.5.2, Section 4.5.4, Section 4.5.6 - QPACK Field Section Encoding & Decoding Round-Trip (covers Scenario T1, U1, U3, E1)
 @nogc unittest
 {
@@ -1166,6 +1213,21 @@ public H3ErrorCode decodeQpackFieldSection(const(ubyte)[] input, H3HeaderField[]
 }
 
 /// Example:
+/// ---
+/// H3HeaderField[16] decHeaders;
+/// size_t decCount;
+/// char[2048] strBuf;
+/// size_t strBufUsed;
+///
+/// // A field section whose static index 99 lies past the 99-entry table (0 .. 98).
+/// ubyte[32] section;
+/// size_t off;
+/// section[off++] = 0x00;   // Required Insert Count = 0
+/// section[off++] = 0x00;   // Delta Base = 0
+/// assert(encodePrefixedInt(99, 6, 0xC0, section[], off));   // indexed field line, static table
+/// assert(decodeQpackFieldSection(section[0 .. off], decHeaders[], decCount, strBuf[], strBufUsed)
+///         == H3ErrorCode.qpackDecompressionFailed);
+/// ---
 // Spec: RFC 9204 Section 4.5, RFC 9114 Section 7.2.4.1 - QPACK Decompression Bomb & Malformed Stream Rejection (covers Scenario T1, W2, F4, F6)
 @nogc unittest
 {
@@ -1215,11 +1277,11 @@ public H3ErrorCode decodeQpackFieldSection(const(ubyte)[] input, H3HeaderField[]
 
     // Pass maxFieldSectionSize = 50 (headers size is ~110 > 50)
     assert(decodeQpackFieldSection(encBuf[0 .. encLen], decHeaders[], decCount,
-            strBuf[], strBufUsed, 50) == H3ErrorCode.qpackDecompressionFailed);
+            strBuf[], strBufUsed, 50) == H3ErrorCode.excessiveLoad);
 
     // Pass maxFieldSectionSize = 0 (0 bytes allowed, fails unconditionally per RFC 9114 / MEDIUM-8)
     assert(decodeQpackFieldSection(encBuf[0 .. encLen], decHeaders[], decCount,
-            strBuf[], strBufUsed, 0) == H3ErrorCode.qpackDecompressionFailed);
+            strBuf[], strBufUsed, 0) == H3ErrorCode.excessiveLoad);
 
     // With larger limit 500, it passes
     assert(decodeQpackFieldSection(encBuf[0 .. encLen], decHeaders[], decCount,

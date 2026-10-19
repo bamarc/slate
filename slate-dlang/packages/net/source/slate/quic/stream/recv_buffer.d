@@ -40,6 +40,7 @@ public struct RecvBuffer
     private ulong m_readOffset = 0;
     private ulong m_highestReceivedOffset = 0;
     private bool m_hasFinalSize = false;
+    private bool m_abandoned = false;
     private ulong m_finalSize = 0;
     private size_t m_maxBufferCapacity = DEFAULT_MAX_BUFFER_CAPACITY;
 
@@ -71,6 +72,7 @@ public struct RecvBuffer
         m_readOffset = 0;
         m_highestReceivedOffset = 0;
         m_hasFinalSize = false;
+        m_abandoned = false;
         m_finalSize = 0;
         numIntervals = 0;
     }
@@ -88,6 +90,7 @@ public struct RecvBuffer
         this.m_readOffset = other.m_readOffset;
         this.m_highestReceivedOffset = other.m_highestReceivedOffset;
         this.m_hasFinalSize = other.m_hasFinalSize;
+        this.m_abandoned = other.m_abandoned;
         this.m_finalSize = other.m_finalSize;
         this.m_maxBufferCapacity = other.m_maxBufferCapacity;
         this.intervals = other.intervals;
@@ -99,6 +102,7 @@ public struct RecvBuffer
         other.m_readOffset = 0;
         other.m_highestReceivedOffset = 0;
         other.m_hasFinalSize = false;
+        other.m_abandoned = false;
         other.m_finalSize = 0;
         other.numIntervals = 0;
     }
@@ -133,6 +137,33 @@ public struct RecvBuffer
         return numIntervals;
     }
 
+    /// Whether the receive side was abandoned (`abandon`): arriving bytes are validated and counted
+    /// but never stored.
+    @property bool abandoned() const @safe pure @nogc nothrow
+    {
+        return m_abandoned;
+    }
+
+    /**
+     * Gives up reading this stream: frees every buffered byte and treats all bytes received so far
+     * as consumed. Later `ingest` calls still enforce the final size rules (RFC 9000 Section 4.5)
+     * but store nothing and advance `readOffset` to the highest received offset, so the stream
+     * completes as soon as its final size is known.
+     */
+    void abandon() @trusted @nogc nothrow
+    {
+        if (data !is null)
+        {
+            free(data);
+            data = null;
+        }
+        capacity = 0;
+        numIntervals = 0;
+        m_abandoned = true;
+        m_readOffset = m_highestReceivedOffset;
+        bufferStartOffset = m_readOffset;
+    }
+
     /**
      * Ingests a slice of bytes at the given stream offset, with an optional FIN flag.
      * Enforces strict RFC 9000 Section 4.5 final size error rules and buffer limits.
@@ -159,6 +190,20 @@ public struct RecvBuffer
         {
             if (endOffset < m_highestReceivedOffset)
                 return TransportErrorCode.finalSizeError;
+        }
+
+        // An abandoned stream stores nothing: only the offsets and the final size are tracked.
+        if (m_abandoned)
+        {
+            if (endOffset > m_highestReceivedOffset)
+                m_highestReceivedOffset = endOffset;
+            if (fin)
+            {
+                m_hasFinalSize = true;
+                m_finalSize = endOffset;
+            }
+            m_readOffset = m_highestReceivedOffset;
+            return TransportErrorCode.noError;
         }
 
         // 3. Buffer capacity / flow control limit check
@@ -244,6 +289,8 @@ public struct RecvBuffer
         m_hasFinalSize = true;
         m_finalSize = declaredFinalSize;
         m_highestReceivedOffset = declaredFinalSize;
+        if (m_abandoned)
+            m_readOffset = declaredFinalSize;
         return TransportErrorCode.noError;
     }
 
@@ -425,6 +472,21 @@ public struct RecvBuffer
 }
 
 /// Example:
+/// ---
+/// // "world" arrives before "hello", then the FIN fixes the final size at 15
+/// RecvBuffer buf;
+/// buf.ingest(10, cast(const(ubyte)[]) "world", false);
+/// buf.ingest(0, cast(const(ubyte)[]) "hello", false);
+/// buf.ingest(3, cast(const(ubyte)[]) "lo, my wo", false);   // overlaps and bridges the gap
+/// buf.ingest(15, null, true);
+/// ubyte[32] outBuf;
+/// bool finReached;
+/// size_t n = buf.read(outBuf[], finReached);
+/// assert(n == 15 && finReached);
+/// assert(buf.onReset(14) == TransportErrorCode.finalSizeError);   // below what was received
+/// assert(buf.onReset(16) == TransportErrorCode.finalSizeError);   // differs from the FIN
+/// assert(buf.onReset(15) == TransportErrorCode.noError);
+/// ---
 // Spec: RFC 9000 Section 2.2 & Section 4.5 - Out-of-Order Reassembly & Final Size Validation (Scenario T1, covers U1, U2, U3, E1, W1, F1, F4)
 @nogc unittest
 {
@@ -487,6 +549,13 @@ public struct RecvBuffer
 }
 
 /// Example:
+/// ---
+/// RecvBuffer buf = RecvBuffer(1024);
+/// ubyte[10] smallData;
+/// assert(buf.ingest(2000, smallData[], false) == TransportErrorCode.flowControlError);
+/// assert(buf.ingest(VARINT_MAX, smallData[], false) == TransportErrorCode.finalSizeError);
+/// assert(buf.ingest(VARINT_MAX - 5, smallData[], false) == TransportErrorCode.finalSizeError);
+/// ---
 // Spec: RFC 9000 Section 4.1 - Buffer Flow Control Bounding and Integer Overflow (covers U1, W1, W2)
 @nogc unittest
 {
@@ -503,6 +572,19 @@ public struct RecvBuffer
 }
 
 /// Example:
+/// ---
+/// RecvBuffer b1;
+/// const(ubyte)[] msg = cast(const(ubyte)[]) "test data";
+/// assert(b1.ingest(0, msg, true) == TransportErrorCode.noError);
+/// RecvBuffer b2;
+/// b2.moveFrom(b1);                                // b2 now owns the data, b1 is empty
+/// assert(b2.highestReceivedOffset == msg.length);
+/// ubyte[16] outBuf;
+/// bool fin;
+/// size_t n = b2.read(outBuf[], fin);
+/// assert(n == msg.length && fin);
+/// assert(cast(string) outBuf[0 .. n] == "test data");
+/// ---
 // Spec: RecvBuffer Move Semantics and Memory Cleanup (covers U2, G4)
 @nogc unittest
 {
@@ -524,6 +606,21 @@ public struct RecvBuffer
 }
 
 /// Example:
+/// ---
+/// // a zero-length frame far ahead must not corrupt the data still buffered
+/// RecvBuffer buf;
+/// ubyte[4100] payload = 0x5a;
+/// assert(buf.ingest(0, payload[], false) == TransportErrorCode.noError);
+/// assert(buf.ingest(65536, null, false) == TransportErrorCode.noError);
+/// ubyte[4096] readBuf;
+/// bool fin;
+/// assert(buf.read(readBuf[], fin) == 4096);       // compacts the buffer
+/// ubyte[16] remainingBuf;
+/// size_t rem = buf.read(remainingBuf[], fin);
+/// assert(rem == 4);
+/// assert(remainingBuf[0 .. 4] == payload[4096 .. 4100]);
+/// assert(buf.readOffset == 4100);
+/// ---
 // Spec: RFC 9000 Section 2.2 - CRITICAL-01 Regression: Zero-Length High-Offset Frame Memmove OOB Defense
 @nogc unittest
 {
@@ -558,6 +655,18 @@ public struct RecvBuffer
 }
 
 /// Example:
+/// ---
+/// // 63 disjoint chunks fill the interval table; the next gap chunk is refused,
+/// // but the chunk at the read offset is still accepted
+/// RecvBuffer buf;
+/// ubyte[1] oneByte = [0xaa];
+/// foreach (i; 1 .. 64)
+///     buf.ingest(cast(ulong)(i * 4), oneByte[], false);
+/// assert(buf.intervalCount == 63);
+/// assert(buf.ingest(500, oneByte[], false) == TransportErrorCode.flowControlError);
+/// assert(buf.ingest(0, oneByte[], false) == TransportErrorCode.noError);
+/// assert(buf.readableBytes() == 1);
+/// ---
 // Spec: RFC 9000 Section 2.2 - HIGH-01 Regression: Head-of-Line Contiguous Slot Reservation
 @nogc unittest
 {

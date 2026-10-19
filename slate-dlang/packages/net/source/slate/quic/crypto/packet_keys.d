@@ -21,19 +21,25 @@ struct DirectionalKeys
         init(suite, key, iv, hpKey);
     }
 
-    void init(CipherSuite suite, const(ubyte)[] key, const(ubyte)[] iv, const(ubyte)[] hpKey) @trusted @nogc nothrow
+    /// Initialises both keys; on any failure (unknown suite, short input, EVP error) nothing is
+    /// retained and false is returned.
+    bool init(CipherSuite suite, const(ubyte)[] key, const(ubyte)[] iv, const(ubyte)[] hpKey) @trusted @nogc nothrow
     {
+        cleanup();
+        if (!isSupportedSuite(suite))
+            return false;
         const size_t reqKeyLen = keyLength(suite);
         const size_t reqHpLen = hpKeyLength(suite);
         if (key.length < reqKeyLen || iv.length < 12 || hpKey.length < reqHpLen)
-        {
-            initialized = false;
-            return;
-        }
+            return false;
 
-        aead.init(suite, key, iv);
-        hp.init(suite, hpKey);
+        if (!aead.init(suite, key, iv) || !hp.init(suite, hpKey))
+        {
+            cleanup();
+            return false;
+        }
         initialized = aead.isInitialized && hp.isInitialized;
+        return initialized;
     }
 
     ~this() @trusted @nogc nothrow
@@ -92,125 +98,6 @@ struct Keys
         remote.moveFrom(other.remote);
         initialized = other.initialized;
         other.initialized = false;
-    }
-}
-
-/**
- * 1-RTT Key Phase updater for Key Update (RFC 9001 Section 6).
- */
-struct KeyPhaseUpdater
-{
-    @disable this(this);
-
-private:
-    CipherSuite m_suite;
-    ubyte[48] m_currentSecret;
-    ubyte[48] m_nextSecret;
-    size_t m_secretLen;
-    AeadKey m_currentAead;
-    AeadKey m_nextAead;
-    HeaderProtectionKey m_hp;
-    ubyte m_keyPhase;
-    bool m_initialized;
-
-public:
-    void init(CipherSuite suite, const(ubyte)[] appSecret, const(ubyte)[] hpKey) @trusted @nogc nothrow
-    {
-        const size_t reqHashLen = hashLength(suite);
-        const size_t reqHpLen = hpKeyLength(suite);
-        if (appSecret.length < reqHashLen || hpKey.length < reqHpLen)
-        {
-            m_initialized = false;
-            return;
-        }
-
-        m_suite = suite;
-        m_secretLen = reqHashLen;
-        m_currentSecret[0 .. m_secretLen] = appSecret[0 .. m_secretLen];
-        m_keyPhase = 0;
-
-        KeyMaterial km;
-        deriveKeyMaterial(suite, appSecret, km);
-        m_currentAead.init(suite, km.key[0 .. km.keyLen], km.iv[0 .. 12]);
-
-        deriveNextApplicationSecret(suite, m_currentSecret[0 .. m_secretLen],
-                m_nextSecret[0 .. m_secretLen]);
-        KeyMaterial nextKm;
-        deriveKeyMaterial(suite, m_nextSecret[0 .. m_secretLen], nextKm);
-        m_nextAead.init(suite, nextKm.key[0 .. nextKm.keyLen], nextKm.iv[0 .. 12]);
-
-        m_hp.init(suite, hpKey);
-        m_initialized = true;
-    }
-
-    void updateKeys() @trusted @nogc nothrow
-    {
-        m_keyPhase ^= 1;
-        m_currentSecret[0 .. m_secretLen] = m_nextSecret[0 .. m_secretLen];
-        m_currentAead.moveFrom(m_nextAead);
-
-        deriveNextApplicationSecret(m_suite, m_currentSecret[0 .. m_secretLen],
-                m_nextSecret[0 .. m_secretLen]);
-        KeyMaterial nextKm;
-        deriveKeyMaterial(m_suite, m_nextSecret[0 .. m_secretLen], nextKm);
-        m_nextAead.init(m_suite, nextKm.key[0 .. nextKm.keyLen], nextKm.iv[0 .. 12]);
-    }
-
-    ~this() @trusted @nogc nothrow
-    {
-        cleanup();
-    }
-
-    void cleanup() @trusted @nogc nothrow
-    {
-        OPENSSL_cleanse(m_currentSecret.ptr, m_currentSecret.sizeof);
-        OPENSSL_cleanse(m_nextSecret.ptr, m_nextSecret.sizeof);
-        m_currentAead.cleanup();
-        m_nextAead.cleanup();
-        m_hp.cleanup();
-        m_initialized = false;
-    }
-
-    void moveFrom(ref KeyPhaseUpdater other) @trusted @nogc nothrow
-    {
-        if (&this is &other)
-            return;
-        cleanup();
-        m_suite = other.m_suite;
-        m_currentSecret = other.m_currentSecret;
-        m_nextSecret = other.m_nextSecret;
-        m_secretLen = other.m_secretLen;
-        m_currentAead.moveFrom(other.m_currentAead);
-        m_nextAead.moveFrom(other.m_nextAead);
-        m_hp.moveFrom(other.m_hp);
-        m_keyPhase = other.m_keyPhase;
-        m_initialized = other.m_initialized;
-        other.m_initialized = false;
-    }
-
-    @property ubyte keyPhase() const @safe @nogc nothrow pure
-    {
-        return m_keyPhase;
-    }
-
-    @property bool isInitialized() const @safe @nogc nothrow pure
-    {
-        return m_initialized;
-    }
-
-    @property ref AeadKey currentAead() return @safe @nogc nothrow pure
-    {
-        return m_currentAead;
-    }
-
-    @property ref AeadKey nextAead() return @safe @nogc nothrow pure
-    {
-        return m_nextAead;
-    }
-
-    @property ref HeaderProtectionKey hp() return @safe @nogc nothrow pure
-    {
-        return m_hp;
     }
 }
 
@@ -279,6 +166,8 @@ QuicCryptoError unprotectPacketWithAead(ref HeaderProtectionKey hp, ref AeadKey 
     {
         packetBuffer[0] = origFirstByte;
         packetBuffer[pnOffset .. pnOffset + maxPn] = origPnBytes[0 .. maxPn];
+        pnLen = 0;
+        decodedPn = 0;
         return hpErr;
     }
 
@@ -287,6 +176,9 @@ QuicCryptoError unprotectPacketWithAead(ref HeaderProtectionKey hp, ref AeadKey 
     {
         packetBuffer[0] = origFirstByte;
         packetBuffer[pnOffset .. pnOffset + pnLen] = origPnBytes[0 .. pnLen];
+        pnLen = 0;
+        decodedPn = 0;
+        payloadOffset = 0;
         return QuicCryptoError.packetTooShort;
     }
 
@@ -298,6 +190,10 @@ QuicCryptoError unprotectPacketWithAead(ref HeaderProtectionKey hp, ref AeadKey 
     {
         packetBuffer[0] = origFirstByte;
         packetBuffer[pnOffset .. pnOffset + pnLen] = origPnBytes[0 .. pnLen];
+        pnLen = 0;
+        decodedPn = 0;
+        payloadOffset = 0;
+        plaintextLen = 0;
         return aeadErr;
     }
 
@@ -320,6 +216,26 @@ QuicCryptoError unprotectPacket(ref DirectionalKeys keys, size_t pnOffset, ulong
 }
 
 /// Example:
+/// ---
+/// // RFC 9001 Appendix A.2 client Initial keys protect a packet, and the same keys open it again
+/// const ubyte[16] clientKey = [0x1f, 0x36, 0x96, 0x13, 0xdd, 0x76, 0xd5, 0x46,
+///         0x77, 0x30, 0xef, 0xcb, 0xe3, 0xb1, 0xa2, 0x2d];
+/// const ubyte[12] clientIv = [0xfa, 0x04, 0x4b, 0x2f, 0x42, 0xa3, 0xfd, 0x3b, 0x46, 0xfb, 0x25, 0x5c];
+/// const ubyte[16] clientHp = [0x9f, 0x50, 0x44, 0x9e, 0x04, 0xa0, 0xe8, 0x10,
+///         0x28, 0x3a, 0x1e, 0x99, 0x33, 0xad, 0xed, 0xd2];
+/// DirectionalKeys keys;
+/// keys.init(CipherSuite.TLS_AES_128_GCM_SHA256, clientKey, clientIv, clientHp);
+/// ubyte[22 + 20 + 16] pkt;
+/// pkt[0 .. 22] = [0xc3, 0, 0, 0, 1, 8, 0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 8, 0, 0, 0x44, 0x9e, 0, 0, 0, 2];
+/// pkt[22 .. 42] = 0x06;                            // 20 bytes of payload
+/// size_t protectedLen;
+/// assert(protectPacket(keys, 2, 18, 4, pkt, 20, protectedLen) == QuicCryptoError.none);
+/// size_t pnLen, payloadOffset, plainLen;
+/// ulong pn;
+/// assert(unprotectPacket(keys, 18, 0, pkt[0 .. protectedLen], pnLen, pn, payloadOffset, plainLen)
+///         == QuicCryptoError.none);
+/// assert(pn == 2 && payloadOffset == 22 && plainLen == 20 && pkt[22] == 0x06);
+/// ---
 // Spec: RFC 9001 Appendix A.2 - Client Initial Packet Protection & Unprotection (covers E2, W1, W2, Scenario T2)
 @nogc unittest
 {
@@ -443,6 +359,26 @@ QuicCryptoError unprotectPacket(ref DirectionalKeys keys, size_t pnOffset, ulong
 }
 
 /// Example:
+/// ---
+/// // RFC 9001 Appendix A.3 server Initial keys protect a packet, and the same keys open it again
+/// const ubyte[16] serverKey = [0xcf, 0x3a, 0x53, 0x31, 0x65, 0x3c, 0x36, 0x4c,
+///         0x88, 0xf0, 0xf3, 0x79, 0xb6, 0x06, 0x7e, 0x37];
+/// const ubyte[12] serverIv = [0x0a, 0xc1, 0x49, 0x3c, 0xa1, 0x90, 0x58, 0x53, 0xb0, 0xbb, 0xa0, 0x3e];
+/// const ubyte[16] serverHp = [0xc2, 0x06, 0xb8, 0xd9, 0xb9, 0xf0, 0xf3, 0x76,
+///         0x44, 0x43, 0x0b, 0x49, 0x0e, 0xea, 0xa3, 0x14];
+/// DirectionalKeys keys;
+/// keys.init(CipherSuite.TLS_AES_128_GCM_SHA256, serverKey, serverIv, serverHp);
+/// ubyte[20 + 30 + 16] pkt;
+/// pkt[0 .. 20] = [0xc1, 0, 0, 0, 1, 0, 8, 0xf0, 0x67, 0xa5, 0x50, 0x2a, 0x42, 0x62, 0xb5, 0, 0x40, 0x75, 0, 1];
+/// pkt[20 .. 50] = 0x02;
+/// size_t protLen;
+/// assert(protectPacket(keys, 1, 18, 2, pkt, 30, protLen) == QuicCryptoError.none);
+/// size_t pnLen, payloadOffset, plainLen;
+/// ulong pn;
+/// assert(unprotectPacket(keys, 18, 0, pkt[0 .. protLen], pnLen, pn, payloadOffset, plainLen)
+///         == QuicCryptoError.none);
+/// assert(pn == 1 && plainLen == 30 && pkt[20] == 0x02);
+/// ---
 // Spec: RFC 9001 Appendix A.3 - Server Initial Packet Protection & Unprotection (covers E2, Scenario T2)
 @nogc unittest
 {
@@ -507,6 +443,27 @@ QuicCryptoError unprotectPacket(ref DirectionalKeys keys, size_t pnOffset, ulong
 }
 
 /// Example:
+/// ---
+/// // RFC 9001 Appendix A.5 ChaCha20-Poly1305 keys protect a short header packet and open it again
+/// const ubyte[32] key = [0xc6, 0xd9, 0x8f, 0xf3, 0x44, 0x1c, 0x3f, 0xe1, 0xb2,
+///         0x18, 0x20, 0x94, 0xf6, 0x9c, 0xaa, 0x2e, 0xd4, 0xb7, 0x16, 0xb6, 0x54,
+///         0x88, 0x96, 0x0a, 0x7a, 0x98, 0x49, 0x79, 0xfb, 0x23, 0xe1, 0xc8];
+/// const ubyte[12] iv = [0xe0, 0x45, 0x9b, 0x34, 0x74, 0xbd, 0xd0, 0xe4, 0x4a, 0x41, 0xc1, 0x44];
+/// const ubyte[32] hpKey = [0x25, 0xa2, 0x82, 0xb9, 0xe8, 0x2f, 0x06, 0xf2, 0x1f,
+///         0x48, 0x89, 0x17, 0xa4, 0xfc, 0x8f, 0x1b, 0x73, 0x57, 0x36, 0x85, 0x60,
+///         0x85, 0x97, 0xd0, 0xef, 0xcb, 0x07, 0x6b, 0x0a, 0xb7, 0xa7, 0xa4];
+/// DirectionalKeys keys;
+/// keys.init(CipherSuite.TLS_CHACHA20_POLY1305_SHA256, key, iv, hpKey);
+/// ubyte[21] pkt;
+/// pkt[0 .. 5] = [0x42, 0x00, 0xbf, 0xf4, 0x01];   // 1 + 3 byte header, 1 byte payload
+/// size_t protLen;
+/// assert(protectPacket(keys, 654360564, 1, 3, pkt, 1, protLen) == QuicCryptoError.none);
+/// size_t pnLen, payloadOffset, plainLen;
+/// ulong pn;
+/// assert(unprotectPacket(keys, 1, 654360563, pkt[0 .. protLen], pnLen, pn, payloadOffset, plainLen)
+///         == QuicCryptoError.none);
+/// assert(pn == 654360564 && plainLen == 1 && pkt[4] == 0x01);
+/// ---
 // Spec: RFC 9001 Appendix A.5 - ChaCha20-Poly1305 Short Header Packet Protection (covers E3, Scenario T3)
 @nogc unittest
 {
@@ -560,6 +517,26 @@ QuicCryptoError unprotectPacket(ref DirectionalKeys keys, size_t pnOffset, ulong
 }
 
 /// Example:
+/// ---
+/// const suite = CipherSuite.TLS_AES_128_GCM_SHA256;
+/// ubyte[32] appSecret = 0x5a;
+/// ubyte[32] appSecret1;
+/// assert(deriveNextApplicationSecret(suite, appSecret[], appSecret1[]));   // phase-1 secret
+/// KeyMaterial km0, km1;
+/// assert(deriveKeyMaterial(suite, appSecret[], km0) && deriveKeyMaterial(suite, appSecret1[], km1));
+/// DirectionalKeys receiverPhase0Keys, senderPhase1Keys;
+/// receiverPhase0Keys.init(suite, km0.key[0 .. km0.keyLen], km0.iv[0 .. 12], km0.hp[0 .. km0.hpLen]);
+/// senderPhase1Keys.init(suite, km1.key[0 .. km1.keyLen], km1.iv[0 .. 12], km1.hp[0 .. km1.hpLen]);
+/// ubyte[26] pkt;
+/// pkt[0 .. 10] = [0x44, 0x02, 1, 2, 3, 4, 5, 6, 7, 8];   // short header (key phase 1), 8-byte payload
+/// size_t protLen;
+/// assert(protectPacket(senderPhase1Keys, 2, 1, 1, pkt, 8, protLen) == QuicCryptoError.none);
+/// size_t pnLen, payOff, plainLen;
+/// ulong pn;
+/// // phase-1 keys come from the next secret, so the phase-0 keys cannot open the packet
+/// assert(unprotectPacket(receiverPhase0Keys, 1, 1, pkt[0 .. protLen], pnLen, pn, payOff, plainLen)
+///         == QuicCryptoError.aeadTagMismatch);
+/// ---
 // Spec: RFC 9001 Section 6 - Key Update rotation & Cross-Phase Rejection (covers E3, Scenario T4)
 @nogc unittest
 {
@@ -573,15 +550,6 @@ QuicCryptoError unprotectPacket(ref DirectionalKeys keys, size_t pnOffset, ulong
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
         0x0d, 0x0e, 0x0f, 0x10
     ];
-
-    KeyPhaseUpdater sender;
-    sender.init(CipherSuite.TLS_AES_128_GCM_SHA256, appSecret, hpKey);
-
-    KeyPhaseUpdater receiver;
-    receiver.init(CipherSuite.TLS_AES_128_GCM_SHA256, appSecret, hpKey);
-
-    assert(sender.keyPhase == 0, "Initial key phase must be 0");
-    assert(receiver.keyPhase == 0, "Initial key phase must be 0");
 
     // Protect full packet at key phase 0
     ubyte[26] packet0 = [
@@ -664,40 +632,19 @@ QuicCryptoError unprotectPacket(ref DirectionalKeys keys, size_t pnOffset, ulong
     assert(crossPkt[crossPayOff .. crossPayOff + 8] == [
         0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22
     ]);
-
-    // Test KeyPhaseUpdater rotation
-    sender.updateKeys();
-    receiver.updateKeys();
-    assert(sender.keyPhase == 1, "Key phase must toggle to 1");
-    assert(receiver.keyPhase == 1, "Key phase must toggle to 1");
-
-    // Part 2: TLS_AES_256_GCM_SHA384 (48-byte secret, 32-byte HP key)
-    const ubyte[48] appSecret256 = [
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
-        0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23,
-        0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
-        0x30
-    ];
-    const ubyte[32] hpKey256 = [
-        0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c,
-        0x3d, 0x3e, 0x3f, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
-        0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50
-    ];
-
-    KeyPhaseUpdater updater256;
-    updater256.init(CipherSuite.TLS_AES_256_GCM_SHA384, appSecret256, hpKey256);
-    assert(updater256.keyPhase == 0);
-
-    ubyte[48] nextSecret256;
-    deriveNextApplicationSecret(CipherSuite.TLS_AES_256_GCM_SHA384, appSecret256, nextSecret256);
-    assert(nextSecret256 != appSecret256, "Next AES-256 secret must differ from current");
-
-    updater256.updateKeys();
-    assert(updater256.keyPhase == 1, "Key phase must toggle to 1 for AES-256");
 }
 
 /// Example:
+/// ---
+/// // keys built from material of the wrong length stay uninitialised and refuse to protect
+/// DirectionalKeys dKeys;
+/// ubyte[10] shortKey, shortIv, shortHp;
+/// dKeys.init(CipherSuite.TLS_AES_128_GCM_SHA256, shortKey, shortIv, shortHp);
+/// assert(!dKeys.initialized);
+/// ubyte[64] pktBuf;
+/// size_t protLen;
+/// assert(protectPacket(dKeys, 0, 1, 0, pktBuf, 10, protLen) == QuicCryptoError.internalError);
+/// ---
 // Spec: RFC 9001 / F-32, F-33 & F-41 - PacketKeys bounds validation, self-move guards, and cleanup
 @nogc unittest
 {
@@ -715,16 +662,139 @@ QuicCryptoError unprotectPacket(ref DirectionalKeys keys, size_t pnOffset, ulong
     // Self-move guard on Keys
     keys.moveFrom(keys);
 
-    KeyPhaseUpdater updater;
-    // Short secret / hpKey
-    updater.init(CipherSuite.TLS_AES_128_GCM_SHA256, shortKey, shortHp);
-    assert(!updater.isInitialized);
-
-    // Self-move guard on KeyPhaseUpdater
-    updater.moveFrom(updater);
-
     // protectPacket with invalid pnLen
     ubyte[64] pktBuf;
     size_t protLen;
     assert(protectPacket(dKeys, 0, 1, 0, pktBuf, 10, protLen) == QuicCryptoError.internalError);
+}
+
+/// Example:
+/// ---
+/// const unknown = cast(CipherSuite) 0x1304;       // not one of the three QUIC suites
+/// ubyte[32] key = 0x11;
+/// ubyte[12] iv = 0x22;
+/// ubyte[32] secret = 0x33;
+/// AeadKey a;
+/// assert(!a.init(unknown, key[], iv[]) && !a.isInitialized);   // no silent AES-128 fallback
+/// KeyMaterial km;
+/// assert(!deriveKeyMaterial(unknown, secret[], km) && km.keyLen == 0);
+/// ---
+// Spec: RFC 9001 Section 5.1 / 5.3 (the AEAD and HP algorithms follow the negotiated TLS 1.3
+// cipher suite) - an unknown suite or a failing derivation must yield an error and an
+// uninitialised object, never AES-128 keys (R-28, W11)
+@nogc unittest
+{
+    const unknown = cast(CipherSuite) 0x1304;
+    ubyte[32] key = 0x11;
+    ubyte[12] iv = 0x22;
+    ubyte[32] secret = 0x33;
+
+    AeadKey aead;
+    assert(!aead.init(unknown, key[], iv[]));
+    assert(!aead.isInitialized);
+
+    HeaderProtectionKey hp;
+    assert(!hp.init(unknown, key[]));
+    assert(!hp.isInitialized);
+
+    KeyMaterial km;
+    km.keyLen = 99;
+    assert(!deriveKeyMaterial(unknown, secret[], km));
+    assert(km.keyLen == 0 && km.key == (ubyte[32]).init, "failure must not leave key material");
+    assert(!deriveKeyMaterial(CipherSuite.TLS_AES_256_GCM_SHA384,
+            secret[0 .. 32], km), "SHA-384 suite needs a 48-byte secret");
+
+    ubyte[48] next = 0x77;
+    assert(!deriveNextApplicationSecret(unknown, secret[], next[]));
+    foreach (b; next)
+        assert(b == 0x77);
+
+    DirectionalKeys dk;
+    assert(!dk.init(unknown, key[], iv[], key[]));
+    assert(!dk.initialized);
+
+    // Control: the supported suites still work.
+    foreach (suite; [
+        CipherSuite.TLS_AES_128_GCM_SHA256, CipherSuite.TLS_AES_256_GCM_SHA384,
+        CipherSuite.TLS_CHACHA20_POLY1305_SHA256
+    ])
+    {
+        ubyte[48] sec = 0x44;
+        KeyMaterial ok;
+        assert(deriveKeyMaterial(suite, sec[0 .. hashLength(suite)], ok));
+        assert(ok.keyLen == keyLength(suite));
+        AeadKey good;
+        assert(good.init(suite, ok.key[0 .. ok.keyLen], ok.iv[]) && good.isInitialized);
+    }
+}
+
+/// Example:
+/// ---
+/// ubyte[16] key = 0x11, hpk = 0x22, key2 = 0x44;
+/// ubyte[12] iv = 0x33;
+/// DirectionalKeys good, wrongKeys;
+/// assert(good.init(CipherSuite.TLS_AES_128_GCM_SHA256, key[], iv[], hpk[]));
+/// assert(wrongKeys.init(CipherSuite.TLS_AES_128_GCM_SHA256, key2[], iv[], hpk[]));
+/// ubyte[64] buf;
+/// buf[0] = 0x41;                                  // short header, 2-byte packet number
+/// buf[1 .. 9] = 0xA5;
+/// buf[9 .. 11] = [0x01, 0x23];
+/// buf[11 .. 31] = 0x7e;                           // 20 bytes of payload
+/// size_t protLen, pnLen, payOff, plainLen;
+/// ulong pn;
+/// assert(protectPacket(good, 0x123, 9, 2, buf[], 20, protLen) == QuicCryptoError.none);
+/// // keys with the same header protection key but another AEAD key: the tag does not verify
+/// const err = unprotectPacket(wrongKeys, 9, 0, buf[0 .. protLen], pnLen, pn, payOff, plainLen);
+/// assert(err == QuicCryptoError.aeadTagMismatch);
+/// assert(pnLen == 0 && pn == 0 && payOff == 0 && plainLen == 0);   // no outputs on failure
+/// ---
+// Spec: RFC 9001 Section 5.4.1 / Section 5.3 - a packet that fails header unprotection or AEAD
+// authentication yields no packet number: the decoded number and length must not leak out of a
+// failed attempt, so a retry with another key generation never sees stale values (R-41, W23)
+@nogc unittest
+{
+    ubyte[16] key = 0x11, hpk = 0x22;
+    ubyte[12] iv = 0x33;
+    DirectionalKeys good, other;
+    assert(good.init(CipherSuite.TLS_AES_128_GCM_SHA256, key[], iv[], hpk[]));
+    ubyte[16] key2 = 0x44;
+    assert(other.init(CipherSuite.TLS_AES_128_GCM_SHA256, key2[], iv[], hpk[]));
+
+    ubyte[64] pkt;
+    pkt[0] = 0x41; // short header, pn length 2, key phase 0
+    pkt[1 .. 9] = 0xA5;
+    const size_t pnOff = 9;
+    const size_t pnLen = 2;
+    const size_t plain = 20;
+    pkt[pnOff] = 0x01;
+    pkt[pnOff + 1] = 0x23;
+    pkt[pnOff + pnLen .. pnOff + pnLen + plain] = 0x7e;
+    size_t protLen;
+    assert(protectPacket(good, 0x123, pnOff, pnLen, pkt[], plain, protLen) == QuicCryptoError.none);
+    ubyte[64] orig = pkt;
+
+    size_t dl = 99, po = 99, pl = 99;
+    ulong dpn = 99;
+    // Header protection of `other` uses the same hp key, so the pn is decoded, then AEAD fails.
+    ubyte[64] work = orig;
+    assert(unprotectPacket(other, pnOff, 0, work[0 .. protLen], dl, dpn, po,
+            pl) == QuicCryptoError.aeadTagMismatch);
+    assert(dl == 0 && dpn == 0 && po == 0 && pl == 0, "no outputs after an AEAD failure");
+    assert(work == orig, "buffer restored");
+
+    // Too short for a tag after the packet number.
+    dl = 99;
+    dpn = 99;
+    po = 99;
+    pl = 99;
+    ubyte[64] shortBuf = orig;
+    assert(unprotectPacket(good, pnOff, 0, shortBuf[0 .. pnOff + 4 + 16], dl, dpn,
+            po, pl) != QuicCryptoError.none);
+    assert(dl == 0 && dpn == 0 && po == 0 && pl == 0);
+
+    // The good key still works and yields the packet number.
+    work = orig;
+    assert(unprotectPacket(good, pnOff, 0x100, work[0 .. protLen], dl, dpn, po,
+            pl) == QuicCryptoError.none);
+    assert(dpn == 0x123 && dl == 2 && pl == plain);
 }

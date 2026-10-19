@@ -120,6 +120,7 @@ private:
     SSL_CTX* m_ctx;
     TlsAlpnConfig* m_alpnConfig;
     bool m_isServer;
+    bool m_verifyPeer;
 
     package(slate.quic) @property SSL_CTX* handle() @safe @nogc nothrow pure
     {
@@ -135,6 +136,12 @@ public:
     @property bool isServer() const @safe @nogc nothrow pure
     {
         return m_isServer;
+    }
+
+    /// Whether this (client) context authenticates the server certificate chain.
+    @property bool verifiesPeer() const @safe @nogc nothrow pure
+    {
+        return m_verifyPeer;
     }
 
     ~this() @trusted @nogc nothrow
@@ -160,6 +167,7 @@ public:
         m_ctx = other.m_ctx;
         m_alpnConfig = other.m_alpnConfig;
         m_isServer = other.m_isServer;
+        m_verifyPeer = other.m_verifyPeer;
         other.m_ctx = null;
         other.m_alpnConfig = null;
     }
@@ -278,6 +286,7 @@ public:
         // Enable peer verification & system CA paths
         SSL_CTX_set_verify(ctx.m_ctx, SSL_VERIFY_PEER, null);
         SSL_CTX_set_default_verify_paths(ctx.m_ctx);
+        ctx.m_verifyPeer = true;
 
         if (caFilePath.length > 0)
         {
@@ -339,6 +348,8 @@ package(slate.quic) struct TlsSessionState
     Side side;
     CipherSuite cipher;
     bool handshakeComplete;
+    /// Whether a recorded certificate chain error aborts the handshake (R-20).
+    bool verifyPeer;
     bool hasAlert;
     ubyte alertCode;
 
@@ -352,6 +363,8 @@ package(slate.quic) struct TlsSessionState
     ubyte[2048] localParams;
     size_t localParamsLen;
     bool peerParamsOverflow;
+    /// A yielded traffic secret did not fit its slot: the handshake cannot continue (R-33).
+    bool secretOverflow;
 
     // Incoming crypto feed
     const(ubyte)* inBufPtr;
@@ -394,16 +407,20 @@ package(slate.quic) struct TlsSessionState
             break;
         }
 
-        const size_t avail = target.length - *pLen;
-        const size_t toCopy = (bufLen < avail) ? bufLen : avail;
+        // The flight must be stored whole: a partial copy that is reported as success would drop
+        // handshake bytes silently (RFC 9001 Section 4.1.3 requires CRYPTO data in full), so
+        // an overflow fails the handshake and leaves the buffer untouched (R-29).
+        *consumed = 0;
+        if (bufLen > target.length - *pLen)
+            return 0;
 
-        if (toCopy > 0)
+        if (bufLen > 0)
         {
-            target[*pLen .. *pLen + toCopy] = buf[0 .. toCopy];
-            *pLen += toCopy;
+            target[*pLen .. *pLen + bufLen] = buf[0 .. bufLen];
+            *pLen += bufLen;
         }
 
-        *consumed = toCopy;
+        *consumed = bufLen;
         return 1;
     }
 
@@ -441,8 +458,15 @@ package(slate.quic) struct TlsSessionState
             slot = (direction == 1) ? &appWriteSec : &appReadSec;
         }
 
-        if (slot !is null && secretLen <= slot.data.length)
+        if (slot !is null)
         {
+            // A secret that does not fit would leave the level advanced without keys to
+            // protect it: fail the callback and record why, before any state moves (R-33).
+            if (secretLen > slot.data.length)
+            {
+                secretOverflow = true;
+                return 0;
+            }
             slot.data[0 .. secretLen] = secret[0 .. secretLen];
             slot.len = secretLen;
             slot.valid = true;
@@ -464,6 +488,24 @@ package(slate.quic) struct TlsSessionState
         }
 
         return 1;
+    }
+
+    /// The failure recorded by a callback during the handshake, if any (also raises the alert).
+    QuicCryptoError paramFailure() @safe @nogc nothrow
+    {
+        if (peerParamsOverflow)
+        {
+            hasAlert = true;
+            alertCode = 47; // illegal_parameter
+            return QuicCryptoError.transportParamsTooLarge;
+        }
+        if (secretOverflow)
+        {
+            hasAlert = true;
+            alertCode = 80; // internal_error
+            return QuicCryptoError.internalError;
+        }
+        return QuicCryptoError.none;
     }
 
     int onGotTransportParams(const(ubyte)* params, size_t paramsLen) @trusted @nogc nothrow
@@ -559,6 +601,118 @@ private static immutable OSSL_DISPATCH[7] s_quicTlsDispatch = [
             cast(immutable(void)*)&quicAlertCb), immutable(OSSL_DISPATCH)(0, null)
 ];
 
+/// Longest accepted server name in bytes.
+enum size_t MAX_SERVER_NAME_LEN = 255;
+
+/**
+ * Checks a client-supplied server name and yields the host to use (IPv6 brackets removed).
+ * An empty `serverName` is not an error here (`host` is empty; the caller decides whether a
+ * name is required). Rejected with `invalidServerName`: more than 255 bytes (the limit of a
+ * DNS name and of what OpenSSL accepts for SNI, RFC 1035 Section 2.3.4), an empty host
+ * between brackets, brackets around a non-IP name, a leading or trailing '.', an empty label
+ * (".."), a space, any byte outside the LDH set (letters, digits, '-', '.'; so IDNs must be
+ * punycode and '*' is refused), and any NUL or other control character (U+0000-U+001F, U+007F), which
+ * would truncate the C string handed to OpenSSL or smuggle a different host past the check.
+ */
+package(slate.quic) QuicCryptoError validateServerName(
+        return scope const(char)[] serverName, out const(char)[] host) @safe @nogc nothrow pure
+{
+    if (serverName.length > MAX_SERVER_NAME_LEN)
+        return QuicCryptoError.invalidServerName;
+    const(char)[] name = serverName;
+    bool bracketed = false;
+    if (name.length >= 2 && name[0] == '[' && name[$ - 1] == ']')
+    {
+        name = name[1 .. $ - 1];
+        bracketed = true;
+        if (name.length == 0)
+            return QuicCryptoError.invalidServerName;
+    }
+    foreach (c; name)
+    {
+        if (c <= 0x20 || c == 0x7f)
+            return QuicCryptoError.invalidServerName;
+    }
+    // Brackets only delimit IP literals (RFC 3986 Section 3.2.2); "[example.com]" is malformed.
+    if (bracketed && !isIpLiteral(name))
+        return QuicCryptoError.invalidServerName;
+    // A DNS name has no empty labels: a leading '.' would be an any-subdomain pattern for
+    // OpenSSL's host matching, and ".." or a trailing '.' is not a valid HostName
+    // (RFC 6066 Section 3: no trailing dot). The FQDN form "host." is rejected, not stripped,
+    // so the name that is verified is the name that is sent.
+    if (!isIpLiteral(name) && name.length > 0)
+    {
+        if (name[0] == '.' || name[$ - 1] == '.')
+            return QuicCryptoError.invalidServerName;
+        foreach (i; 1 .. name.length)
+        {
+            if (name[i] == '.' && name[i - 1] == '.')
+                return QuicCryptoError.invalidServerName;
+        }
+        // Only LDH labels (letters, digits, '-') plus the '.' separators remain (RFC 1123
+        // Section 2.1, RFC 5890 Section 2.3.1): IDNs must already be punycode, and '*' (a wildcard
+        // pattern, never a host name) or any other byte is rejected (PB-6).
+        foreach (c; name)
+        {
+            const bool ldh = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                || (c >= '0' && c <= '9') || c == '-' || c == '.';
+            if (!ldh)
+                return QuicCryptoError.invalidServerName;
+        }
+    }
+    host = name;
+    return QuicCryptoError.none;
+}
+
+/**
+ * Whether `name` (brackets already stripped) is an IPv4 dotted-quad or IPv6 textual literal.
+ * Such names are identities for IP SAN matching and must never be sent as SNI (RFC 6066 Section 3).
+ */
+package(slate.quic) bool isIpLiteral(scope const(char)[] name) @safe @nogc nothrow pure
+{
+    if (name.length == 0)
+        return false;
+
+    // IPv6: hex digits, ':' and an optional embedded dotted-quad tail.
+    bool hasColon = false;
+    foreach (c; name)
+    {
+        if (c == ':')
+            hasColon = true;
+        else if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+                || c == '.'))
+            return false;
+    }
+    if (hasColon)
+        return true;
+
+    // IPv4: exactly four decimal parts, each 0..255.
+    size_t parts = 0;
+    size_t i = 0;
+    while (i <= name.length)
+    {
+        size_t digits = 0;
+        uint value = 0;
+        while (i < name.length && name[i] >= '0' && name[i] <= '9')
+        {
+            value = value * 10 + (name[i] - '0');
+            digits++;
+            i++;
+            if (digits > 3)
+                return false;
+        }
+        if (digits == 0 || value > 255)
+            return false;
+        parts++;
+        if (i == name.length)
+            break;
+        if (name[i] != '.')
+            return false;
+        i++;
+    }
+    return parts == 4;
+}
+
 /**
  * Sans-I/O TLS 1.3 QUIC Handshake Engine (RFC 9001 Section 4).
  *
@@ -590,6 +744,8 @@ private:
 public:
     /**
      * Initializes TlsSession with TlsContext, endpoint side, and transport parameters.
+     *
+     * Use `init` and check its result: the constructor cannot report failure.
      */
     this(ref TlsContext ctx, Side side, const(ubyte)[] transportParams,
             const(char)[] clientAlpn = "h3", const(char)[] serverName = null) @trusted @nogc nothrow
@@ -597,22 +753,45 @@ public:
         init(ctx, side, transportParams, clientAlpn, serverName);
     }
 
-    void init(ref TlsContext ctx, Side side, const(ubyte)[] transportParams,
-            const(char)[] clientAlpn = "h3", const(char)[] serverName = null) @trusted @nogc nothrow
+    /**
+     * (Re-)initializes the session. Returns `QuicCryptoError.none` on success; on failure the
+     * session is left cleaned up (no handles retained).
+     *
+     * A client whose context verifies the peer certificate chain must be given a server name
+     * (RFC 9001 Section 4.4, RFC 6125 Section 6): `missingServerName` otherwise. A DNS name is
+     * sent as SNI and matched against DNS SANs; an IP literal is matched against IP SANs only
+     * and is not sent as SNI (RFC 6066 Section 3). A malformed name (see `validateServerName`)
+     * yields `invalidServerName` for every client, verifying or not, instead of being ignored.
+     */
+    QuicCryptoError init(ref TlsContext ctx, Side side,
+            const(ubyte)[] transportParams, const(char)[] clientAlpn = "h3",
+            const(char)[] serverName = null) @trusted @nogc nothrow
     {
         cleanup();
 
         // Reject empty or oversized local transport parameters (RFC 9000 & F-34)
         if (transportParams.length == 0 || transportParams.length > 2048)
-            return;
+            return QuicCryptoError.transportParamsTooLarge;
+
+        // Check the name policy before allocating anything, so this error path owns nothing.
+        const(char)[] name = null;
+        if (side == Side.client)
+        {
+            const nameErr = validateServerName(serverName, name);
+            if (nameErr != QuicCryptoError.none)
+                return nameErr;
+            if (name.length == 0 && ctx.verifiesPeer)
+                return QuicCryptoError.missingServerName;
+        }
 
         import core.stdc.stdlib : calloc;
 
         m_state = cast(TlsSessionState*) calloc(1, TlsSessionState.sizeof);
         if (m_state is null)
-            return;
+            return QuicCryptoError.internalError;
 
         m_state.side = side;
+        m_state.verifyPeer = ctx.verifiesPeer;
         m_state.cipher = CipherSuite.TLS_AES_128_GCM_SHA256;
         m_state.expectedReadLevel = EncryptionLevel.initial;
         m_state.writeLevel = EncryptionLevel.initial;
@@ -621,7 +800,7 @@ public:
         if (m_ssl is null)
         {
             cleanup();
-            return;
+            return QuicCryptoError.internalError;
         }
 
         m_alpnConfig = ctx.m_alpnConfig;
@@ -635,15 +814,32 @@ public:
         {
             SSL_set_connect_state(m_ssl);
 
-            // Configure SNI & Hostname verification
-            if (serverName.length > 0 && serverName.length < 1024)
+            // Configure SNI & identity verification
+            if (name.length > 0)
             {
                 char[1024] hostBuf = void;
-                hostBuf[0 .. serverName.length] = serverName[];
-                hostBuf[serverName.length] = '\0';
-                SSL_ctrl(m_ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME,
-                        TLSEXT_NAMETYPE_host_name, cast(void*) hostBuf.ptr);
-                SSL_set1_host(m_ssl, hostBuf.ptr);
+                hostBuf[0 .. name.length] = name[];
+                hostBuf[name.length] = '\0';
+
+                if (isIpLiteral(name))
+                {
+                    // IP identity: verified against iPAddress SANs, never sent as SNI.
+                    X509_VERIFY_PARAM* param = SSL_get0_param(m_ssl);
+                    if (param is null || X509_VERIFY_PARAM_set1_ip_asc(param, hostBuf.ptr) != 1)
+                    {
+                        cleanup();
+                        return QuicCryptoError.cryptoError;
+                    }
+                }
+                else
+                {
+                    if (SSL_ctrl(m_ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name,
+                            cast(void*) hostBuf.ptr) != 1 || SSL_set1_host(m_ssl, hostBuf.ptr) != 1)
+                    {
+                        cleanup();
+                        return QuicCryptoError.cryptoError;
+                    }
+                }
             }
 
             // Configure Client ALPN
@@ -661,6 +857,7 @@ public:
         m_state.localParamsLen = transportParams.length;
         m_state.localParams[0 .. m_state.localParamsLen] = transportParams[];
         SSL_set_quic_tls_transport_params(m_ssl, m_state.localParams.ptr, m_state.localParamsLen);
+        return QuicCryptoError.none;
     }
 
     ~this() @trusted @nogc nothrow
@@ -749,14 +946,18 @@ public:
         if (m_ssl is null || m_state is null)
             return QuicCryptoError.internalError;
 
-        if (m_state.peerParamsOverflow)
-        {
-            m_state.hasAlert = true;
-            m_state.alertCode = 47; // illegal_parameter
-            return QuicCryptoError.transportParamsTooLarge;
-        }
+        const preErr = m_state.paramFailure();
+        if (preErr != QuicCryptoError.none)
+            return preErr;
 
         const int ret = SSL_do_handshake(m_ssl);
+
+        // The callbacks run inside SSL_do_handshake: their recorded failures (oversized peer
+        // transport parameters, a traffic secret that does not fit) decide the result even when
+        // OpenSSL itself reports success or a generic failure (R-33, R-34).
+        const postErr = m_state.paramFailure();
+        if (postErr != QuicCryptoError.none)
+            return postErr;
 
         const(SSL_CIPHER)* c = SSL_get_current_cipher(m_ssl);
         if (c !is null)
@@ -771,7 +972,9 @@ public:
             return QuicCryptoError.none;
         }
 
-        const long verifyRes = SSL_get_verify_result(m_ssl);
+        // Only a verifying context treats a recorded chain error as fatal; with verification off
+        // the error is merely recorded while the handshake goes on (R-20, RFC 9001 Section 4.4).
+        const c_long verifyRes = m_state.verifyPeer ? SSL_get_verify_result(m_ssl) : X509_V_OK;
         if (verifyRes != X509_V_OK)
         {
             if (!m_state.hasAlert)
@@ -999,20 +1202,54 @@ public:
             return false;
 
         KeyMaterial rKm;
-        deriveKeyMaterial(m_state.cipher, rSlot.data[0 .. rSlot.len], rKm);
-        readKeys.init(m_state.cipher, rKm.key[0 .. rKm.keyLen], rKm.iv[0 .. 12],
-                rKm.hp[0 .. rKm.hpLen]);
-
         KeyMaterial wKm;
-        deriveKeyMaterial(m_state.cipher, wSlot.data[0 .. wSlot.len], wKm);
-        writeKeys.init(m_state.cipher, wKm.key[0 .. wKm.keyLen], wKm.iv[0 .. 12],
-                wKm.hp[0 .. wKm.hpLen]);
+        scope (exit)
+        {
+            OPENSSL_cleanse(rKm.key.ptr, rKm.key.length);
+            OPENSSL_cleanse(rKm.hp.ptr, rKm.hp.length);
+            OPENSSL_cleanse(wKm.key.ptr, wKm.key.length);
+            OPENSSL_cleanse(wKm.hp.ptr, wKm.hp.length);
+        }
+        if (!deriveKeyMaterial(m_state.cipher, rSlot.data[0 .. rSlot.len],
+                rKm) || !deriveKeyMaterial(m_state.cipher, wSlot.data[0 .. wSlot.len], wKm))
+            return false;
+        if (!readKeys.init(m_state.cipher, rKm.key[0 .. rKm.keyLen],
+                rKm.iv[0 .. 12], rKm.hp[0 .. rKm.hpLen]) || !writeKeys.init(m_state.cipher,
+                wKm.key[0 .. wKm.keyLen], wKm.iv[0 .. 12], wKm.hp[0 .. wKm.hpLen]))
+            return false;
 
         return readKeys.initialized && writeKeys.initialized;
     }
 }
 
 /// Example:
+/// ---
+/// TlsContext serverCtx = TlsContext.createServer("test/fixtures/quic_cert.pem", "test/fixtures/quic_key.pem");
+/// TlsContext clientCtx = TlsContext.createClientInsecure();
+/// const ubyte[4] params = [1, 2, 3, 4];
+/// TlsSession server, client;
+/// server.init(serverCtx, Side.server, params);
+/// client.init(clientCtx, Side.client, params);
+/// ubyte[4096] b1, b2, b3, b4;
+/// client.stepHandshake();
+/// assert(server.readHandshake(EncryptionLevel.initial,
+///         client.writeHandshake(EncryptionLevel.initial, b1)) == QuicCryptoError.none);
+/// const sInitial = server.writeHandshake(EncryptionLevel.initial, b2);
+/// const sHandshake = server.writeHandshake(EncryptionLevel.handshake, b3);
+/// assert(client.readHandshake(EncryptionLevel.initial, sInitial) == QuicCryptoError.none);
+/// assert(client.readHandshake(EncryptionLevel.handshake, sHandshake) == QuicCryptoError.none);
+/// assert(server.readHandshake(EncryptionLevel.handshake,
+///         client.writeHandshake(EncryptionLevel.handshake, b4)) == QuicCryptoError.none);
+/// // the server's 1-RTT write keys protect a packet
+/// TlsSession.LevelKeys hsKeys, oneRttKeys;
+/// assert(server.pollNextKeys(hsKeys) && server.pollNextKeys(oneRttKeys));
+/// assert(oneRttKeys.level == EncryptionLevel.oneRtt);
+/// ubyte[26] packet;
+/// packet[0 .. 10] = [0x40, 0x01, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80];
+/// size_t protLen;
+/// assert(protectPacket(oneRttKeys.writeKeys, 1, 1, 1, packet, 8, protLen) == QuicCryptoError.none);
+/// assert(protLen == 2 + 8 + 16);
+/// ---
 // Spec: RFC 9001 Section 4 - In-Memory TLS 1.3 QUIC Handshake (covers U1, U2, U3, E5, Scenario T5)
 unittest
 {

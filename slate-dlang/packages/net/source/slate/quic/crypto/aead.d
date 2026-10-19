@@ -47,6 +47,9 @@ public:
     {
         cleanup();
 
+        // An unknown suite must never silently become AES-128-GCM.
+        if (!isSupportedSuite(suite))
+            return false;
         const size_t reqKeyLen = keyLength(suite);
         if (key.length < reqKeyLen || iv.length < 12)
             return false;
@@ -64,9 +67,10 @@ public:
             cipher = EVP_chacha20_poly1305();
             break;
         case CipherSuite.TLS_AES_128_GCM_SHA256:
-        default:
             cipher = EVP_aes_128_gcm();
             break;
+        default:
+            return false; // unreachable: isSupportedSuite above
         }
 
         m_encCtx = EVP_CIPHER_CTX_new();
@@ -339,6 +343,22 @@ bool verifyRetryIntegrityTag(const(ubyte)[] originalDcid, const(ubyte)[] retryPa
 }
 
 /// Example:
+/// ---
+/// const ubyte[8] originalDcid = [0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08];   // RFC 9001 A.4
+/// const ubyte[20] retryPktWithoutTag = [
+///     0xff, 0x00, 0x00, 0x00, 0x01, 0x00, 0x08, 0xf0, 0x67, 0xa5, 0x50, 0x2a,
+///     0x42, 0x62, 0xb5, 0x74, 0x6f, 0x6b, 0x65, 0x6e
+/// ];
+/// ubyte[16] tag;
+/// computeRetryIntegrityTag(originalDcid, retryPktWithoutTag, tag);
+///
+/// ubyte[36] retryPacket;
+/// retryPacket[0 .. 20] = retryPktWithoutTag[];
+/// retryPacket[20 .. 36] = tag[];
+/// assert(verifyRetryIntegrityTag(originalDcid, retryPacket));
+/// retryPacket[35] ^= 0x01;
+/// assert(!verifyRetryIntegrityTag(originalDcid, retryPacket));
+/// ---
 // Spec: RFC 9001 Section 5.8 & Appendix A.4 - Retry Packet Integrity Tag (covers E4, Scenario T3)
 @nogc unittest
 {
@@ -371,6 +391,25 @@ bool verifyRetryIntegrityTag(const(ubyte)[] originalDcid, const(ubyte)[] retryPa
 }
 
 /// Example:
+/// ---
+/// const ubyte[32] key = [0xc6, 0xd9, 0x8f, 0xf3, 0x44, 0x1c, 0x3f, 0xe1, 0xb2,
+///         0x18, 0x20, 0x94, 0xf6, 0x9c, 0xaa, 0x2e, 0xd4, 0xb7, 0x16, 0xb6, 0x54,
+///         0x88, 0x96, 0x0a, 0x7a, 0x98, 0x49, 0x79, 0xfb, 0x23, 0xe1, 0xc8];
+/// const ubyte[12] iv = [0xe0, 0x45, 0x9b, 0x34, 0x74, 0xbd, 0xd0, 0xe4, 0x4a, 0x41, 0xc1, 0x44];
+/// AeadKey aead;
+/// assert(aead.init(CipherSuite.TLS_CHACHA20_POLY1305_SHA256, key, iv));   // RFC 9001 A.5 key and IV
+///
+/// const ulong pn = 654360564;
+/// const ubyte[4] aad = [0x42, 0x00, 0xbf, 0xf4];
+/// ubyte[17] payloadBuf;
+/// payloadBuf[0] = 0x01;
+/// assert(aead.encryptInPlace(pn, aad, payloadBuf, 1) == QuicCryptoError.none);
+///
+/// size_t decryptedLen;
+/// const decErr = aead.decryptInPlace(pn, aad, payloadBuf, decryptedLen);
+/// assert(decErr == QuicCryptoError.none);
+/// assert(decryptedLen == 1 && payloadBuf[0] == 0x01);
+/// ---
 // Spec: RFC 9001 Appendix A.5 - ChaCha20-Poly1305 Payload Protection (covers E3, Scenario T3)
 @nogc unittest
 {
@@ -418,6 +457,20 @@ bool verifyRetryIntegrityTag(const(ubyte)[] originalDcid, const(ubyte)[] retryPa
 }
 
 /// Example:
+/// ---
+/// const ubyte[16] key = 0x5A;
+/// const ubyte[12] iv = 0x3C;
+/// AeadKey aead;
+/// assert(aead.init(CipherSuite.TLS_AES_128_GCM_SHA256, key, iv));
+///
+/// const ubyte[20] aad = 0xAA;
+/// ubyte[16] payloadBuf = 0;   // 0 bytes of plaintext + the 16-byte tag
+/// assert(aead.encryptInPlace(1, aad, payloadBuf, 0) == QuicCryptoError.none);
+///
+/// size_t decLen = 99;
+/// assert(aead.decryptInPlace(1, aad, payloadBuf, decLen) == QuicCryptoError.none);
+/// assert(decLen == 0);
+/// ---
 // Spec: RFC 9001 Section 5.3 - Zero-length payload encryption and authentication (covers W1)
 @nogc unittest
 {
@@ -439,6 +492,18 @@ bool verifyRetryIntegrityTag(const(ubyte)[] originalDcid, const(ubyte)[] retryPa
 }
 
 /// Example:
+/// ---
+/// AeadKey aead;
+/// const ubyte[15] shortKey = 0xAA;   // AES-128 needs 16 bytes
+/// const ubyte[12] validIv = 0x55;
+/// assert(!aead.init(CipherSuite.TLS_AES_128_GCM_SHA256, shortKey, validIv));
+/// assert(!aead.isInitialized);
+///
+/// const ubyte[16] validKey = 0xAA;
+/// const ubyte[11] shortIv = 0x55;    // the IV needs 12 bytes
+/// assert(!aead.init(CipherSuite.TLS_AES_128_GCM_SHA256, validKey, shortIv));
+/// assert(!aead.isInitialized);   // still uninitialised
+/// ---
 // Spec: RFC 9001 Section 5.3 & Scenario T5 - Key/IV Length Validation and Self-Move Safety (covers W2, F-32, F-33)
 @nogc unittest
 {

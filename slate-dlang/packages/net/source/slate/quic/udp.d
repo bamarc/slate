@@ -16,7 +16,8 @@ version (Posix)
 {
     private import core.sys.posix.sys.socket : socket, bind, getsockname, recvfrom, sendto,
         setsockopt, sockaddr, sockaddr_storage, socklen_t, AF_INET, AF_INET6,
-        SOCK_DGRAM, SOL_SOCKET, SO_REUSEADDR, ssize_t;
+        SOCK_DGRAM, SOL_SOCKET, SO_REUSEADDR, ssize_t, recvmsg, msghdr, MSG_TRUNC;
+    private import core.sys.posix.sys.uio : iovec;
     private import core.sys.posix.netinet.in_ : sockaddr_in, sockaddr_in6, htons, ntohs;
     private import core.sys.posix.fcntl : fcntl, F_GETFL, F_SETFL, O_NONBLOCK;
     private import core.sys.posix.unistd : posixClose = close, usleep;
@@ -26,6 +27,11 @@ version (Posix)
 
 public enum size_t MAX_UDP_PACKETS_PER_PUMP = 256;
 public enum size_t MAX_UDP_DATAGRAM_BYTES = 2048;
+
+/// `recvFrom` result: a datagram larger than the buffer arrived and was discarded (MSG_TRUNC).
+public enum ptrdiff_t UDP_RECV_TRUNCATED = -2;
+/// `recvFrom` result: a zero-length datagram arrived; it carries nothing and is skipped.
+public enum ptrdiff_t UDP_RECV_EMPTY = -3;
 
 /**
  * Returns the current OS monotonic clock timestamp in microseconds.
@@ -53,6 +59,11 @@ public struct QuicUdpSocket
 private:
     int m_fd = -1;
     bool m_isIpv6 = false;
+    size_t m_truncatedDrops;
+    size_t m_emptyDrops;
+    size_t m_recvErrors;
+    size_t m_sendErrors;
+    size_t m_sendBlocked;
 
     version (Posix)
     {
@@ -136,8 +147,45 @@ public:
         close();
         m_fd = other.m_fd;
         m_isIpv6 = other.m_isIpv6;
+        m_truncatedDrops = other.m_truncatedDrops;
+        m_emptyDrops = other.m_emptyDrops;
+        m_recvErrors = other.m_recvErrors;
+        m_sendErrors = other.m_sendErrors;
+        m_sendBlocked = other.m_sendBlocked;
         other.m_fd = -1;
         other.m_isIpv6 = false;
+        other.m_truncatedDrops = other.m_emptyDrops = other.m_recvErrors = 0;
+        other.m_sendErrors = other.m_sendBlocked = 0;
+    }
+
+    /// Datagrams dropped because they exceeded the receive buffer (MSG_TRUNC).
+    @property size_t truncatedDrops() const @safe pure @nogc nothrow
+    {
+        return m_truncatedDrops;
+    }
+
+    /// Zero-length datagrams skipped.
+    @property size_t emptyDrops() const @safe pure @nogc nothrow
+    {
+        return m_emptyDrops;
+    }
+
+    /// Receive calls that failed with a socket error (not EAGAIN).
+    @property size_t recvErrors() const @safe pure @nogc nothrow
+    {
+        return m_recvErrors;
+    }
+
+    /// Sends that failed with a socket error; the datagram was not transmitted.
+    @property size_t sendErrors() const @safe pure @nogc nothrow
+    {
+        return m_sendErrors;
+    }
+
+    /// Sends refused because the socket buffer was full (EAGAIN); the datagram was not sent.
+    @property size_t sendBlocked() const @safe pure @nogc nothrow
+    {
+        return m_sendBlocked;
     }
 
     @property bool isOpen() const @safe pure @nogc nothrow
@@ -232,8 +280,10 @@ public:
      *
      * Returns:
      *   > 0 : number of bytes received
-     *     0 : no datagram available (EAGAIN / EWOULDBLOCK)
-     *   < 0 : socket error
+     *     0 : no datagram available (EAGAIN / EWOULDBLOCK / EINTR)
+     *    `UDP_RECV_TRUNCATED` : the datagram did not fit `buf` and was discarded (MSG_TRUNC)
+     *    `UDP_RECV_EMPTY` : a zero-length datagram, nothing to process
+     *    -1 : socket error (counted in `recvErrors`)
      */
     ptrdiff_t recvFrom(ubyte[] buf, out SocketAddr peerAddr) @trusted @nogc nothrow
     {
@@ -244,21 +294,37 @@ public:
         version (Posix)
         {
             sockaddr_storage ss;
-            socklen_t ssLen = cast(socklen_t) sockaddr_storage.sizeof;
-            const ssize_t n = recvfrom(m_fd, buf.ptr, buf.length, 0,
-                    cast(sockaddr*)&ss, &ssLen);
-            if (n > 0)
+            iovec iov;
+            iov.iov_base = buf.ptr;
+            iov.iov_len = buf.length;
+            msghdr msg;
+            msg.msg_name = &ss;
+            msg.msg_namelen = cast(socklen_t) sockaddr_storage.sizeof;
+            msg.msg_iov = &iov;
+            msg.msg_iovlen = 1;
+            const ssize_t n = recvmsg(m_fd, &msg, 0);
+            if (n < 0)
             {
-                fromSockaddr(ss, ssLen, peerAddr);
-                return cast(ptrdiff_t) n;
+                const int err = errno;
+                if (err == EAGAIN || err == EWOULDBLOCK || err == EINTR)
+                    return 0;
+                m_recvErrors++;
+                return -1;
+            }
+            // The kernel cut the datagram to the buffer: the rest is gone, so what is left is
+            // not a datagram the peer sent and must not reach the QUIC layer.
+            if ((msg.msg_flags & MSG_TRUNC) != 0)
+            {
+                m_truncatedDrops++;
+                return UDP_RECV_TRUNCATED;
             }
             if (n == 0)
-                return 0;
-
-            const int err = errno;
-            if (err == EAGAIN || err == EWOULDBLOCK || err == EINTR)
-                return 0;
-            return -1;
+            {
+                m_emptyDrops++;
+                return UDP_RECV_EMPTY;
+            }
+            fromSockaddr(ss, msg.msg_namelen, peerAddr);
+            return cast(ptrdiff_t) n;
         }
         else
         {
@@ -271,13 +337,16 @@ public:
      *
      * Returns:
      *   > 0 : number of bytes transmitted
-     *     0 : socket send buffer full (EAGAIN / EWOULDBLOCK)
-     *   < 0 : socket error
+     *     0 : socket send buffer full (EAGAIN / EWOULDBLOCK, counted in `sendBlocked`)
+     *   < 0 : socket error (counted in `sendErrors`)
      */
     ptrdiff_t sendTo(const(ubyte)[] data, const ref SocketAddr peerAddr) @trusted @nogc nothrow
     {
         if (m_fd < 0 || data.length == 0)
+        {
+            m_sendErrors++;
             return -1;
+        }
 
         version (Posix)
         {
@@ -289,16 +358,19 @@ public:
                     cast(const(sockaddr)*)&ss, ssLen);
             if (n > 0)
                 return cast(ptrdiff_t) n;
-            if (n == 0)
-                return 0;
 
             const int err = errno;
-            if (err == EAGAIN || err == EWOULDBLOCK || err == EINTR)
+            if (n == 0 || err == EAGAIN || err == EWOULDBLOCK || err == EINTR)
+            {
+                m_sendBlocked++;
                 return 0;
+            }
+            m_sendErrors++;
             return -1;
         }
         else
         {
+            m_sendErrors++;
             return -1;
         }
     }
@@ -325,6 +397,8 @@ public:
         {
             SocketAddr srcAddr;
             const ptrdiff_t n = recvFrom(buf[], srcAddr);
+            if (n == UDP_RECV_TRUNCATED || n == UDP_RECV_EMPTY)
+                continue; // dropped and counted: the next datagram may be fine
             if (n <= 0)
                 break;
 
@@ -394,6 +468,8 @@ public:
         {
             SocketAddr peerAddr;
             const ptrdiff_t n = recvFrom(rxBuf[], peerAddr);
+            if (n == UDP_RECV_TRUNCATED || n == UDP_RECV_EMPTY)
+                continue; // dropped and counted: the next datagram may be fine
             if (n <= 0)
                 break;
 
@@ -420,8 +496,10 @@ public:
             if (!endpoint.pollTransmit(peerAddr, txBuf[], now, txLen) || txLen == 0)
                 break;
             const ptrdiff_t sent = sendTo(txBuf[0 .. txLen], peerAddr);
-            if (sent <= 0)
-                break;
+            if (sent == 0)
+                break; // the socket buffer is full (counted in sendBlocked)
+            if (sent < 0)
+                continue; // this peer's send failed (counted in sendErrors); others may still go
             totalProcessed++;
         }
 
@@ -430,12 +508,28 @@ public:
 }
 
 /// Example:
+/// ---
+/// // two loopback sockets: a datagram sent to the receiver's address arrives with the sender's address
+/// QuicUdpSocket sender, receiver;
+/// assert(sender.bindIpv4(127, 0, 0, 1, 0) && receiver.bindIpv4(127, 0, 0, 1, 0));
+/// const SocketAddr receiverAddr = receiver.localAddr();
+/// const ubyte[4] datagram = [1, 2, 3, 4];
+/// assert(sender.sendTo(datagram[], receiverAddr) == cast(ptrdiff_t) datagram.length);
+/// ubyte[64] buf;
+/// SocketAddr from;
+/// ptrdiff_t n;
+/// foreach (attempt; 0 .. 1000)           // the datagram may need a moment to arrive
+///     if ((n = receiver.recvFrom(buf[], from)) != 0)
+///         break;
+/// assert(n == 4 && buf[0 .. 4] == datagram[]);
+/// ---
 // Spec: RFC 9000 Section 7, Section 14 & Scenario T2 - Real OS UDP loopback handshake (ALPN "smsp/1") and multi-datagram stream delivery (covers U2, E1, G1, G2, G5)
 @nogc unittest
 {
+    import slate.quic.endpoint.endpoint : SERVER_CID_LEN;
     import slate.quic.crypto.kdf : Side;
     import slate.quic.crypto.tls_session : TlsContext;
-    import slate.quic.wire.cid : ConnectionId, StatelessResetToken, TransportErrorCode;
+    import slate.quic.wire.cid : ConnectionId, TransportErrorCode;
     import slate.quic.wire.transport_params : TransportParameters;
     import slate.quic.stream.id : StreamDirection, StreamId;
 
@@ -474,10 +568,9 @@ public:
 
     const ubyte[32] tokenSecret = 0x42;
     const ubyte[12] tokenIv = 0x24;
-    const StatelessResetToken resetToken = 0x99;
 
     QuicEndpoint serverEp;
-    serverEp.init(serverCtx, tp, tokenSecret, tokenIv, resetToken, false, 16);
+    serverEp.init(serverCtx, tp, tokenSecret, tokenIv, false, 16);
 
     const ubyte[8] dcidBytes = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
     const ubyte[8] scidBytes = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x10, 0x20];
@@ -510,7 +603,9 @@ public:
     assert(clientConn.negotiatedAlpn == "smsp/1");
     assert(serverEp.connectionCount == 1);
 
-    QuicConnection* serverConn = serverEp.findConnection(clientDcid);
+    // The client adopted the CID the server chose (RFC 9000 Section 7.2), not its own DCID.
+    assert(clientConn.remoteCid.len == SERVER_CID_LEN && clientConn.remoteCid != clientDcid);
+    QuicConnection* serverConn = serverEp.findConnection(clientConn.remoteCid);
     assert(serverConn !is null);
     assert(serverConn.state == ConnectionState.active);
     assert(serverConn.negotiatedAlpn == "smsp/1");
@@ -606,6 +701,16 @@ public:
 }
 
 /// Example:
+/// ---
+/// QuicUdpSocket s1;
+/// assert(s1.bindIpv4(127, 0, 0, 1, 0));
+/// const ushort boundPort = s1.localAddr().port;
+/// QuicUdpSocket s2;
+/// s2.moveFrom(s1);                                 // the descriptor moves; the source is closed
+/// assert(!s1.isOpen && s2.isOpen && s2.localAddr().port == boundPort);
+/// s2.close();
+/// assert(!s2.isOpen);
+/// ---
 // Spec: RFC 9000 Section 14 & Requirement REQ-UDP-001 (U2) - QuicUdpSocket RAII move semantics and closed-socket error handling (covers U2, G2, G5)
 @nogc unittest
 {
@@ -647,4 +752,140 @@ public:
         assert(local6.ip == ipv6Loopback);
         s6.close();
     }
+}
+
+/// Example:
+/// ---
+/// QuicUdpSocket rx, tx;
+/// assert(rx.bindIpv4(127, 0, 0, 1, 0) && tx.bindIpv4(127, 0, 0, 1, 0));
+/// const SocketAddr rxAddr = rx.localAddr();
+/// ubyte[3000] big = 0x5a;
+/// assert(tx.sendTo(big[], rxAddr) == 3000);
+///
+/// ubyte[64] small;                       // the buffer is smaller than the datagram
+/// SocketAddr peer;
+/// assert(rx.recvFrom(small[], peer) == UDP_RECV_TRUNCATED);
+/// assert(rx.truncatedDrops == 1);        // MSG_TRUNC was seen and the datagram dropped
+/// assert(rx.recvFrom(small[], peer) == 0);   // it is consumed, not retried
+/// ---
+// Spec: RFC 9000 Section 14 "UDP datagrams MUST NOT be fragmented at the IP layer." and
+// Section 12.2 (a datagram is delivered to QUIC whole) - the kernel silently cuts a datagram to
+// the receive buffer; what is left is not what the peer sent, so a truncated datagram must be
+// detected with MSG_TRUNC and discarded instead of being passed to the QUIC layer (R-40, W22)
+@nogc unittest
+{
+    QuicUdpSocket rx, tx;
+    assert(rx.bindIpv4(127, 0, 0, 1, 0) && tx.bindIpv4(127, 0, 0, 1, 0));
+    const SocketAddr rxAddr = rx.localAddr();
+    ubyte[3000] big = 0x5a;
+    assert(tx.sendTo(big[], rxAddr) == 3000);
+    ubyte[64] small;
+    SocketAddr peer;
+    assert(rx.recvFrom(small[], peer) == UDP_RECV_TRUNCATED);
+    assert(rx.truncatedDrops == 1);
+    assert(rx.recvFrom(small[], peer) == 0, "the truncated datagram is consumed, not retried");
+
+    // A datagram that exactly fits is not truncated.
+    assert(tx.sendTo(small[], rxAddr) == 64);
+    assert(rx.recvFrom(small[], peer) == 64);
+    assert(rx.truncatedDrops == 1);
+}
+
+/// Example:
+/// ---
+/// import slate.quic.crypto.tls_session : TlsContext;
+/// import slate.quic.wire.transport_params : TransportParameters;
+///
+/// TlsContext serverCtx = TlsContext.createServer("test/fixtures/quic_cert.pem", "test/fixtures/quic_key.pem");
+/// TransportParameters tp;
+/// const ubyte[32] tokenSecret = 0x42;
+/// const ubyte[12] tokenIv = 0x24;
+/// QuicEndpoint ep;
+/// ep.init(serverCtx, tp, tokenSecret, tokenIv, false, 4);
+///
+/// QuicUdpSocket rx, tx;
+/// assert(rx.bindIpv4(127, 0, 0, 1, 0) && tx.bindIpv4(127, 0, 0, 1, 0));
+/// const SocketAddr rxAddr = rx.localAddr();
+/// ubyte[3000] big = 0x77;                // oversized: truncated and dropped
+/// assert(tx.sendTo(big[], rxAddr) == 3000);
+/// ubyte[20] junk = 0x11;                 // a real datagram behind it
+/// assert(tx.sendTo(junk[], rxAddr) == 20);
+///
+/// assert(rx.pumpEndpoint(ep, monotonicMicros()) == 1);   // only the real one reaches the endpoint
+/// assert(rx.truncatedDrops == 1);
+/// ---
+// Spec: RFC 9000 Section 12.2 / Section 14 - an empty or oversized datagram is a datagram like
+// any other the receive loop must get past: a zero-length datagram (recvfrom returns 0) must not
+// end the loop and strand the datagrams queued behind it (R-40, W22)
+@nogc unittest
+{
+    import core.sys.posix.sys.socket : sendto, sockaddr;
+    import slate.quic.crypto.tls_session : TlsContext;
+    import slate.quic.wire.transport_params : TransportParameters;
+
+    TlsContext serverCtx = TlsContext.createServer("test/fixtures/quic_cert.pem",
+            "test/fixtures/quic_key.pem");
+    assert(serverCtx.isValid);
+    TransportParameters tp;
+    const ubyte[32] tokenSecret = 0x42;
+    const ubyte[12] tokenIv = 0x24;
+    QuicEndpoint ep;
+    ep.init(serverCtx, tp, tokenSecret, tokenIv, false, 4);
+
+    QuicUdpSocket rx, tx;
+    assert(rx.bindIpv4(127, 0, 0, 1, 0) && tx.bindIpv4(127, 0, 0, 1, 0));
+    const SocketAddr rxAddr = rx.localAddr();
+
+    // Zero-length datagram: sendTo refuses it, so use the raw syscall.
+    sockaddr_storage ss;
+    socklen_t ssLen;
+    QuicUdpSocket.toSockaddr(rxAddr, ss, ssLen);
+    assert(sendto(tx.m_fd, null, 0, 0, cast(const(sockaddr)*)&ss, ssLen) == 0);
+    ubyte[3000] big = 0x77;
+    assert(tx.sendTo(big[], rxAddr) == 3000);
+    ubyte[20] junk = 0x11;
+    assert(tx.sendTo(junk[], rxAddr) == 20);
+
+    const ulong now = monotonicMicros();
+    assert(rx.pumpEndpoint(ep, now) == 1, "only the real datagram is handed to the endpoint");
+    assert(rx.emptyDrops == 1 && rx.truncatedDrops == 1);
+    ubyte[64] probe;
+    SocketAddr peer;
+    assert(rx.recvFrom(probe[], peer) == 0, "nothing is left queued behind the empty datagram");
+}
+
+/// Example:
+/// ---
+/// QuicUdpSocket tx, rx;
+/// assert(tx.bindIpv4(127, 0, 0, 1, 0) && rx.bindIpv4(127, 0, 0, 1, 0));
+/// const SocketAddr rxAddr = rx.localAddr();
+///
+/// ubyte[70_000] tooBig = 0x01;           // above the 65 507-byte UDP limit
+/// assert(tx.sendTo(tooBig[], rxAddr) < 0);
+/// assert(tx.sendErrors == 1 && tx.sendBlocked == 0);   // a hard error, not a full buffer
+///
+/// ubyte[10] ok = 0x02;
+/// assert(tx.sendTo(ok[], rxAddr) == 10);
+/// assert(tx.sendErrors == 1);            // a good send changes nothing
+/// ---
+// Spec: RFC 9000 Section 14 (datagrams are sent as UDP datagrams) - a failed send must be
+// visible to the caller rather than silently dropped: the error is returned and counted, and a
+// send refused by a full buffer is counted apart from a hard error (R-40, W22)
+@nogc unittest
+{
+    QuicUdpSocket tx, rx;
+    assert(tx.bindIpv4(127, 0, 0, 1, 0) && rx.bindIpv4(127, 0, 0, 1, 0));
+    const SocketAddr rxAddr = rx.localAddr();
+    ubyte[70_000] tooBig = 0x01;
+    assert(tx.sendTo(tooBig[], rxAddr) < 0);
+    assert(tx.sendErrors == 1);
+    assert(tx.sendBlocked == 0);
+
+    ubyte[10] ok = 0x02;
+    assert(tx.sendTo(ok[], rxAddr) == 10);
+    assert(tx.sendErrors == 1);
+
+    // A closed socket cannot send either, and says so.
+    QuicUdpSocket closed;
+    assert(closed.sendTo(ok[], rxAddr) < 0 && closed.sendErrors == 1);
 }

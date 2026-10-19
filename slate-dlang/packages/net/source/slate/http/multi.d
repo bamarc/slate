@@ -20,6 +20,21 @@ version (unittest)
 import core.atomic : atomicLoad, atomicStore;
 import core.stdc.stdlib : malloc, free, realloc;
 
+/**
+ * Maps the final state of one multi-handle transfer to the error that must be raised for it.
+ *
+ * A transfer for which no `CURLMSG_DONE` message arrived (`done == false`) is never a success,
+ * even though its recorded `result` still holds the initial `CURLE_OK`: that would make the
+ * subsequent `enforceCurl(CURLE_OK)` a silent no-op and let an unfinished transfer through.
+ * Returns `CURLE_OK` only when the transfer completed successfully.
+ */
+package CurlCode transferFailure(bool done, CURLcode result) @safe @nogc nothrow pure
+{
+    if (result != CURLcode.CURLE_OK)
+        return cast(CurlCode) result;
+    return done ? CurlCode.CURLE_OK : CurlCode.CURLE_GOT_NOTHING;
+}
+
 /// Thread-safe cooperative cancellation token for in-flight HTTP transfers (EV-4).
 struct CancellationToken
 {
@@ -76,13 +91,27 @@ struct MultiConfig
 }
 
 /// Slot structure tracking an in-flight transfer attached to a multi handle.
-private struct TransferSlot
+package struct TransferSlot
 {
     CURL* handle;
     char* dynUrl;
     char[1024] staticUrl;
     curl_slist* headerList;
     BufferWriteCtx writeCtx;
+    bool done;
+    bool inMulti;
+    CURLcode result;
+}
+
+/// Slot of the GC-allocating `performAll`: like `TransferSlot` with growable header/body capture.
+package struct DynSlot
+{
+    CURL* handle;
+    char* dynUrl;
+    char[1024] staticUrl;
+    curl_slist* headerList;
+    DynamicBufferCtx bodyCtx;
+    DynamicBufferCtx headerCtx;
     bool done;
     bool inMulti;
     CURLcode result;
@@ -370,20 +399,35 @@ struct MultiClient
             }
         }
 
-        // Verify outcomes and populate responses
+        verifySlotsNogc(slots, buffers, responses, cancel);
+    }
+
+    /**
+     * Turns the finished `slots` into `responses`, in order. A slot without a recorded
+     * `CURLMSG_DONE` (or with a recorded error) throws instead of yielding a response; see
+     * `transferFailure`. Package-visible so tests can drive it with hand-built slots.
+     */
+    package void verifySlotsNogc(TransferSlot[] slots, ubyte[][] buffers,
+            Response[] responses, CancellationToken* cancel) @trusted @nogc
+    {
         long totalConnects = 0;
         foreach (i, ref s; slots)
         {
-            if (!s.done || s.result != CURLcode.CURLE_OK)
+            // A buffer overflow aborts the transfer from the write callback and libcurl then
+            // reports CURLE_WRITE_ERROR; the recorded cause is the real error (R-25). Overflow
+            // (and OOM below) takes precedence over cancellation: a transfer that overflowed was
+            // aborted by the cap, not by the token, even if the token fired as well.
+            if (s.writeCtx.overflow)
+                throwCurlErrorNogc(CurlCode.CURLE_FILESIZE_EXCEEDED);
+
+            const failure = transferFailure(s.done, s.result);
+            if (failure != CurlCode.CURLE_OK)
             {
                 if (s.result == CURLcode.CURLE_ABORTED_BY_CALLBACK
                         || (cancel !is null && cancel.isCancelled()))
                     throwCancelledNogc();
-                throwCurlErrorNogc(cast(CurlCode) s.result);
+                throwCurlErrorNogc(failure);
             }
-
-            if (s.writeCtx.overflow)
-                throwCurlErrorNogc(CurlCode.CURLE_WRITE_ERROR);
 
             long statusCode = 0;
             curl_easy_getinfo(s.handle, CURLINFO.CURLINFO_RESPONSE_CODE, &statusCode);
@@ -393,7 +437,7 @@ struct MultiClient
             curl_easy_getinfo(s.handle, CURLINFO.CURLINFO_NUM_CONNECTS, &connects);
             totalConnects += connects;
 
-            int finalStatus = cast(int) statusCode;
+            const int finalStatus = validatedStatus(statusCode);
 
             responses[i] = Response(finalStatus, null,
                     buffers[i][0 .. s.writeCtx.written], mapCurlHttpVersion(rawVer));
@@ -445,19 +489,6 @@ struct MultiClient
                 dynAltSvc[_config.altSvcCachePath.length] = '\0';
                 altSvcCStr = dynAltSvc;
             }
-        }
-
-        struct DynSlot
-        {
-            CURL* handle;
-            char* dynUrl;
-            char[1024] staticUrl;
-            curl_slist* headerList;
-            DynamicBufferCtx bodyCtx;
-            DynamicBufferCtx headerCtx;
-            bool done;
-            bool inMulti;
-            CURLcode result;
         }
 
         DynSlot[] slots = new DynSlot[requests.length];
@@ -607,22 +638,32 @@ struct MultiClient
             }
         }
 
-        Response[] results = new Response[requests.length];
+        return verifySlots(slots, cancel);
+    }
+
+    /// GC counterpart of `verifySlotsNogc`: builds the `Response` array with headers and bodies.
+    package Response[] verifySlots(DynSlot[] slots, CancellationToken* cancel) @trusted
+    {
+        Response[] results = new Response[slots.length];
         long totalConnects = 0;
         foreach (i, ref s; slots)
         {
-            if (!s.done || s.result != CURLcode.CURLE_OK)
-            {
-                if (s.result == CURLcode.CURLE_ABORTED_BY_CALLBACK
-                        || (cancel !is null && cancel.isCancelled()))
-                    throw new CancelledException();
-                enforceCurl(cast(CurlCode) s.result);
-            }
-
+            // A cap or OOM abort comes back from libcurl as CURLE_WRITE_ERROR; report the
+            // recorded cause instead (R-25). OOM and overflow take precedence over cancellation:
+            // the cap aborted the transfer, not the token, even if the token fired as well.
             if (s.bodyCtx.oom || s.headerCtx.oom)
                 enforceCurl(CurlCode.CURLE_OUT_OF_MEMORY);
             if (s.bodyCtx.overflow || s.headerCtx.overflow)
                 enforceCurl(CurlCode.CURLE_FILESIZE_EXCEEDED);
+
+            const failure = transferFailure(s.done, s.result);
+            if (failure != CurlCode.CURLE_OK)
+            {
+                if (s.result == CURLcode.CURLE_ABORTED_BY_CALLBACK
+                        || (cancel !is null && cancel.isCancelled()))
+                    throw new CancelledException();
+                enforceCurl(failure);
+            }
 
             long statusCode = 0;
             curl_easy_getinfo(s.handle, CURLINFO.CURLINFO_RESPONSE_CODE, &statusCode);
@@ -632,7 +673,7 @@ struct MultiClient
             curl_easy_getinfo(s.handle, CURLINFO.CURLINFO_NUM_CONNECTS, &connects);
             totalConnects += connects;
 
-            int finalStatus = cast(int) statusCode;
+            const int finalStatus = validatedStatus(statusCode);
 
             Header[] headers;
             if (s.headerCtx.len > 0)
@@ -889,5 +930,165 @@ unittest
         assert(caught, "Mid-batch h3Only must throw CURLE_NOT_BUILT_IN when H3 is absent");
         assert(client.activeHandleCount() == 0,
                 "activeHandleCount must be exactly 0 (no underflow or handle leak) after mid-batch failure");
+    }
+}
+
+/// Example:
+/// ---
+/// import std.exception : assertThrown;
+///
+/// const missing = transferFailure(false, CURLcode.CURLE_OK);   // CURLMSG_DONE never arrived
+/// assert(missing != CurlCode.CURLE_OK);
+/// assertThrown!CurlException(enforceCurl(missing));               // it raises instead of passing silently
+/// assert(transferFailure(true, CURLcode.CURLE_OK) == CurlCode.CURLE_OK);
+/// ---
+// Spec: libcurl multi interface (curl_multi_info_read) - a transfer is complete only after its
+// CURLMSG_DONE message; a missing message must raise a CurlException with a non-OK code, not
+// be swallowed by enforceCurl(CURLE_OK) (R-09, W3)
+unittest
+{
+    import std.exception : assertThrown, assertNotThrown;
+
+    // Never received CURLMSG_DONE, result still at its initial CURLE_OK
+    const missing = transferFailure(false, CURLcode.CURLE_OK);
+    assert(missing != CurlCode.CURLE_OK);
+    assertThrown!CurlException(enforceCurl(missing));
+    try
+        throwCurlErrorNogc(missing);
+    catch (CurlException e)
+        assert(e.code != CurlCode.CURLE_OK);
+
+    // A recorded error code always wins, with or without DONE
+    assert(transferFailure(true, CURLcode.CURLE_COULDNT_CONNECT) == CurlCode.CURLE_COULDNT_CONNECT);
+    assert(transferFailure(false, CURLcode.CURLE_COULDNT_CONNECT) == CurlCode.CURLE_COULDNT_CONNECT);
+
+    // Completed successfully: no error
+    assert(transferFailure(true, CURLcode.CURLE_OK) == CurlCode.CURLE_OK);
+    assertNotThrown(enforceCurl(transferFailure(true, CURLcode.CURLE_OK)));
+}
+
+/// Example:
+/// ---
+/// MultiClient client = MultiClient.create();
+/// TransferSlot[1] slots;                           // done == false: no CURLMSG_DONE ever arrived
+/// ubyte[16][1] store;
+/// ubyte[][1] bufs = [store[0][]];
+/// Response[1] resp;
+/// try
+///     client.verifySlotsNogc(slots[], bufs[], resp[], null);
+/// catch (CurlException e)
+///     assert(e.code == CurlCode.CURLE_GOT_NOTHING);   // not an empty success
+/// ---
+// Spec: libcurl multi interface (curl_multi_info_read) - both performAll paths (GC and @nogc)
+// must raise a non-OK CurlException for a slot that never got CURLMSG_DONE, instead of
+// returning an empty response as success (L1, R-09, W3)
+unittest
+{
+    MultiClient client = MultiClient.create();
+
+    // @nogc path
+    {
+        TransferSlot[2] slots; // handle == null, done == false, result == CURLE_OK
+        slots[0].done = true; // slot 0 finished with an error: that error is reported, and the
+        // never-completed slot 1 behind it is not reached
+        slots[0].result = CURLcode.CURLE_COULDNT_CONNECT;
+        ubyte[16][2] store;
+        ubyte[][2] bufs = [store[0][], store[1][]];
+        Response[2] resp;
+        bool caught = false;
+        try
+            client.verifySlotsNogc(slots[], bufs[], resp[], null);
+        catch (CurlException e)
+        {
+            caught = true;
+            assert(e.code == CurlCode.CURLE_COULDNT_CONNECT);
+        }
+        assert(caught);
+
+        TransferSlot[1] lone; // never completed
+        caught = false;
+        try
+            client.verifySlotsNogc(lone[], bufs[0 .. 1], resp[0 .. 1], null);
+        catch (CurlException e)
+        {
+            caught = true;
+            assert(e.code != CurlCode.CURLE_OK);
+            assert(e.code == CurlCode.CURLE_GOT_NOTHING);
+        }
+        assert(caught, "@nogc path must reject a slot without CURLMSG_DONE");
+    }
+
+    // GC path
+    {
+        DynSlot[1] lone;
+        bool caught = false;
+        try
+            client.verifySlots(lone[], null);
+        catch (CurlException e)
+        {
+            caught = true;
+            assert(e.code == CurlCode.CURLE_GOT_NOTHING);
+        }
+        assert(caught, "GC path must reject a slot without CURLMSG_DONE");
+    }
+}
+
+/// Example:
+/// ---
+/// MultiClient client = MultiClient.create();
+/// TransferSlot[1] slots;
+/// slots[0].done = true;
+/// slots[0].result = CURLcode.CURLE_WRITE_ERROR;   // libcurl: the write callback aborted ...
+/// slots[0].writeCtx.overflow = true;              // ... because the client's size cap was hit
+/// ubyte[16][1] store;
+/// ubyte[][1] bufs = [store[0][]];
+/// Response[1] resp;
+/// try
+///     client.verifySlotsNogc(slots[], bufs[], resp[], null);
+/// catch (CurlException e)
+///     assert(e.code == CurlCode.CURLE_FILESIZE_EXCEEDED);   // the cause, not CURLE_WRITE_ERROR
+/// ---
+// Spec: libcurl CURLOPT_WRITEFUNCTION - returning short aborts the transfer with
+// CURLE_WRITE_ERROR; when the client's own size cap or an OOM caused that abort, both
+// performAll paths report the cap / OOM error and not CURLE_WRITE_ERROR (R-25, W10)
+unittest
+{
+    MultiClient client = MultiClient.create();
+    ubyte[16][1] store;
+    ubyte[][1] bufs = [store[0][]];
+    Response[1] resp;
+
+    TransferSlot[1] slots;
+    slots[0].done = true;
+    slots[0].result = CURLcode.CURLE_WRITE_ERROR;
+    slots[0].writeCtx.overflow = true;
+    bool caught = false;
+    try
+        client.verifySlotsNogc(slots[], bufs[], resp[], null);
+    catch (CurlException e)
+    {
+        caught = true;
+        assert(e.code == CurlCode.CURLE_FILESIZE_EXCEEDED);
+    }
+    assert(caught, "@nogc path");
+
+    foreach (oom; [false, true])
+    {
+        DynSlot[1] dyn;
+        dyn[0].done = true;
+        dyn[0].result = CURLcode.CURLE_WRITE_ERROR;
+        if (oom)
+            dyn[0].headerCtx.oom = true;
+        else
+            dyn[0].bodyCtx.overflow = true;
+        caught = false;
+        try
+            client.verifySlots(dyn[], null);
+        catch (CurlException e)
+        {
+            caught = true;
+            assert(e.code == (oom ? CurlCode.CURLE_OUT_OF_MEMORY : CurlCode.CURLE_FILESIZE_EXCEEDED));
+        }
+        assert(caught, "GC path");
     }
 }

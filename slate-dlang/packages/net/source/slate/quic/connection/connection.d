@@ -11,8 +11,8 @@ module slate.quic.connection.connection;
 
 import slate.quic.crypto.kdf : Side, CipherSuite, EncryptionLevel,
     QuicCryptoError, deriveInitialSecret, deriveClientInitialSecret,
-    deriveServerInitialSecret, deriveKeyMaterial, KeyMaterial, hashLength,
-    deriveNextApplicationSecret;
+    deriveServerInitialSecret, deriveKeyMaterial, KeyMaterial,
+    hashLength, deriveNextApplicationSecret, deriveInitialKeyMaterial;
 import slate.quic.crypto.aead : AeadKey, verifyRetryIntegrityTag;
 import slate.quic.crypto.packet_keys : DirectionalKeys, Keys, protectPacket,
     unprotectPacket, unprotectPacketWithAead;
@@ -23,10 +23,12 @@ import slate.quic.wire.cid : ConnectionId, TransportErrorCode;
 import slate.quic.wire.packet : PacketType, PacketPrefix, DecodedPacketHeader,
     CoalescedPacketIterator, parsePacketPrefix,
     completeHeaderAfterUnprotect, encodeLongHeader, encodeShortHeader, QUIC_VERSION_1;
-import slate.quic.wire.frame : Frame, FrameType, FrameIterator, AckRange,
-    AckFrame, StreamFrame, CryptoFrame, ConnectionCloseFrame,
-    PathChallengeFrame, PathResponseFrame, HandshakeDoneFrame, ResetStreamFrame, StopSendingFrame, MaxDataFrame,
-    MaxStreamDataFrame, MaxStreamsFrame, encodeFrame, decodeFrame, validateFrameInPacket;
+import slate.quic.wire.frame : Frame, FrameType, isAckElicitingFrame,
+    FrameIterator, AckRange, AckFrame, StreamFrame, CryptoFrame,
+    ConnectionCloseFrame, PathChallengeFrame, PathResponseFrame,
+    HandshakeDoneFrame, ResetStreamFrame, StopSendingFrame,
+    MaxDataFrame, MaxStreamDataFrame, MaxStreamsFrame, encodeFrame,
+    decodeFrame, validateFrameInPacket;
 import slate.quic.wire.transport_params : TransportParameters,
     encodeTransportParams, decodeTransportParams;
 
@@ -83,15 +85,33 @@ public struct QuicConnection
 
     AeadKey prevRemoteAead;
     bool hasPrevRemoteAead = false;
+    /// RFC 9001 §6.5: when the retained previous read key is discarded (3 x PTO after the first
+    /// packet protected with the new keys).
+    ulong prevRemoteDiscardMicros = 0;
+    /// RFC 9001 §9.5: the next generation of read keys, derived once per key phase in advance so
+    /// that receiving a packet never reveals the key phase through key-derivation timing.
+    AeadKey nextRemoteAead;
+    ubyte[48] nextRemoteSecret;
+    bool hasNextRemote = false;
 
     ubyte[48] localAppSecret;
     ubyte[48] remoteAppSecret;
     size_t appSecretLen = 0;
     ubyte localKeyPhase = 0;
     ubyte remoteKeyPhase = 0;
+    /// RFC 9001 §6.1: the lowest 1-RTT packet number sent under the current local keys, and
+    /// whether a packet at or above it has been acknowledged. A further local key update waits
+    /// for that acknowledgment.
+    ulong localPhaseFirstPn = 0;
+    bool localPhaseAcked = true;
+    /// RFC 9001 §6.4: the lowest 1-RTT packet number unprotected with the current read keys.
+    ulong curPhaseLowestPn = 0;
+    bool hasCurPhasePn = false;
 
     bool retryReceived = false;
     ConnectionId retryScid;
+    /// Client: remoteCid has been switched to the SCID of the server's first Initial.
+    bool serverCidAdopted = false;
 
     // Buffers indexed by PacketNumberSpace: [0: initial, 1: handshake, 2: applicationData]
     RecvBuffer[3] cryptoRecv;
@@ -145,11 +165,8 @@ public struct QuicConnection
         tls.cleanup();
         foreach (ref k; levelKeys)
             k.cleanup();
-        if (hasPrevRemoteAead)
-        {
-            prevRemoteAead.cleanup();
-            hasPrevRemoteAead = false;
-        }
+        discardPrevRemoteKeys();
+        discardNextRemoteKeys();
 
         foreach (i; 0 .. 4)
         {
@@ -205,14 +222,27 @@ public struct QuicConnection
             this.hasPrevRemoteAead = true;
             other.hasPrevRemoteAead = false;
         }
+        this.prevRemoteDiscardMicros = other.prevRemoteDiscardMicros;
+        if (other.hasNextRemote)
+        {
+            this.nextRemoteAead.moveFrom(other.nextRemoteAead);
+            this.nextRemoteSecret = other.nextRemoteSecret;
+            this.hasNextRemote = true;
+            other.discardNextRemoteKeys();
+        }
 
         this.localAppSecret = other.localAppSecret;
         this.remoteAppSecret = other.remoteAppSecret;
         this.appSecretLen = other.appSecretLen;
         this.localKeyPhase = other.localKeyPhase;
         this.remoteKeyPhase = other.remoteKeyPhase;
+        this.localPhaseFirstPn = other.localPhaseFirstPn;
+        this.localPhaseAcked = other.localPhaseAcked;
+        this.curPhaseLowestPn = other.curPhaseLowestPn;
+        this.hasCurPhasePn = other.hasCurPhasePn;
         this.retryReceived = other.retryReceived;
         this.retryScid = other.retryScid;
+        this.serverCidAdopted = other.serverCidAdopted;
 
         foreach (s; 0 .. 3)
         {
@@ -283,7 +313,7 @@ public struct QuicConnection
             ConnectionId remoteCid, ref const TransportParameters localParams,
             ulong nowMicros, out QuicConnection conn, bool addressValidated = false,
             const(ubyte)[] retryToken = null, const(char)[] clientAlpn = "h3",
-            const(char)[] serverName = null) @trusted @nogc nothrow
+            const(char)[] serverName = null, ConnectionId serverInitialDcid = ConnectionId.init) @trusted @nogc nothrow
     {
         conn.cleanup();
 
@@ -291,7 +321,10 @@ public struct QuicConnection
         conn.state = ConnectionState.handshaking;
         conn.localCid = localCid;
         conn.remoteCid = remoteCid;
-        conn.initialDcid = (side == Side.client) ? remoteCid : localCid;
+        // The Initial keys derive from the DCID of the client's first Initial (RFC 9001 §5.2),
+        // which a server that picked its own CID (RFC 9000 §7.2) passes in `serverInitialDcid`.
+        conn.initialDcid = (side == Side.client) ? remoteCid
+            : (serverInitialDcid.len > 0 ? serverInitialDcid : localCid);
 
         TransportParameters effLocalParams = localParams;
         if (!effLocalParams.hasInitialSourceConnectionId)
@@ -316,33 +349,28 @@ public struct QuicConnection
         }
 
         // 1. Derive Initial Secrets and Keys
-        ubyte[32] initSecret;
-        deriveInitialSecret(conn.initialDcid.asSlice(), initSecret);
-
-        ubyte[32] clientInitSec;
-        deriveClientInitialSecret(initSecret, clientInitSec);
         KeyMaterial clientKm;
-        deriveKeyMaterial(CipherSuite.TLS_AES_128_GCM_SHA256, clientInitSec, clientKm);
-
-        ubyte[32] serverInitSec;
-        deriveServerInitialSecret(initSecret, serverInitSec);
         KeyMaterial serverKm;
-        deriveKeyMaterial(CipherSuite.TLS_AES_128_GCM_SHA256, serverInitSec, serverKm);
+        if (!deriveInitialKeyMaterial(conn.initialDcid.asSlice(), clientKm, serverKm))
+            return false;
 
+        bool initialKeysOk = true;
         if (side == Side.client)
         {
-            conn.levelKeys[0].local.init(CipherSuite.TLS_AES_128_GCM_SHA256,
-                    clientKm.key[0 .. 16], clientKm.iv[0 .. 12], clientKm.hp[0 .. 16]);
-            conn.levelKeys[0].remote.init(CipherSuite.TLS_AES_128_GCM_SHA256,
-                    serverKm.key[0 .. 16], serverKm.iv[0 .. 12], serverKm.hp[0 .. 16]);
+            initialKeysOk = conn.levelKeys[0].local.init(CipherSuite.TLS_AES_128_GCM_SHA256,
+                    clientKm.key[0 .. 16], clientKm.iv[0 .. 12], clientKm.hp[0 .. 16])
+                && conn.levelKeys[0].remote.init(CipherSuite.TLS_AES_128_GCM_SHA256,
+                        serverKm.key[0 .. 16], serverKm.iv[0 .. 12], serverKm.hp[0 .. 16]);
         }
         else
         {
-            conn.levelKeys[0].local.init(CipherSuite.TLS_AES_128_GCM_SHA256,
-                    serverKm.key[0 .. 16], serverKm.iv[0 .. 12], serverKm.hp[0 .. 16]);
-            conn.levelKeys[0].remote.init(CipherSuite.TLS_AES_128_GCM_SHA256,
-                    clientKm.key[0 .. 16], clientKm.iv[0 .. 12], clientKm.hp[0 .. 16]);
+            initialKeysOk = conn.levelKeys[0].local.init(CipherSuite.TLS_AES_128_GCM_SHA256,
+                    serverKm.key[0 .. 16], serverKm.iv[0 .. 12], serverKm.hp[0 .. 16])
+                && conn.levelKeys[0].remote.init(CipherSuite.TLS_AES_128_GCM_SHA256,
+                        clientKm.key[0 .. 16], clientKm.iv[0 .. 12], clientKm.hp[0 .. 16]);
         }
+        if (!initialKeysOk)
+            return false;
         conn.levelKeys[0].initialized = true;
         conn.hasReadKeys[0] = true;
         conn.hasWriteKeys[0] = true;
@@ -353,7 +381,14 @@ public struct QuicConnection
         if (encodeTransportParams(conn.localParams, side, tpBuf[], tpLen) != 0)
             return false;
 
-        conn.tls.init(tlsCtx, side, tpBuf[0 .. tpLen], clientAlpn, serverName);
+        // Fails (e.g. missingServerName for a peer-verifying client, plan D2) without leaving a
+        // half-initialised connection behind.
+        if (conn.tls.init(tlsCtx, side, tpBuf[0 .. tpLen], clientAlpn,
+                serverName) != QuicCryptoError.none)
+        {
+            conn.cleanup();
+            return false;
+        }
 
         // 3. Initialize StreamMap
         conn.streams = StreamMap(side, localParams.initialMaxData,
@@ -390,6 +425,50 @@ public struct QuicConnection
     }
 
     /**
+     * Returns true when the first packet of `datagram` is a client Initial that decrypts
+     * under the Initial keys derived from `dcid` (RFC 9001 §5.2). Touches no connection state, so
+     * the endpoint can verify an Initial before it evicts a half-open connection for it.
+     *
+     * This is not authentication: the Initial keys derive from the public DCID, so any sender
+     * can build an Initial that passes. It only filters corrupted or random datagrams; the real
+     * mitigation against Initial floods is address validation (`QuicEndpoint.requireRetry`).
+     */
+    static bool clientInitialDecrypts(const(ubyte)[] datagram,
+            ref const PacketPrefix prefix, const(ubyte)[] dcid) @trusted @nogc nothrow
+    {
+        if (prefix.type != PacketType.initial || prefix.totalPacketLen > datagram.length
+                || prefix.totalPacketLen > 4096 || prefix.pnOffset >= prefix.totalPacketLen)
+            return false;
+
+        KeyMaterial clientKm;
+        KeyMaterial serverKm;
+        if (!deriveInitialKeyMaterial(dcid, clientKm, serverKm))
+            return false;
+
+        DirectionalKeys keys;
+        const bool ok = keys.init(CipherSuite.TLS_AES_128_GCM_SHA256,
+                clientKm.key[0 .. 16], clientKm.iv[0 .. 12], clientKm.hp[0 .. 16]);
+        OPENSSL_cleanse(clientKm.key.ptr, clientKm.key.length);
+        OPENSSL_cleanse(clientKm.iv.ptr, clientKm.iv.length);
+        OPENSSL_cleanse(clientKm.hp.ptr, clientKm.hp.length);
+        OPENSSL_cleanse(serverKm.key.ptr, serverKm.key.length);
+        OPENSSL_cleanse(serverKm.iv.ptr, serverKm.iv.length);
+        OPENSSL_cleanse(serverKm.hp.ptr, serverKm.hp.length);
+        if (!ok)
+            return false;
+
+        ubyte[4096] buf;
+        buf[0 .. prefix.totalPacketLen] = datagram[0 .. prefix.totalPacketLen];
+        size_t pnLen, payOff, plainLen;
+        ulong pn;
+        const err = unprotectPacket(keys, prefix.pnOffset, 0,
+                buf[0 .. prefix.totalPacketLen], pnLen, pn, payOff, plainLen);
+        keys.cleanup();
+        OPENSSL_cleanse(buf.ptr, buf.length);
+        return err == QuicCryptoError.none;
+    }
+
+    /**
      * Ingests an incoming UDP datagram containing one or more coalesced QUIC packets.
      */
     TransportErrorCode handleDatagram(const(ubyte)[] datagram, ulong nowMicros) @trusted @nogc nothrow
@@ -408,7 +487,6 @@ public struct QuicConnection
         }
 
         totalBytesReceived += datagram.length;
-        lastRxTimeMicros = nowMicros;
 
         CoalescedPacketIterator splitter = CoalescedPacketIterator(datagram, localCid.len);
         const(ubyte)[] pktSlice;
@@ -461,6 +539,13 @@ public struct QuicConnection
         if (!hasReadKeys[keyIdx])
             return TransportErrorCode.noError;
 
+        // RFC 9001 Section 5.7: a server must not process 1-RTT packets before its handshake is
+        // complete (the client is not authenticated yet); such packets are dropped, which also
+        // keeps the server from confirming the handshake early (Section 4.1.2).
+        if (localSide == Side.server && prefix.type == PacketType.oneRttShort
+                && !tls.isHandshakeComplete)
+            return TransportErrorCode.noError;
+
         // Scratch buffer for in-place packet unprotection
         ubyte[4096] unprotBuf;
         if (packetBytes.length > unprotBuf.length)
@@ -475,6 +560,8 @@ public struct QuicConnection
 
         const ulong largestReceived = !ackRanges[space].empty ? ackRanges[space].largestReceived : 0;
 
+        bool usedPrevKey = false;
+
         // Unprotect packet header and payload
         QuicCryptoError cryptoErr = unprotectPacket(levelKeys[keyIdx].remote, prefix.pnOffset, largestReceived,
                 unprotBuf[0 .. packetBytes.length], decPnLen, decPn, decPayOff, decPlainLen);
@@ -485,6 +572,11 @@ public struct QuicConnection
             if (prefix.type == PacketType.oneRttShort && appSecretLen > 0
                     && cryptoErr == QuicCryptoError.aeadTagMismatch)
             {
+                // RFC 9001 §6.5: the previous read key is only retained for 3 x PTO.
+                if (hasPrevRemoteAead && prevRemoteDiscardMicros != 0
+                        && nowMicros >= prevRemoteDiscardMicros)
+                    discardPrevRemoteKeys();
+
                 // Try previous remote AEAD key first (F-23)
                 if (hasPrevRemoteAead)
                 {
@@ -493,77 +585,113 @@ public struct QuicConnection
                             prevRemoteAead, prefix.pnOffset, largestReceived,
                             unprotBuf[0 .. packetBytes.length], decPnLen,
                             decPn, decPayOff, decPlainLen);
+                    if (cryptoErr == QuicCryptoError.none)
+                    {
+                        usedPrevKey = true;
+                        // RFC 9001 §6.4: old keys opened a packet that is numbered above one the
+                        // new keys protected.
+                        if (hasCurPhasePn && decPn > curPhaseLowestPn)
+                            return TransportErrorCode.keyUpdateError;
+                    }
                 }
 
                 if (cryptoErr != QuicCryptoError.none)
                 {
-                    ubyte[48] nextRemoteSec;
-                    deriveNextApplicationSecret(tls.negotiatedCipher,
-                            remoteAppSecret[0 .. appSecretLen], nextRemoteSec[0 .. appSecretLen]);
-                    KeyMaterial nextKm;
-                    deriveKeyMaterial(tls.negotiatedCipher, nextRemoteSec[0 .. appSecretLen],
-                            nextKm);
-                    AeadKey tempAead;
-                    tempAead.init(tls.negotiatedCipher,
-                            nextKm.key[0 .. nextKm.keyLen], nextKm.iv[0 .. 12]);
+                    // The next-generation key is derived once per key phase (RFC 9001 §9.5), so
+                    // a failed packet costs one AEAD attempt, not an HKDF. A failing derivation
+                    // means no candidate key: the packet is dropped exactly like an
+                    // unauthenticated one, with no state change.
+                    const bool haveNext = ensureNextRemoteKeys();
 
-                    unprotBuf[0 .. packetBytes.length] = packetBytes[];
-                    cryptoErr = unprotectPacketWithAead(levelKeys[3].remote.hp,
-                            tempAead, prefix.pnOffset, largestReceived,
-                            unprotBuf[0 .. packetBytes.length], decPnLen,
-                            decPn, decPayOff, decPlainLen);
+                    if (haveNext)
+                    {
+                        unprotBuf[0 .. packetBytes.length] = packetBytes[];
+                        cryptoErr = unprotectPacketWithAead(levelKeys[3].remote.hp,
+                                nextRemoteAead, prefix.pnOffset, largestReceived,
+                                unprotBuf[0 .. packetBytes.length], decPnLen,
+                                decPn, decPayOff, decPlainLen);
+                    }
 
-                    if (cryptoErr == QuicCryptoError.none)
+                    if (haveNext && cryptoErr == QuicCryptoError.none)
                     {
                         const ubyte pktPhase = (unprotBuf[0] & 0x04) != 0 ? 1 : 0;
+                        // RFC 9001 §6.4: a packet under newer keys must not be numbered below
+                        // a packet already received under older ones.
+                        if (pktPhase != remoteKeyPhase
+                                && !ackRanges[space].empty && decPn < largestReceived)
+                            return TransportErrorCode.keyUpdateError;
                         if (pktPhase != remoteKeyPhase)
                         {
-                            // Commit rotated remote keys, retaining previous key (F-23)
-                            remoteAppSecret[0 .. appSecretLen] = nextRemoteSec[0 .. appSecretLen];
-                            if (hasPrevRemoteAead)
-                                prevRemoteAead.cleanup();
-                            prevRemoteAead.moveFrom(levelKeys[3].remote.aead);
-                            hasPrevRemoteAead = true;
-                            levelKeys[3].remote.aead.moveFrom(tempAead);
-                            remoteKeyPhase ^= 1;
-
-                            // RFC 9001 §6.2: If peer initiated the key update, receiver must also update its write keys
-                            if (localKeyPhase != remoteKeyPhase)
-                            {
-                                ubyte[48] nextLocalSec;
-                                deriveNextApplicationSecret(tls.negotiatedCipher,
-                                        localAppSecret[0 .. appSecretLen],
-                                        nextLocalSec[0 .. appSecretLen]);
-                                KeyMaterial nextLocalKm;
-                                deriveKeyMaterial(tls.negotiatedCipher,
-                                        nextLocalSec[0 .. appSecretLen], nextLocalKm);
-                                levelKeys[3].local.aead.init(tls.negotiatedCipher,
+                            // RFC 9001 §6.2: If peer initiated the key update, receiver must
+                            // also update its write keys. Derive them before committing anything.
+                            // Compared against the phase remoteKeyPhase will have after the flip below.
+                            const bool updateLocal = localKeyPhase != (remoteKeyPhase ^ 1);
+                            ubyte[48] nextLocalSec;
+                            KeyMaterial nextLocalKm;
+                            AeadKey newLocalAead;
+                            const bool localOk = !updateLocal || (deriveNextApplicationSecret(tls.negotiatedCipher,
+                                    localAppSecret[0 .. appSecretLen],
+                                    nextLocalSec[0 .. appSecretLen])
+                                    && deriveKeyMaterial(tls.negotiatedCipher,
+                                        nextLocalSec[0 .. appSecretLen], nextLocalKm)
+                                    && newLocalAead.init(tls.negotiatedCipher,
                                         nextLocalKm.key[0 .. nextLocalKm.keyLen],
-                                        nextLocalKm.iv[0 .. 12]);
-                                localAppSecret[0 .. appSecretLen] = nextLocalSec[0 .. appSecretLen];
-                                localKeyPhase = remoteKeyPhase;
+                                        nextLocalKm.iv[0 .. 12]));
+                            if (localOk)
+                            {
+                                // Commit rotated remote keys, retaining the previous key for
+                                // 3 x PTO from this first packet under the new keys (F-23,
+                                // RFC 9001 §6.5)
+                                remoteAppSecret[0 .. appSecretLen] = nextRemoteSecret[0
+                                    .. appSecretLen];
+                                if (hasPrevRemoteAead)
+                                    prevRemoteAead.cleanup();
+                                prevRemoteAead.moveFrom(levelKeys[3].remote.aead);
+                                hasPrevRemoteAead = true;
+                                prevRemoteDiscardMicros = drainingEndFor(nowMicros);
+                                levelKeys[3].remote.aead.moveFrom(nextRemoteAead);
+                                hasNextRemote = false;
+                                hasCurPhasePn = false;
+                                remoteKeyPhase ^= 1;
+                                // The generation after this one, ready before it is needed.
+                                ensureNextRemoteKeys();
 
-                                OPENSSL_cleanse(nextLocalSec.ptr, nextLocalSec.length);
-                                OPENSSL_cleanse(nextLocalKm.key.ptr, nextLocalKm.key.length);
-                                OPENSSL_cleanse(nextLocalKm.iv.ptr, nextLocalKm.iv.length);
-                                OPENSSL_cleanse(nextLocalKm.hp.ptr, nextLocalKm.hp.length);
+                                if (updateLocal)
+                                {
+                                    levelKeys[3].local.aead.moveFrom(newLocalAead);
+                                    localAppSecret[0 .. appSecretLen] = nextLocalSec[0
+                                        .. appSecretLen];
+                                    localKeyPhase = remoteKeyPhase;
+                                    noteLocalKeyUpdate();
+                                }
                             }
+                            else
+                            {
+                                cryptoErr = QuicCryptoError.aeadTagMismatch;
+                            }
+                            OPENSSL_cleanse(nextLocalSec.ptr, nextLocalSec.length);
+                            OPENSSL_cleanse(nextLocalKm.key.ptr, nextLocalKm.key.length);
+                            OPENSSL_cleanse(nextLocalKm.iv.ptr, nextLocalKm.iv.length);
+                            OPENSSL_cleanse(nextLocalKm.hp.ptr, nextLocalKm.hp.length);
                         }
                         else
                         {
                             cryptoErr = QuicCryptoError.aeadTagMismatch;
                         }
                     }
-
-                    OPENSSL_cleanse(nextRemoteSec.ptr, nextRemoteSec.length);
-                    OPENSSL_cleanse(nextKm.key.ptr, nextKm.key.length);
-                    OPENSSL_cleanse(nextKm.iv.ptr, nextKm.iv.length);
-                    OPENSSL_cleanse(nextKm.hp.ptr, nextKm.hp.length);
                 }
             }
 
             if (cryptoErr != QuicCryptoError.none)
                 return TransportErrorCode.noError; // Silently drop corrupted/unauthenticated packet
+        }
+
+        // RFC 9001 §6.4: remember the lowest packet number the current read keys have opened.
+        if (prefix.type == PacketType.oneRttShort && !usedPrevKey
+                && (!hasCurPhasePn || decPn < curPhaseLowestPn))
+        {
+            curPhaseLowestPn = decPn;
+            hasCurPhasePn = true;
         }
 
         DecodedPacketHeader hdr;
@@ -574,7 +702,7 @@ public struct QuicConnection
             return te != TransportErrorCode.noError ? te : TransportErrorCode.protocolViolation;
 
         // Duplicate packet check (F-20): silently ignore
-        if (ackRanges[space].contains(hdr.packetNumber))
+        if (ackRanges[space].isDuplicateOrTooOld(hdr.packetNumber))
             return TransportErrorCode.noError;
 
         // Server updates remoteCid from first Client Initial
@@ -582,6 +710,13 @@ public struct QuicConnection
         {
             remoteCid = hdr.scid;
         }
+
+        // RFC 9000 Section 7.2: once the client has switched to the server's chosen SCID, a
+        // later server Initial or Handshake packet carrying a different SCID is not part of this
+        // handshake and is discarded (Retry is handled separately, before this point).
+        if (localSide == Side.client && (prefix.type == PacketType.initial
+                || prefix.type == PacketType.handshake) && serverCidAdopted && hdr.scid != remoteCid)
+            return TransportErrorCode.noError;
 
         // Server address validation and key discard on Handshake packet (RFC 9001 §4.9.1 & F4)
         if (localSide == Side.server && prefix.type == PacketType.handshake)
@@ -612,12 +747,8 @@ public struct QuicConnection
 
         while (fIter.next(frame, wireErr, te))
         {
-            if (frame.type != FrameType.ack && frame.type != FrameType.padding
-                    && frame.type != FrameType.connectionCloseQuic
-                    && frame.type != FrameType.connectionCloseApp)
-            {
+            if (isAckElicitingFrame(frame.type))
                 isAckEliciting = true;
-            }
 
             const frameTe = dispatchFrame(space, frame, nowMicros);
             if (frameTe != TransportErrorCode.noError)
@@ -628,6 +759,21 @@ public struct QuicConnection
         {
             return (te != TransportErrorCode.noError) ? te : TransportErrorCode.protocolViolation;
         }
+
+        // RFC 9000 Section 7.2: the client switches to the SCID of the first server Initial
+        // and uses it for all subsequent packets. The switch is committed only after every
+        // frame of that Initial was processed, so a rejected packet cannot redirect the
+        // connection. The choice is authenticated later via initial_source_connection_id
+        // (Section 7.3).
+        if (localSide == Side.client && prefix.type == PacketType.initial && !serverCidAdopted)
+        {
+            remoteCid = hdr.scid;
+            serverCidAdopted = true;
+        }
+
+        // RFC 9000 Section 10.1: the idle timer restarts only for a packet that was received and
+        // processed successfully, never for one that failed authentication or was rejected.
+        lastRxTimeMicros = nowMicros;
 
         // Record received packet number in ACK ranges
         ackRanges[space].insert(hdr.packetNumber, isAckEliciting, nowMicros);
@@ -641,9 +787,10 @@ public struct QuicConnection
         if (localSide != Side.client || prefix.token.length == 0)
             return TransportErrorCode.noError;
 
-        // RFC 9000 §17.2.5.2: A client MUST treat receipt of a second Retry packet as PROTOCOL_VIOLATION
-        if (retryReceived)
-            return TransportErrorCode.protocolViolation;
+        // RFC 9000 §17.2.5.2: after processing an Initial or a Retry from the server a client
+        // MUST discard any subsequent Retry; this happens silently, before any other check.
+        if (serverCidAdopted || retryReceived)
+            return TransportErrorCode.noError;
 
         // RFC 9000 §17.2.5.2: Discard if SCID matches client's DCID or SCID
         if (prefix.scid == remoteCid || prefix.scid == initialDcid)
@@ -656,30 +803,28 @@ public struct QuicConnection
         // Client saves Retry token and updates remote connection ID to Retry SCID
         if (prefix.token.length <= retryTokenBuf.length)
         {
+            // RFC 9001 §5.2: Re-derive Initial secrets based on the Retry SCID. Nothing is
+            // modified unless every key could be derived and installed.
+            KeyMaterial clientKm;
+            KeyMaterial serverKm;
+            if (!deriveInitialKeyMaterial(prefix.scid.asSlice(), clientKm, serverKm))
+                return TransportErrorCode.noError;
+
+            Keys newKeys;
+            if (!newKeys.local.init(CipherSuite.TLS_AES_128_GCM_SHA256,
+                    clientKm.key[0 .. 16], clientKm.iv[0 .. 12], clientKm.hp[0 .. 16])
+                    || !newKeys.remote.init(CipherSuite.TLS_AES_128_GCM_SHA256,
+                        serverKm.key[0 .. 16], serverKm.iv[0 .. 12], serverKm.hp[0 .. 16]))
+                return TransportErrorCode.noError;
+
+            levelKeys[0].local.moveFrom(newKeys.local);
+            levelKeys[0].remote.moveFrom(newKeys.remote);
+
             retryTokenBuf[0 .. prefix.token.length] = prefix.token[];
             retryTokenLen = prefix.token.length;
             remoteCid = prefix.scid;
             retryReceived = true;
             retryScid = prefix.scid;
-
-            // RFC 9001 §5.2: Re-derive Initial secrets based on new Destination Connection ID (Retry SCID)
-            ubyte[32] initSecret;
-            deriveInitialSecret(remoteCid.asSlice(), initSecret);
-
-            ubyte[32] clientInitSec;
-            deriveClientInitialSecret(initSecret, clientInitSec);
-            KeyMaterial clientKm;
-            deriveKeyMaterial(CipherSuite.TLS_AES_128_GCM_SHA256, clientInitSec, clientKm);
-
-            ubyte[32] serverInitSec;
-            deriveServerInitialSecret(initSecret, serverInitSec);
-            KeyMaterial serverKm;
-            deriveKeyMaterial(CipherSuite.TLS_AES_128_GCM_SHA256, serverInitSec, serverKm);
-
-            levelKeys[0].local.init(CipherSuite.TLS_AES_128_GCM_SHA256,
-                    clientKm.key[0 .. 16], clientKm.iv[0 .. 12], clientKm.hp[0 .. 16]);
-            levelKeys[0].remote.init(CipherSuite.TLS_AES_128_GCM_SHA256,
-                    serverKm.key[0 .. 16], serverKm.iv[0 .. 12], serverKm.hp[0 .. 16]);
 
             // RFC 9000 §17.2.5.2: Discard sent Initial packets, discard loss detection, and reset Initial packet number
             nextPn[0] = 0;
@@ -692,6 +837,67 @@ public struct QuicConnection
         }
 
         return TransportErrorCode.noError;
+    }
+
+    /// Drops the retained previous-generation read key (RFC 9001 §6.5).
+    package void discardPrevRemoteKeys() @trusted @nogc nothrow
+    {
+        if (hasPrevRemoteAead)
+            prevRemoteAead.cleanup();
+        hasPrevRemoteAead = false;
+        prevRemoteDiscardMicros = 0;
+    }
+
+    private void discardNextRemoteKeys() @trusted @nogc nothrow
+    {
+        if (hasNextRemote)
+            nextRemoteAead.cleanup();
+        OPENSSL_cleanse(nextRemoteSecret.ptr, nextRemoteSecret.length);
+        hasNextRemote = false;
+    }
+
+    /**
+     * Derives and caches the next-generation read key (RFC 9001 §9.5: "After receiving a key
+     * update, an endpoint SHOULD generate and save the next set of receive packet protection
+     * keys"). A no-op when already cached; false when derivation fails (no key is retained).
+     */
+    package bool ensureNextRemoteKeys() @trusted @nogc nothrow
+    {
+        if (hasNextRemote)
+            return true;
+        if (appSecretLen == 0)
+            return false;
+        KeyMaterial km;
+        scope (exit)
+        {
+            OPENSSL_cleanse(km.key.ptr, km.key.length);
+            OPENSSL_cleanse(km.iv.ptr, km.iv.length);
+            OPENSSL_cleanse(km.hp.ptr, km.hp.length);
+        }
+        if (!deriveNextApplicationSecret(tls.negotiatedCipher, remoteAppSecret[0 .. appSecretLen],
+                nextRemoteSecret[0 .. appSecretLen]) || !deriveKeyMaterial(tls.negotiatedCipher,
+                nextRemoteSecret[0 .. appSecretLen], km) || !nextRemoteAead.init(
+                tls.negotiatedCipher, km.key[0 .. km.keyLen], km.iv[0 .. 12]))
+        {
+            discardNextRemoteKeys();
+            return false;
+        }
+        hasNextRemote = true;
+        return true;
+    }
+
+    /**
+     * The end of a draining period that starts at `nowMicros`: three times the current PTO
+     * (RFC 9000 Section 10.2), saturating. Also the retention period of old read keys
+     * (RFC 9001 §6.5).
+     */
+    package ulong drainingEndFor(ulong nowMicros) const @safe pure @nogc nothrow
+    {
+        const ulong maxAckDelayMicros = peerParamsReceived ? (peerParams.maxAckDelay * 1000) : (
+                localParams.maxAckDelay * 1000);
+        const ulong pto = lossDetector.rtt.ptoBaseMicros(maxAckDelayMicros, true);
+        const ulong drainDur = (pto > ulong.max / 3) ? ulong.max / 3 : 3 * pto;
+        return (ulong.max - nowMicros < drainDur) ? ulong.max : (nowMicros + drainDur);
     }
 
     package TransportErrorCode dispatchFrame(PacketNumberSpace space,
@@ -722,18 +928,24 @@ public struct QuicConnection
             return processStreamFrame(frame.stream);
 
         case FrameType.resetStream:
-            const rErr = streams.onResetStreamFrame(frame.resetStream);
+            bool staleReset = false;
+            const rErr = streams.onResetStreamFrame(frame.resetStream, staleReset);
             if (rErr != TransportErrorCode.noError)
                 return rErr;
+            if (staleReset)
+                return TransportErrorCode.noError; // reaped stream: nothing to report (R-04)
             streams.reapClosedStreams();
             events.push(ConnectionEvent(ConnectionEventType.streamReset,
                     frame.resetStream.streamId, frame.resetStream.applicationErrorCode, false));
             return TransportErrorCode.noError;
 
         case FrameType.stopSending:
-            const sErr = streams.onStopSendingFrame(frame.stopSending);
+            bool staleStop = false;
+            const sErr = streams.onStopSendingFrame(frame.stopSending, staleStop);
             if (sErr != TransportErrorCode.noError)
                 return sErr;
+            if (staleStop)
+                return TransportErrorCode.noError; // reaped stream: nothing to report (R-04)
             events.push(ConnectionEvent(ConnectionEventType.stopSending,
                     frame.stopSending.streamId, frame.stopSending.applicationErrorCode, false));
             return TransportErrorCode.noError;
@@ -803,12 +1015,7 @@ public struct QuicConnection
             closeErrorCode = frame.connectionClose.errorCode;
             closeFrameType = frame.connectionClose.frameType;
             closeIsApp = frame.connectionClose.isApplication;
-            const ulong rawRtt = (lossDetector.rtt.smoothedRtt > 0) ? lossDetector.rtt.smoothedRtt
-                : 100_000;
-            const ulong clampedRtt = (rawRtt > ulong.max / 6) ? (ulong.max / 6) : rawRtt;
-            const ulong drainDur = 3 * clampedRtt;
-            drainingEndTimeMicros = (ulong.max - nowMicros < drainDur) ? ulong.max
-                : (nowMicros + drainDur);
+            drainingEndTimeMicros = drainingEndFor(nowMicros);
             events.push(ConnectionEvent(ConnectionEventType.connectionClosed,
                     0, closeErrorCode, closeIsApp));
             return TransportErrorCode.noError;
@@ -816,6 +1023,14 @@ public struct QuicConnection
         default:
             return TransportErrorCode.noError;
         }
+    }
+
+    /// Records that the local write keys were just replaced (RFC 9001 §6.1): the next update
+    /// waits until a packet sent under them is acknowledged.
+    package void noteLocalKeyUpdate() @safe pure @nogc nothrow
+    {
+        localPhaseFirstPn = nextPn[2];
+        localPhaseAcked = false;
     }
 
     private TransportErrorCode processAckFrame(PacketNumberSpace space,
@@ -834,6 +1049,13 @@ public struct QuicConnection
 
         if (te != TransportErrorCode.noError)
             return te;
+
+        // RFC 9001 §6.1: an acknowledgment for a packet sent under the current local keys
+        // permits the next local key update.
+        if (space == PacketNumberSpace.applicationData && !localPhaseAcked)
+            foreach (i; 0 .. ackedCount)
+                if (newlyAcked[i].pn >= localPhaseFirstPn)
+                    localPhaseAcked = true;
 
         // Process newly acknowledged packets
         foreach (i; 0 .. ackedCount)
@@ -1099,7 +1321,7 @@ public struct QuicConnection
         return TransportErrorCode.noError;
     }
 
-    private void drainTls() @trusted @nogc nothrow
+    package void drainTls() @trusted @nogc nothrow
     {
         pollTlsKeys();
         pollTlsOutputs();
@@ -1137,6 +1359,10 @@ public struct QuicConnection
                     localAppSecret[0 .. appSecretLen] = wSec[];
                     localKeyPhase = 0;
                     remoteKeyPhase = 0;
+                    localPhaseAcked = true;
+                    hasCurPhasePn = false;
+                    discardNextRemoteKeys();
+                    ensureNextRemoteKeys();
                 }
             }
         }
@@ -1191,8 +1417,7 @@ public struct QuicConnection
         const size_t n = qs.recvBuf.read(outBuf, finReached);
         if (n > 0)
         {
-            qs.flowCtrl.onBytesRead(n);
-            streams.connFlow.onBytesRead(n);
+            streams.onApplicationRead(*qs, n);
         }
         if (finReached)
         {
@@ -1200,6 +1425,16 @@ public struct QuicConnection
             streams.reapClosedStreams();
         }
         return cast(ptrdiff_t) n;
+    }
+
+    /**
+     * Gives up reading `sid`: discards buffered and future bytes of its receive side and returns
+     * their flow control credit (see `StreamMap.abandonRecv`). Returns false for an unknown or
+     * send-only stream. Pair it with `stopSending` when the peer should stop transmitting.
+     */
+    bool abandonRecv(StreamId sid) @safe @nogc nothrow
+    {
+        return streams.abandonRecv(sid);
     }
 
     void resetStream(StreamId sid, ulong appErrorCode) @safe @nogc nothrow
@@ -1261,17 +1496,20 @@ public struct QuicConnection
 
         const ulong maxAckDelayMicros = peerParamsReceived ? (peerParams.maxAckDelay * 1000) : (
                 localParams.maxAckDelay * 1000);
-        const ulong recDeadline = lossDetector.nextTimeoutMicros(maxAckDelayMicros,
-                handshakeConfirmed);
+        ulong deadline = lossDetector.nextTimeoutMicros(maxAckDelayMicros, handshakeConfirmed);
         const ulong idleMicros = effectiveIdleTimeoutMicros();
         if (idleMicros > 0 && lastRxTimeMicros > 0)
         {
             const ulong idleDeadline = (ulong.max - lastRxTimeMicros < idleMicros) ? ulong.max
                 : (lastRxTimeMicros + idleMicros);
-            if (recDeadline == 0 || idleDeadline < recDeadline)
-                return idleDeadline;
+            if (deadline == 0 || idleDeadline < deadline)
+                deadline = idleDeadline;
         }
-        return recDeadline;
+        // RFC 9001 §6.5: the retained previous read key has its own expiry.
+        if (hasPrevRemoteAead && prevRemoteDiscardMicros != 0 && (deadline == 0
+                || prevRemoteDiscardMicros < deadline))
+            deadline = prevRemoteDiscardMicros;
+        return deadline;
     }
 
     void onTimeout(ulong nowMicros) @trusted @nogc nothrow
@@ -1281,6 +1519,9 @@ public struct QuicConnection
             state = ConnectionState.closed;
             return;
         }
+
+        if (hasPrevRemoteAead && prevRemoteDiscardMicros != 0 && nowMicros >= prevRemoteDiscardMicros)
+            discardPrevRemoteKeys();
 
         // Idle timeout (RFC 9000 §10.1)
         const ulong idleMicros = effectiveIdleTimeoutMicros();
@@ -1384,6 +1625,17 @@ public struct QuicConnection
 
 // Spec: RFC 9000 Section 8.1 - Anti-Amplification Limits & Section 10.1 Idle Timeout Overflow Safety
 /// Example:
+/// ---
+/// QuicConnection conn;
+/// conn.state = ConnectionState.active;
+/// conn.localParams.maxIdleTimeout = 0;
+/// conn.peerParams.maxIdleTimeout = (1UL << 62) - 1;   // the largest varint the peer can send
+/// conn.lastRxTimeMicros = 1_000_000;
+/// assert(conn.effectiveIdleTimeoutMicros() > 1_000_000_000_000UL);   // no overflow
+/// assert(conn.nextTimeoutMicros(1_000_500) > 1_000_500);
+/// conn.onTimeout(1_000_500);
+/// assert(conn.state == ConnectionState.active);       // not closed prematurely
+/// ---
 @nogc unittest
 {
     QuicConnection conn;

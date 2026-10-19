@@ -23,6 +23,10 @@ struct CurlGlobal
 
     private __gshared int _initCount = 0;
     private __gshared Mutex _mutex;
+    /// Set once the process is shutting down: libcurl is then left initialised.
+    private __gshared bool _exiting = false;
+    /// Number of `curl_global_cleanup` calls made (observable by tests).
+    private __gshared size_t _globalCleanups = 0;
 
     shared static this()
     {
@@ -30,8 +34,23 @@ struct CurlGlobal
         CurlGlobal.initialize();
     }
 
+    /// Runs when the process exits. Daemon worker threads (`HttpTask`, `HttpMulti`) may still be
+    /// inside libcurl at that point, and `curl_global_cleanup` is not thread-safe against them,
+    /// so the module's own reference is released but libcurl itself is deliberately left
+    /// initialised: the operating system reclaims it with the process.
     shared static ~this()
     {
+        CurlGlobal.beginProcessExit();
+    }
+
+    /// Marks the process as exiting and releases the module's reference without tearing libcurl
+    /// down, whatever the count reaches.
+    static void beginProcessExit() @trusted
+    {
+        synchronized (_mutex)
+        {
+            _exiting = true;
+        }
         CurlGlobal.cleanup();
     }
 
@@ -60,9 +79,10 @@ struct CurlGlobal
             if (_initCount > 0)
             {
                 _initCount--;
-                if (_initCount == 0)
+                if (_initCount == 0 && !_exiting)
                 {
                     curl_global_cleanup();
+                    _globalCleanups++;
                 }
             }
         }
@@ -140,4 +160,71 @@ unittest
     assert(CurlGlobal.isInitialized());
     CurlGlobal.cleanup();
     assert(CurlGlobal.isInitialized()); // Still initialized because outer guard holds a reference
+}
+
+/// Example:
+/// ---
+/// const cleanups = CurlGlobal._globalCleanups;
+/// synchronized (CurlGlobal._mutex)    // one reference held, not yet exiting
+/// {
+///     CurlGlobal._initCount = 1;
+///     CurlGlobal._exiting = false;
+/// }
+/// CurlGlobal.beginProcessExit();                // as the module destructor does
+/// assert(CurlGlobal._globalCleanups == cleanups);   // curl_global_cleanup was not called
+/// ---
+// Spec: curl_global_cleanup(3) "This function is not thread safe. You must not call it when any
+// other thread in the program (i.e. a thread sharing the same memory) is running." - the exit
+// path must not tear libcurl down while daemon workers may still run; a normal balanced
+// initialize/cleanup still does (R-43, W26)
+@system unittest
+{
+    int savedCount;
+    synchronized (CurlGlobal._mutex)
+        savedCount = CurlGlobal._initCount;
+    const savedCleanups = CurlGlobal._globalCleanups;
+    scope (exit)
+        synchronized (CurlGlobal._mutex)
+        {
+            CurlGlobal._initCount = savedCount;
+            CurlGlobal._exiting = false;
+        }
+
+    // The counters are guarded by `_mutex`; the test takes it like the production code does.
+    static void setState(int count, bool exiting) @trusted
+    {
+        synchronized (CurlGlobal._mutex)
+        {
+            CurlGlobal._initCount = count;
+            CurlGlobal._exiting = exiting;
+        }
+    }
+
+    static int count() @trusted
+    {
+        synchronized (CurlGlobal._mutex)
+            return CurlGlobal._initCount;
+    }
+
+    static bool exiting() @trusted
+    {
+        synchronized (CurlGlobal._mutex)
+            return CurlGlobal._exiting;
+    }
+
+    // Process exit: the last reference goes away, libcurl is not cleaned up.
+    setState(1, false);
+    CurlGlobal.beginProcessExit();
+    assert(count == 0);
+    assert(CurlGlobal._globalCleanups == savedCleanups, "no curl_global_cleanup at process exit");
+    assert(exiting);
+
+    // Nested use still balances and never cleans up below the module's own reference.
+    setState(savedCount, false);
+    CurlGlobal.initialize();
+    assert(count == savedCount + 1);
+    CurlGlobal.cleanup();
+    assert(count == savedCount);
+    assert(CurlGlobal.isInitialized);
+    assert(CurlGlobal._globalCleanups == savedCleanups);
 }

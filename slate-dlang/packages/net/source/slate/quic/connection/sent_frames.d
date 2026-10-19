@@ -116,9 +116,12 @@ public:
     }
 
     /**
-     * Records a packet and its transmitted frames in the given space.
+     * Makes sure the next `recordPacket` in `space` has a free slot (compacting retired records
+     * and growing up to `MAX_TRACKED_PACKETS_PER_SPACE`). The packer calls this before it
+     * consumes any queued frame so a full ledger never causes frames to be sent untracked
+     * (and therefore never retransmitted).
      */
-    bool recordPacket(PacketNumberSpace space, ulong pn, const(SentFrameDesc)[] frames) @trusted @nogc nothrow
+    bool reserve(PacketNumberSpace space) @trusted @nogc nothrow
     {
         const size_t s = cast(size_t) space;
         if (s >= NUM_SPACES)
@@ -148,6 +151,17 @@ public:
             m_records[s] = p;
             m_capacity[s] = newCap;
         }
+        return true;
+    }
+
+    /**
+     * Records a packet and its transmitted frames in the given space.
+     */
+    bool recordPacket(PacketNumberSpace space, ulong pn, const(SentFrameDesc)[] frames) @trusted @nogc nothrow
+    {
+        if (!reserve(space))
+            return false;
+        const size_t s = cast(size_t) space;
 
         SentPacketRecord* rec = &m_records[s][m_count[s]];
         rec.pn = pn;
@@ -219,6 +233,16 @@ public:
 }
 
 /// Example:
+/// ---
+/// SentFrameTracker tracker;
+/// SentFrameDesc[1] frames;
+/// frames[0] = SentFrameDesc(SentFrameKind.stream, 4, 0, 250, true);
+/// assert(tracker.recordPacket(PacketNumberSpace.applicationData, 10, frames[]));
+/// SentPacketRecord rec;
+/// assert(tracker.takePacket(PacketNumberSpace.applicationData, 10, rec));
+/// assert(rec.frames[0].kind == SentFrameKind.stream && rec.frames[0].streamId == 4);
+/// assert(tracker.count(PacketNumberSpace.initial) == 0);   // other spaces are untouched
+/// ---
 // Spec: RFC 9000 Section 13.3 - Sent Frame Tracking for ACK and Loss Recovery (covers U1, U2, U3, E2, F5, Scenario T2)
 @nogc unittest
 {
@@ -262,6 +286,20 @@ public:
 }
 
 /// Example:
+/// ---
+/// SentFrameTracker tracker;
+/// SentFrameDesc[1] dummyFrame;
+/// dummyFrame[0] = SentFrameDesc(SentFrameKind.ping, 0, 0, 0, false);
+/// foreach (ulong pn; 0 .. 50)
+///     assert(tracker.recordPacket(PacketNumberSpace.applicationData, pn, dummyFrame[]));
+/// SentPacketRecord r;
+/// foreach (ulong pn; 0 .. 50)
+///     if (pn % 2 != 0)
+///         assert(tracker.takePacket(PacketNumberSpace.applicationData, pn, r));
+/// // room is made by compaction, and the remaining packets are still retrievable
+/// assert(tracker.recordPacket(PacketNumberSpace.applicationData, 50, dummyFrame[]));
+/// assert(tracker.takePacket(PacketNumberSpace.applicationData, 50, r) && r.pn == 50);
+/// ---
 // Spec: Sent Frame Tracker Compaction & Bounded Capacity (covers U2, G4)
 @nogc unittest
 {

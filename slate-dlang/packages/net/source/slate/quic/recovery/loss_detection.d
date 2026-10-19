@@ -45,6 +45,14 @@ public struct SentPacketInfo
     PacketNumberSpace space = PacketNumberSpace.initial;
 }
 
+private enum size_t PC_EVENT_CAPACITY = 128;
+
+private struct PcEvent
+{
+    ulong timeSentMicros;
+    bool acked;
+}
+
 /**
  * Sans-I/O loss detector and congestion manager.
  */
@@ -66,6 +74,15 @@ public struct LossDetector
 
     RttEstimator rtt;
     CongestionController cc;
+
+    /// Time the first RTT sample was obtained (RFC 9002 Appendix A, `first_rtt_sample`).
+    private ulong firstRttSampleMicros = 0;
+    private bool hasFirstRttSample = false;
+
+    /// Send times of ack-eliciting packets declared lost and of acknowledged packets, across all
+    /// packet number spaces and ordered by send time; the evidence for RFC 9002 Section 7.6.2.
+    private PcEvent[PC_EVENT_CAPACITY] pcEvents;
+    private size_t pcEventCount = 0;
 
     ~this() @trusted @nogc nothrow
     {
@@ -91,6 +108,9 @@ public struct LossDetector
             lastAckElicitingTimeMicros[s] = 0;
         }
         ptoCount = 0;
+        firstRttSampleMicros = 0;
+        hasFirstRttSample = false;
+        pcEventCount = 0;
     }
 
     void moveFrom(ref LossDetector other) @trusted @nogc nothrow
@@ -126,6 +146,72 @@ public struct LossDetector
         this.ptoCount = other.ptoCount;
         this.rtt = other.rtt;
         this.cc = other.cc;
+        this.firstRttSampleMicros = other.firstRttSampleMicros;
+        this.hasFirstRttSample = other.hasFirstRttSample;
+        this.pcEvents[0 .. other.pcEventCount] = other.pcEvents[0 .. other.pcEventCount];
+        this.pcEventCount = other.pcEventCount;
+        other.pcEventCount = 0;
+    }
+
+    /// Inserts an event keeping `pcEvents` ordered by send time; the oldest entry is dropped
+    /// when the table is full (this can only delay, never invent, a persistent congestion verdict).
+    private void recordPcEvent(ulong timeSentMicros, bool acked) @safe @nogc nothrow
+    {
+        if (pcEventCount == PC_EVENT_CAPACITY)
+        {
+            foreach (i; 1 .. PC_EVENT_CAPACITY)
+                pcEvents[i - 1] = pcEvents[i];
+            pcEventCount--;
+        }
+        size_t pos = pcEventCount;
+        while (pos > 0 && pcEvents[pos - 1].timeSentMicros > timeSentMicros)
+        {
+            pcEvents[pos] = pcEvents[pos - 1];
+            pos--;
+        }
+        pcEvents[pos] = PcEvent(timeSentMicros, acked);
+        pcEventCount++;
+    }
+
+    /**
+     * RFC 9002 Section 7.6.2: persistent congestion exists when two ack-eliciting packets
+     * declared lost, sent more than the persistent congestion duration apart (Section 7.6.1),
+     * have no acknowledged packet (in any space) sent between them. Only packets sent after the
+     * first RTT sample are recorded. Collapses the congestion window and forgets the evidence
+     * when the condition holds.
+     */
+    private void checkPersistentCongestion(ulong maxAckDelayMicros) @safe @nogc nothrow
+    {
+        if (!hasFirstRttSample || pcEventCount == 0)
+            return;
+        const ulong maxRttVar = 4 * rtt.rttVar > GRANULARITY_MICROS
+            ? 4 * rtt.rttVar : GRANULARITY_MICROS;
+        const ulong duration = (rtt.smoothedRtt + maxRttVar + maxAckDelayMicros) * 3;
+
+        bool inRun = false;
+        ulong runStart = 0;
+        foreach (i; 0 .. pcEventCount)
+        {
+            const e = pcEvents[i];
+            if (e.acked)
+            {
+                // An acknowledged packet sent after the run's first loss ends the run.
+                if (inRun && e.timeSentMicros > runStart)
+                    inRun = false;
+                continue;
+            }
+            if (!inRun)
+            {
+                inRun = true;
+                runStart = e.timeSentMicros;
+            }
+            else if (e.timeSentMicros - runStart > duration)
+            {
+                cc.onPersistentCongestion();
+                pcEventCount = 0;
+                return;
+            }
+        }
     }
 
     /**
@@ -226,6 +312,7 @@ public struct LossDetector
             if (isAcked)
             {
                 p.acked = true;
+                recordPcEvent(p.timeSentMicros, true);
                 if (p.isAckEliciting)
                     anyAckElicitingNewlyAcked = true;
 
@@ -269,6 +356,11 @@ public struct LossDetector
                 ackDelayMicros = ack.ackDelay << ackDelayExponent;
 
             rtt.update(rttSample, ackDelayMicros, maxAckDelayMicros, handshakeConfirmed);
+            if (!hasFirstRttSample)
+            {
+                hasFirstRttSample = true;
+                firstRttSampleMicros = nowMicros;
+            }
         }
 
         // 4. Reset PTO counter on new ACK that acknowledges an ack-eliciting packet (RFC 9002 Section 6.2.1)
@@ -286,20 +378,8 @@ public struct LossDetector
         if (totalLostBytes > 0)
         {
             cc.onPacketsLost(totalLostBytes, largestLostTime, nowMicros);
-
-            if (space == PacketNumberSpace.applicationData && rtt.hasSample)
-            {
-                const ulong maxRttVar = 4 * rtt.rttVar > GRANULARITY_MICROS
-                    ? 4 * rtt.rttVar : GRANULARITY_MICROS;
-                const ulong ptoBase = rtt.smoothedRtt + maxRttVar + maxAckDelayMicros;
-                const ulong persistentCongestionDuration = ptoBase * 3;
-                if (persistentCongestionDuration > 0 && largestLostTime >= earliestLostTime
-                        && (largestLostTime - earliestLostTime) >= persistentCongestionDuration)
-                {
-                    cc.onPersistentCongestion();
-                }
-            }
         }
+        checkPersistentCongestion(maxAckDelayMicros);
 
         // 7. Compact acknowledged/lost packets prefix
         compactSentPackets(space);
@@ -347,6 +427,9 @@ public struct LossDetector
                 {
                     p.lost = true;
                     p.inFlight = false;
+                    if (p.isAckEliciting && hasFirstRttSample
+                            && p.timeSentMicros > firstRttSampleMicros)
+                        recordPcEvent(p.timeSentMicros, false);
                     totalLostBytes += p.sentBytes;
                     if (earliestLostTime == 0 || p.timeSentMicros < earliestLostTime)
                         earliestLostTime = p.timeSentMicros;
@@ -484,24 +567,12 @@ public struct LossDetector
                         lostCount, spaceLostBytes, spaceLargestLostTime, spaceEarliestLostTime);
 
                 if (spaceLostBytes > 0)
-                {
                     cc.onPacketsLost(spaceLostBytes, spaceLargestLostTime, nowMicros);
-                    if (s == PacketNumberSpace.applicationData && rtt.hasSample)
-                    {
-                        const ulong maxRttVar = 4 * rtt.rttVar > GRANULARITY_MICROS
-                            ? 4 * rtt.rttVar : GRANULARITY_MICROS;
-                        const ulong ptoBase = rtt.smoothedRtt + maxRttVar + maxAckDelayMicros;
-                        const ulong persistentDuration = ptoBase * 3;
-                        if (persistentDuration > 0 && spaceLargestLostTime >= spaceEarliestLostTime
-                                && (spaceLargestLostTime - spaceEarliestLostTime) >= persistentDuration)
-                        {
-                            cc.onPersistentCongestion();
-                        }
-                    }
-                }
                 compactSentPackets(cast(PacketNumberSpace) s);
             }
         }
+
+        checkPersistentCongestion(maxAckDelayMicros);
 
         // 2. If no loss timer expired, it is a PTO expiry
         if (!lossTimerFired)
@@ -581,6 +652,31 @@ public struct LossDetector
 }
 
 /// Example:
+/// ---
+/// LossDetector ld;
+/// ld.rtt.smoothedRtt = 80_000;
+/// ld.rtt.latestRtt = 80_000;
+/// ld.rtt.hasSample = true;
+/// foreach (pn; 0 .. 5)
+///     ld.onPacketSent(PacketNumberSpace.applicationData, pn, 1200, true, true, pn * 1_000);
+///
+/// // The peer acknowledges only packet 4.
+/// AckFrame ack;
+/// ack.numRanges = 1;
+/// ack.ranges[0] = AckRange(4, 4);
+/// SentPacketInfo[8] newlyAcked, newlyLost;
+/// size_t ackedCount, lostCount;
+/// const err = ld.onAckReceived(PacketNumberSpace.applicationData, ack, 3, 25_000, true,
+///         84_000, newlyAcked[], ackedCount, newlyLost[], lostCount);
+/// assert(err == TransportErrorCode.noError && ackedCount == 1);
+/// assert(lostCount == 2);   // packets 0 and 1 are three or more below the largest acknowledged
+///
+/// // Packets 2 and 3 are lost by time threshold once the loss timer fires.
+/// SentPacketInfo[8] timeoutLost;
+/// size_t timeoutLostCount;
+/// ld.onTimeout(95_000, timeoutLost[], timeoutLostCount);
+/// assert(timeoutLostCount == 2 && ld.cc.bytesInFlight == 0);
+/// ---
 // Spec: RFC 9002 Section 6 - Packet Threshold (k=3), Time Threshold (9/8 RTT), PTO & Space Discard (Scenario T5, covers U1, U2, U3, E5, F6)
 @nogc unittest
 {
@@ -649,6 +745,22 @@ public struct LossDetector
 }
 
 /// Example:
+/// ---
+/// LossDetector ld;
+/// ld.onPacketSent(PacketNumberSpace.applicationData, 0, 1200, true, true, 1000);
+///
+/// // The peer acknowledges packet 9999, which was never sent.
+/// AckFrame phantomAck;
+/// phantomAck.numRanges = 1;
+/// phantomAck.ranges[0] = AckRange(9999, 9999);
+/// SentPacketInfo[4] newlyAcked, newlyLost;
+/// size_t ackedCount, lostCount;
+/// const err = ld.onAckReceived(PacketNumberSpace.applicationData, phantomAck, 3, 25_000,
+///         true, 5000, newlyAcked[], ackedCount, newlyLost[], lostCount);
+/// assert(err == TransportErrorCode.protocolViolation);
+/// assert(!ld.hasAckedPn[PacketNumberSpace.applicationData]);
+/// assert(ld.cc.bytesInFlight == 1200);   // nothing was released
+/// ---
 // Spec: RFC 9000 Section 13.2 & Section 19.3.1 - CRITICAL-02 Regression: Optimistic/Phantom ACK Attack Defense
 @nogc unittest
 {
@@ -674,6 +786,23 @@ public struct LossDetector
 }
 
 /// Example:
+/// ---
+/// LossDetector ld;
+/// ld.rtt.smoothedRtt = 100_000;
+/// ld.rtt.latestRtt = 100_000;
+/// ld.rtt.hasSample = true;
+/// ld.onPacketSent(PacketNumberSpace.applicationData, 0, 50, false, false, 1000);   // ACK-only packet
+///
+/// AckFrame ack;
+/// ack.numRanges = 1;
+/// ack.ranges[0] = AckRange(0, 0);
+/// SentPacketInfo[4] acked, lost;
+/// size_t ackedCount, lostCount;
+/// const err = ld.onAckReceived(PacketNumberSpace.applicationData, ack, 3, 25_000, true,
+///         50_000, acked[], ackedCount, lost[], lostCount);
+/// assert(err == TransportErrorCode.noError && ackedCount == 1);
+/// assert(ld.rtt.latestRtt == 100_000);   // a non-ack-eliciting packet gives no RTT sample
+/// ---
 // Spec: RFC 9002 Section 5.1 - Defect 5 Regression: Non-Ack-Eliciting ACK Does Not Update RTT
 @nogc unittest
 {
@@ -702,6 +831,15 @@ public struct LossDetector
 }
 
 /// Example:
+/// ---
+/// LossDetector ld1;
+/// ld1.onPacketSent(PacketNumberSpace.handshake, 0, 1000, true, true, 1000);
+///
+/// LossDetector ld2;
+/// ld2.moveFrom(ld1);
+/// assert(ld1.sentCount[PacketNumberSpace.handshake] == 0);   // the source is left empty
+/// assert(ld2.sentCount[PacketNumberSpace.handshake] == 1);
+/// ---
 // Spec: RFC 9002 Section 6 - LossDetector Move Semantics and Memory Cleanup (covers U2, G4)
 @nogc unittest
 {
@@ -715,6 +853,27 @@ public struct LossDetector
 }
 
 /// Example:
+/// ---
+/// LossDetector ld;
+/// ld.rtt.smoothedRtt = 10_000;
+/// ld.rtt.latestRtt = 10_000;
+/// ld.rtt.hasSample = true;
+/// foreach (ulong i; 0 .. 150)
+///     ld.onPacketSent(PacketNumberSpace.applicationData, i, 1000, true, true, 1000 + i * 10);
+/// ld.ptoCount = 3;
+///
+/// // One ACK covers all 150 packets although the output buffer holds only 16.
+/// AckFrame ack;
+/// ack.numRanges = 1;
+/// ack.ranges[0] = AckRange(0, 149);
+/// SentPacketInfo[16] acked, lost;
+/// size_t ackedCount, lostCount;
+/// const err = ld.onAckReceived(PacketNumberSpace.applicationData, ack, 3, 25_000, true,
+///         20_000, acked[], ackedCount, lost[], lostCount);
+/// assert(err == TransportErrorCode.noError && ackedCount == 16);
+/// assert(ld.cc.bytesInFlight == 0);   // every packet was accounted for, not only the 16 reported
+/// assert(ld.ptoCount == 0);           // an ack-eliciting packet was acknowledged
+/// ---
 // Spec: RFC 9002 Section 6 & 7 - Defect F-18: >128 Acked Packets Accounting, PTO Reset Gating, and Persistent Congestion (covers E5, S1)
 @nogc unittest
 {
@@ -796,4 +955,152 @@ public struct LossDetector
     assert(lostCount > 0);
     // Persistent congestion triggered: cwnd collapsed to 2 * maxDatagramSize = 2400
     assert(ld.cc.cwnd == 2 * ld.cc.maxDatagramSize);
+}
+
+version (unittest)
+{
+    private AckFrame pcAckOf(ulong largest, ulong second = ulong.max) @safe @nogc nothrow
+    {
+        AckFrame a;
+        a.numRanges = 1;
+        a.ranges[0] = AckRange(largest, largest);
+        if (second != ulong.max)
+        {
+            a.numRanges = 2;
+            a.ranges[1] = AckRange(second, second);
+        }
+        return a;
+    }
+
+    /// Delivers `ack` for `space` at `now`; returns the lost-packet count.
+    private size_t pcDeliver(ref LossDetector ld, PacketNumberSpace space,
+            ref const AckFrame ack, ulong now) @trusted @nogc nothrow
+    {
+        SentPacketInfo[16] acked;
+        SentPacketInfo[16] lost;
+        size_t ackedCount = 0;
+        size_t lostCount = 0;
+        const err = ld.onAckReceived(space, ack, 3, 25_000, true, now, acked[],
+                ackedCount, lost[], lostCount);
+        assert(err == TransportErrorCode.noError);
+        return lostCount;
+    }
+
+    /// A detector holding one RTT sample of 10 ms (taken at t = 10 ms from a packet sent at 0):
+    /// persistent congestion duration = (10 + 20 + 25) ms * 3 = 165 ms.
+    private void pcPrime(ref LossDetector ld) @trusted @nogc nothrow
+    {
+        ld.onPacketSent(PacketNumberSpace.applicationData, 0, 1200, true, true, 0);
+        const ack = pcAckOf(0);
+        assert(pcDeliver(ld, PacketNumberSpace.applicationData, ack, 10_000) == 0);
+        assert(ld.rtt.hasSample && ld.rtt.smoothedRtt == 10_000);
+    }
+}
+
+/// Example:
+/// ---
+/// // two lost ack-eliciting packets 280 ms apart, nothing acknowledged between them
+/// LossDetector ld;
+/// const app = PacketNumberSpace.applicationData;
+/// pcPrime(ld);                                    // first RTT sample: 10 ms
+/// ld.onPacketSent(app, 1, 1200, true, true, 20_000);
+/// ld.onPacketSent(app, 2, 1200, true, true, 300_000);
+/// ld.onPacketSent(app, 3, 1200, true, true, 310_000);
+/// // the ack of 3 at 320 ms declares 1 and 2 lost => cwnd collapses to the minimum window
+/// const ack = pcAckOf(3);
+/// assert(pcDeliver(ld, app, ack, 320_000) == 2);
+/// assert(ld.cc.cwnd == 2 * ld.cc.maxDatagramSize);
+/// ---
+// Spec: RFC 9002 Section 7.6.2 - persistent congestion is established when two ack-eliciting
+// packets declared lost were sent more than the persistent congestion duration apart with
+// no acknowledged packet between them (R-16, U4)
+@nogc unittest
+{
+    LossDetector ld;
+    pcPrime(ld);
+    const app = PacketNumberSpace.applicationData;
+    ld.onPacketSent(app, 1, 1200, true, true, 20_000);
+    ld.onPacketSent(app, 2, 1200, true, true, 300_000);
+    ld.onPacketSent(app, 3, 1200, true, true, 310_000);
+    const ack = pcAckOf(3);
+    assert(pcDeliver(ld, app, ack, 320_000) == 2);
+    assert(ld.cc.cwnd == 2 * ld.cc.maxDatagramSize);
+}
+
+/// Example:
+/// ---
+/// // packet 2 (100 ms) is acknowledged between the losses of 1 (20 ms) and 3 (300 ms)
+/// LossDetector ld;
+/// const app = PacketNumberSpace.applicationData;
+/// pcPrime(ld);
+/// foreach (pn, sentAt; [1: 20_000, 2: 100_000, 3: 300_000, 4: 310_000])
+///     ld.onPacketSent(app, pn, 1200, true, true, sentAt);
+/// const ack = pcAckOf(4, 2);
+/// assert(pcDeliver(ld, app, ack, 320_000) == 2);   // 1 and 3 lost
+/// assert(ld.cc.cwnd > 2 * ld.cc.maxDatagramSize);  // ordinary congestion event only
+/// ---
+// Spec: RFC 9002 Section 7.6.2 - "none of the packets sent between the send times of these two
+// packets are acknowledged": an acknowledged packet between the two losses breaks the period,
+// in the same or in another packet number space (R-16, U4)
+@nogc unittest
+{
+    const app = PacketNumberSpace.applicationData;
+
+    // (a) acknowledged between them, same space
+    {
+        LossDetector ld;
+        pcPrime(ld);
+        ld.onPacketSent(app, 1, 1200, true, true, 20_000);
+        ld.onPacketSent(app, 2, 1200, true, true, 100_000);
+        ld.onPacketSent(app, 3, 1200, true, true, 300_000);
+        ld.onPacketSent(app, 4, 1200, true, true, 310_000);
+        const ack = pcAckOf(4, 2);
+        assert(pcDeliver(ld, app, ack, 320_000) == 2);
+        assert(ld.cc.cwnd != 2 * ld.cc.maxDatagramSize);
+        assert(ld.cc.cwnd > 2 * ld.cc.maxDatagramSize);
+    }
+
+    // (b) acknowledged between them in the Handshake space
+    {
+        LossDetector ld;
+        pcPrime(ld);
+        const hs = PacketNumberSpace.handshake;
+        ld.onPacketSent(hs, 0, 600, true, true, 100_000);
+        const hsAck = pcAckOf(0);
+        assert(pcDeliver(ld, hs, hsAck, 150_000) == 0);
+        ld.onPacketSent(app, 1, 1200, true, true, 20_000);
+        ld.onPacketSent(app, 2, 1200, true, true, 300_000);
+        ld.onPacketSent(app, 3, 1200, true, true, 310_000);
+        const ack = pcAckOf(3);
+        assert(pcDeliver(ld, app, ack, 320_000) == 2);
+        assert(ld.cc.cwnd > 2 * ld.cc.maxDatagramSize);
+    }
+}
+
+/// Example:
+/// ---
+/// // packets 1 and 2 were sent before the first RTT sample existed
+/// LossDetector ld;
+/// const app = PacketNumberSpace.applicationData;
+/// ld.onPacketSent(app, 1, 1200, true, true, 1_000);
+/// ld.onPacketSent(app, 2, 1200, true, true, 400_000);
+/// ld.onPacketSent(app, 3, 1200, true, true, 410_000);
+/// const ack = pcAckOf(3);                          // yields the first RTT sample
+/// assert(pcDeliver(ld, app, ack, 420_000) == 2);
+/// assert(ld.cc.cwnd > 2 * ld.cc.maxDatagramSize);
+/// ---
+// Spec: RFC 9002 Section 7.6.2 - "a prior RTT sample existed when these two packets were sent":
+// losses of packets sent before the first RTT sample never establish persistent congestion
+// (R-16, U4)
+@nogc unittest
+{
+    LossDetector ld;
+    const app = PacketNumberSpace.applicationData;
+    ld.onPacketSent(app, 1, 1200, true, true, 1_000);
+    ld.onPacketSent(app, 2, 1200, true, true, 400_000);
+    ld.onPacketSent(app, 3, 1200, true, true, 410_000);
+    const ack = pcAckOf(3); // yields the first RTT sample (10 ms) and loses packets 1 and 2
+    assert(pcDeliver(ld, app, ack, 420_000) == 2);
+    assert(ld.rtt.hasSample);
+    assert(ld.cc.cwnd > 2 * ld.cc.maxDatagramSize);
 }

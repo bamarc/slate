@@ -7,10 +7,12 @@ module slate.quic.crypto.c_openssl;
  */
 package(slate.quic):
 
+import core.stdc.config : c_long, c_ulong;
+
 extern (C) @system @nogc nothrow:
 
 // --- OpenSSL Version ---
-ulong OpenSSL_version_num();
+c_ulong OpenSSL_version_num();
 const(char)* OpenSSL_version(int type);
 
 // --- EVP Message Digest ---
@@ -71,8 +73,8 @@ const(SSL_METHOD)* TLS_client_method();
 
 SSL_CTX* SSL_CTX_new(const(SSL_METHOD)* method);
 void SSL_CTX_free(SSL_CTX* ctx);
-long SSL_CTX_ctrl(SSL_CTX* ctx, int cmd, long larg, void* parg);
-long SSL_ctrl(SSL* s, int cmd, long larg, void* parg);
+c_long SSL_CTX_ctrl(SSL_CTX* ctx, int cmd, c_long larg, void* parg);
+c_long SSL_ctrl(SSL* s, int cmd, c_long larg, void* parg);
 
 enum int SSL_CTRL_SET_MIN_PROTO_VERSION = 123;
 enum int SSL_CTRL_SET_MAX_PROTO_VERSION = 124;
@@ -122,8 +124,14 @@ enum int SSL_CTRL_SET_TLSEXT_HOSTNAME = 55;
 enum int TLSEXT_NAMETYPE_host_name = 0;
 
 int SSL_set1_host(SSL* s, const(char)* hostname);
-long SSL_get_verify_result(const(SSL)* ssl);
-enum long X509_V_OK = 0;
+
+/// Opaque certificate verification parameter set owned by an `SSL` (borrowed, never freed).
+struct X509_VERIFY_PARAM;
+X509_VERIFY_PARAM* SSL_get0_param(SSL* s);
+/// Pins the expected peer IP address (textual IPv4/IPv6); verified against IP SANs (RFC 9110 Section 4.3.4 / RFC 6125 Section 6.4.4). Returns 1 on success.
+int X509_VERIFY_PARAM_set1_ip_asc(X509_VERIFY_PARAM* param, const(char)* ipasc);
+c_long SSL_get_verify_result(const(SSL)* ssl);
+enum c_long X509_V_OK = 0;
 
 int CRYPTO_memcmp(const(void)* a, const(void)* b, size_t len);
 void OPENSSL_cleanse(void* ptr, size_t len);
@@ -159,9 +167,41 @@ int SSL_set_quic_tls_early_data_enabled(SSL* s, int enabled);
 int SSL_CTX_set_ciphersuites(SSL_CTX* ctx, const(char)* str);
 
 /// Example:
+/// ---
+/// import core.stdc.config : c_ulong;
+///
+/// const c_ulong ver = OpenSSL_version_num();
+/// assert(ver >= 0x30500000L);
+/// ---
 // Spec: OpenSSL 3.5 API and OpenSSL_version_num manual
 @nogc unittest
 {
-    const ulong ver = OpenSSL_version_num();
+    const c_ulong ver = OpenSSL_version_num();
     assert(ver >= 0x30500000L, "OpenSSL version must be >= 3.5.0");
+}
+
+/// Example:
+/// ---
+/// import std.traits : Parameters, ReturnType;
+///
+/// static assert(is(ReturnType!SSL_ctrl == c_long));          // C `long`, not D `long`
+/// static assert(is(Parameters!SSL_ctrl[2] == c_long));
+/// static assert(is(ReturnType!SSL_get_verify_result == c_long));
+/// static assert(is(typeof(X509_V_OK) == c_long));
+/// ---
+// Spec: OpenSSL 3.5 manual SSL_ctrl(3): `long SSL_ctrl(SSL *ssl, int cmd, long larg, void *parg)`
+// - a C `long` is 32 bits on LLP64 targets, so every `long` in the bindings must be `c_long`
+// (R-35, W17). On LP64 `c_long` aliases `long`, so this holds there regardless; it pins the
+// declared types for ports.
+unittest
+{
+    import std.traits : Parameters, ReturnType;
+
+    static assert(is(ReturnType!SSL_ctrl == c_long));
+    static assert(is(Parameters!SSL_ctrl[2] == c_long));
+    static assert(is(ReturnType!SSL_CTX_ctrl == c_long));
+    static assert(is(Parameters!SSL_CTX_ctrl[2] == c_long));
+    static assert(is(ReturnType!SSL_get_verify_result == c_long));
+    static assert(is(ReturnType!OpenSSL_version_num == c_ulong));
+    static assert(is(typeof(X509_V_OK) == c_long));
 }

@@ -21,6 +21,9 @@ public struct AckRangeSet
     ulong largestReceivedTimeMicros = 0;
     uint ackElicitingSinceLastAck = 0;
     bool ackNeeded = false;
+    /// Packet numbers below this floor are dropped as already seen: raised when a range is
+    /// evicted from the full table, so an evicted packet cannot be replayed (RFC 9000 §13.2.3).
+    ulong minTrackedPn = 0;
 
     @property ulong largestReceived() const @safe pure @nogc nothrow
     {
@@ -39,11 +42,14 @@ public struct AckRangeSet
 
     /**
      * Inserts a packet number, coalescing adjacent or overlapping intervals.
-     * Returns false if the packet number was already recorded (duplicate).
+     * Returns true only if the packet number is now recorded. Returns false for a duplicate and
+     * for a packet number the full range table cannot hold (older than every tracked range):
+     * such a packet is not acknowledged, so it also neither counts towards the ack-eliciting
+     * total nor sets `ackNeeded`.
      */
     bool insert(ulong pn, bool isAckEliciting, ulong nowMicros) @safe pure @nogc nothrow
     {
-        if (pn > VARINT_MAX)
+        if (pn > VARINT_MAX || isDuplicateOrTooOld(pn))
             return false;
 
         // 1. Check if pn is already covered
@@ -121,14 +127,17 @@ public struct AckRangeSet
             else
             {
                 // Range set is full: only keep if pn > smallest in table
-                if (insertIdx < MAX_ACK_RANGES)
+                if (insertIdx >= MAX_ACK_RANGES)
+                    return false; // evicted on arrival: not recorded
+                // The evicted range (the oldest) is forgotten: raise the floor above it.
+                const ulong evictedEnd = ranges[MAX_ACK_RANGES - 1].largest + 1;
+                if (evictedEnd > minTrackedPn)
+                    minTrackedPn = evictedEnd;
+                for (size_t k = MAX_ACK_RANGES - 1; k > insertIdx; k--)
                 {
-                    for (size_t k = MAX_ACK_RANGES - 1; k > insertIdx; k--)
-                    {
-                        ranges[k] = ranges[k - 1];
-                    }
-                    ranges[insertIdx] = AckRange(pn, pn);
+                    ranges[k] = ranges[k - 1];
                 }
+                ranges[insertIdx] = AckRange(pn, pn);
             }
         }
 
@@ -199,8 +208,22 @@ public struct AckRangeSet
         return false;
     }
 
+    /**
+     * True when a packet with this number must be dropped before any of its frames are
+     * processed: it is recorded already, lies below the floor raised by evictions, or is older
+     * than every range of a full table and so could not be recorded (RFC 9000 §13.2.3: "a
+     * minimum packet number below which all packets are immediately dropped").
+     */
+    bool isDuplicateOrTooOld(ulong pn) const @safe pure @nogc nothrow
+    {
+        if (pn < minTrackedPn || contains(pn))
+            return true;
+        return numRanges == MAX_ACK_RANGES && pn + 1 < ranges[MAX_ACK_RANGES - 1].smallest;
+    }
+
     void clear() @safe pure @nogc nothrow
     {
+        minTrackedPn = 0;
         numRanges = 0;
         largestReceivedTimeMicros = 0;
         ackElicitingSinceLastAck = 0;
@@ -214,11 +237,28 @@ public struct AckRangeSet
         this.largestReceivedTimeMicros = other.largestReceivedTimeMicros;
         this.ackElicitingSinceLastAck = other.ackElicitingSinceLastAck;
         this.ackNeeded = other.ackNeeded;
+        this.minTrackedPn = other.minTrackedPn;
         other.clear();
     }
 }
 
 /// Example:
+/// ---
+/// AckRangeSet set;
+/// assert(set.insert(0, true, 10_000));
+/// assert(set.insert(2, true, 11_000));          // two ack-eliciting packets: an ACK is due
+/// foreach (pn; [5, 6, 7])
+///     assert(set.insert(pn, false, 12_000));
+/// assert(set.insert(1, false, 15_000));         // bridges [0] and [2] into [0 .. 2]
+/// assert(!set.insert(5, false, 15_500));        // duplicates are refused
+///
+/// AckFrame frame;
+/// assert(set.buildAckFrame(16_000, 3, frame));
+/// assert(frame.numRanges == 2 && frame.ranges[0].largest == 7 && frame.ranges[1].largest == 2);
+///
+/// set.onAckSent();
+/// assert(!set.ackNeeded && set.ackElicitingSinceLastAck == 0 && !set.hasPendingAck);
+/// ---
 // Spec: RFC 9000 Section 13.2 & RFC 9002 Section 5 - AckRangeSet Out-of-Order Coalescing & ACK Frame Building (Scenario T4, covers U1, U3, E4)
 @nogc unittest
 {
@@ -276,4 +316,93 @@ public struct AckRangeSet
     assert(!set.ackNeeded);
     assert(set.ackElicitingSinceLastAck == 0);
     assert(!set.hasPendingAck);
+}
+
+/// Example:
+/// ---
+/// AckRangeSet set;
+/// // MAX_ACK_RANGES single-packet ranges, two numbers apart: 2000, 1998, ...
+/// foreach (i; 0 .. MAX_ACK_RANGES)
+///     assert(set.insert(1000 + 2 * (MAX_ACK_RANGES - i), false, 10));
+/// const ulong lowest = set.ranges[MAX_ACK_RANGES - 1].smallest;
+///
+/// // A packet older than every tracked range cannot be stored, so it is not reported as recorded.
+/// assert(!set.insert(lowest - 10, true, 20));
+/// assert(!set.contains(lowest - 10) && !set.ackNeeded);
+/// ---
+// Spec: RFC 9000 Section 13.2.3 "A receiver limits the number of ACK Ranges (Section 19.3.1) it
+// remembers and sends in ACK frames, both to limit the size of ACK frames and to avoid resource
+// exhaustion." (bounded state) and RFC 9002 Section 2 - a packet number that is not tracked cannot be
+// acknowledged, so insert() must not report it as recorded nor schedule an ACK for it (R-44, W25)
+@nogc unittest
+{
+    AckRangeSet set;
+    // MAX_ACK_RANGES ranges, each a single packet two numbers apart: 2000, 1998, ...
+    foreach (i; 0 .. MAX_ACK_RANGES)
+        assert(set.insert(1000 + 2 * (MAX_ACK_RANGES - i), false, 10));
+    assert(set.numRanges == MAX_ACK_RANGES);
+    const ulong lowest = set.ranges[MAX_ACK_RANGES - 1].smallest;
+
+    // Older than every tracked range: refused, state untouched, nothing scheduled.
+    assert(!set.insert(lowest - 10, true, 20));
+    assert(!set.contains(lowest - 10));
+    assert(set.numRanges == MAX_ACK_RANGES && set.ranges[MAX_ACK_RANGES - 1].smallest == lowest);
+    assert(!set.ackNeeded && set.ackElicitingSinceLastAck == 0);
+
+    // A newer packet is stored and pushes the oldest range out.
+    assert(set.insert(lowest + 2 * MAX_ACK_RANGES + 10, true, 30));
+    assert(set.contains(lowest + 2 * MAX_ACK_RANGES + 10));
+    assert(!set.contains(lowest));
+
+    // A packet adjacent to a tracked range merges and is stored even when the table is full.
+    const ulong top = set.ranges[0].largest;
+    assert(set.insert(top + 1, false, 40) && set.contains(top + 1));
+}
+
+/// Example:
+/// ---
+/// AckRangeSet set;
+/// // Single-packet ranges two apart fill the table: 2, 4, ..., 2 * MAX_ACK_RANGES.
+/// foreach (i; 1 .. MAX_ACK_RANGES + 1)
+///     assert(set.insert(2 * i, true, 10));
+///
+/// // One more gap evicts the oldest range [2, 2] and raises the duplicate floor above it.
+/// assert(set.insert(2 * MAX_ACK_RANGES + 2, true, 20));
+/// assert(!set.contains(2) && set.minTrackedPn == 3);
+/// assert(set.isDuplicateOrTooOld(2));   // the evicted packet is dropped, not reprocessed
+/// assert(!set.insert(2, true, 30));     // and is not recorded again
+/// ---
+// Spec: RFC 9000 Section 13.2.3 "The data required for detecting duplicates can be limited by
+// maintaining a minimum packet number below which all packets are immediately dropped." and
+// Section 13.2 "A receiver MUST discard a newly unprotected packet unless it is certain that it
+// has not processed another packet with the same packet number from the same packet number
+// space." - a range evicted from the full table must raise the floor (W27)
+@nogc unittest
+{
+    AckRangeSet set;
+    // Single-packet ranges two apart: 2, 4, ..., 2 * MAX_ACK_RANGES.
+    foreach (i; 1 .. MAX_ACK_RANGES + 1)
+        assert(set.insert(2 * i, true, 10));
+    assert(set.numRanges == MAX_ACK_RANGES && set.minTrackedPn == 0);
+    assert(!set.isDuplicateOrTooOld(1), "an unseen gap packet is not a duplicate while tracked");
+
+    // One more gap pushes the oldest range [2,2] out of the table.
+    const ulong newest = 2 * MAX_ACK_RANGES + 2;
+    assert(set.insert(newest, true, 20));
+    assert(set.numRanges == MAX_ACK_RANGES);
+    assert(!set.contains(2), "range [2,2] was evicted");
+    assert(set.minTrackedPn == 3, "floor = evicted largest + 1");
+
+    // Replay of the evicted packet, and anything older, is dropped.
+    assert(set.isDuplicateOrTooOld(2));
+    assert(set.isDuplicateOrTooOld(1));
+    assert(!set.insert(2, true, 30));
+    assert(!set.insert(1, true, 30));
+    // A packet above the floor that was never seen is still new.
+    assert(!set.isDuplicateOrTooOld(5));
+    assert(set.insert(5, false, 40));
+
+    // clear() forgets the floor with the ranges (a discarded packet number space).
+    set.clear();
+    assert(set.minTrackedPn == 0 && !set.isDuplicateOrTooOld(2));
 }

@@ -48,6 +48,16 @@ public enum FrameType : ulong
     handshakeDone = 0x1e
 }
 
+/**
+ * Whether a frame of this type makes its packet ack-eliciting: every frame except ACK (both
+ * forms), PADDING and CONNECTION_CLOSE (RFC 9002 Section 2).
+ */
+bool isAckElicitingFrame(FrameType t) @safe pure @nogc nothrow
+{
+    return t != FrameType.ack && t != FrameType.ackEcn && t != FrameType.padding
+        && t != FrameType.connectionCloseQuic && t != FrameType.connectionCloseApp;
+}
+
 public struct PaddingFrame
 {
     size_t length;
@@ -70,6 +80,9 @@ public struct AckFrame
     ulong ackDelay;
     AckRange[MAX_ACK_RANGES] ranges;
     size_t numRanges;
+    /// Set by the decoder when the frame carried more than `MAX_ACK_RANGES` ranges;
+    /// only the first (highest) `MAX_ACK_RANGES` are retained (RFC 9000 Section 19.3).
+    bool truncated;
     bool hasEcn;
     ulong ect0;
     ulong ect1;
@@ -475,8 +488,7 @@ WireError encodeFrame(const ref Frame frame, ubyte[] outBuf, out size_t bytesWri
     case FrameType.maxStreamsUni:
         if (frame.maxStreams.maximumStreams > (1UL << 60))
             return WireError.invalidFrame;
-        const ulong msType = (frame.type == FrameType.maxStreamsUni
-                || !frame.maxStreams.isBidirectional) ? 0x13 : 0x12;
+        const ulong msType = (frame.type == FrameType.maxStreamsUni) ? 0x13 : 0x12;
         wErr = writer.writeVarInt(msType);
         if (wErr != WireError.none)
             return wErr;
@@ -513,8 +525,7 @@ WireError encodeFrame(const ref Frame frame, ubyte[] outBuf, out size_t bytesWri
     case FrameType.streamsBlockedUni:
         if (frame.streamsBlocked.streamLimit > (1UL << 60))
             return WireError.invalidFrame;
-        const ulong sbType = (frame.type == FrameType.streamsBlockedUni
-                || !frame.streamsBlocked.isBidirectional) ? 0x17 : 0x16;
+        const ulong sbType = (frame.type == FrameType.streamsBlockedUni) ? 0x17 : 0x16;
         wErr = writer.writeVarInt(sbType);
         if (wErr != WireError.none)
             return wErr;
@@ -739,10 +750,13 @@ WireError decodeFrame(const(ubyte)[] inBuf, out Frame frame, out size_t bytesRea
         if (wErr != WireError.none)
             return wErr;
 
-        if (rangeCount + 1 > MAX_ACK_RANGES)
+        // RFC 9000 Section 19.3: the range count is bounded only by the frame length.
+        // Each additional range needs at least two bytes, so a count the remaining input
+        // cannot hold is truncated input; it also bounds the loop below.
+        if (rangeCount > reader.remaining / 2)
         {
             err = TransportErrorCode.frameEncodingError;
-            return WireError.invalidFrame;
+            return WireError.unexpectedEof;
         }
 
         ulong firstRange = 0;
@@ -789,6 +803,10 @@ WireError decodeFrame(const(ubyte)[] inBuf, out Frame frame, out size_t bytesRea
             if (frame.ack.numRanges < MAX_ACK_RANGES)
             {
                 frame.ack.ranges[frame.ack.numRanges++] = AckRange(nextSmallest, nextLargest);
+            }
+            else
+            {
+                frame.ack.truncated = true;
             }
             curSmallest = nextSmallest;
         }
@@ -1105,6 +1123,16 @@ public:
 }
 
 /// Example:
+/// ---
+/// ubyte[64] buf;
+/// size_t written, readLen;
+/// TransportErrorCode te;
+/// Frame ping, outFrame;
+/// ping.type = FrameType.ping;
+/// assert(encodeFrame(ping, buf[], written) == WireError.none);
+/// assert(decodeFrame(buf[0 .. written], outFrame, readLen, te) == WireError.none);
+/// assert(outFrame.type == FrameType.ping && readLen == written);
+/// ---
 // Spec: RFC 9000 Section 19 - Frame Types Basic Round-Trip
 @nogc unittest
 {

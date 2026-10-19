@@ -89,6 +89,8 @@ public:
     {
         cleanup();
 
+        if (!isSupportedSuite(suite))
+            return false;
         const size_t reqHpLen = hpKeyLength(suite);
         if (hpKey.length < reqHpLen)
             return false;
@@ -299,6 +301,19 @@ public:
 }
 
 /// Example:
+/// ---
+/// // RFC 9001 Appendix A.2: the client Initial header protection key and sample
+/// const ubyte[16] hpKey = [0x9f, 0x50, 0x44, 0x9e, 0x04, 0xa0, 0xe8, 0x10,
+///         0x28, 0x3a, 0x1e, 0x99, 0x33, 0xad, 0xed, 0xd2];
+/// const ubyte[16] sample = [0xd1, 0xb1, 0xc9, 0x8d, 0xd7, 0x68, 0x9f, 0xb8,
+///         0xec, 0x11, 0xd2, 0x42, 0xb1, 0x23, 0xdc, 0x9b];
+/// HeaderProtectionKey hp;
+/// hp.init(CipherSuite.TLS_AES_128_GCM_SHA256, hpKey);
+/// ubyte[5] mask;
+/// assert(hp.computeMask(sample, mask) == QuicCryptoError.none);
+/// const ubyte[5] expectedMask = [0x43, 0x7b, 0x9a, 0xec, 0x36];
+/// assert(mask == expectedMask);
+/// ---
 // Spec: RFC 9001 Appendix A.2 - Client Initial Header Protection (covers E2, Scenario T2)
 @nogc unittest
 {
@@ -323,6 +338,20 @@ public:
 }
 
 /// Example:
+/// ---
+/// // RFC 9001 Appendix A.5: the ChaCha20 header protection key and sample
+/// const ubyte[32] hpKey = [0x25, 0xa2, 0x82, 0xb9, 0xe8, 0x2f, 0x06, 0xf2,
+///         0x1f, 0x48, 0x89, 0x17, 0xa4, 0xfc, 0x8f, 0x1b, 0x73, 0x57, 0x36, 0x85,
+///         0x60, 0x85, 0x97, 0xd0, 0xef, 0xcb, 0x07, 0x6b, 0x0a, 0xb7, 0xa7, 0xa4];
+/// const ubyte[16] sample = [0x5e, 0x5c, 0xd5, 0x5c, 0x41, 0xf6, 0x90, 0x80,
+///         0x57, 0x5d, 0x79, 0x99, 0xc2, 0x5a, 0x5b, 0xfb];
+/// HeaderProtectionKey hp;
+/// hp.init(CipherSuite.TLS_CHACHA20_POLY1305_SHA256, hpKey);
+/// ubyte[5] mask;
+/// assert(hp.computeMask(sample, mask) == QuicCryptoError.none);
+/// const ubyte[5] expectedMask = [0xae, 0xfe, 0xfe, 0x7d, 0x03];
+/// assert(mask == expectedMask);
+/// ---
 // Spec: RFC 9001 Appendix A.5 - ChaCha20 Header Protection (covers E3, Scenario T3)
 @nogc unittest
 {
@@ -348,6 +377,11 @@ public:
 }
 
 /// Example:
+/// ---
+/// assert(decodePacketNumber(0, 1, 2) == 1);
+/// assert(decodePacketNumber(0, 2, 4) == 2);
+/// assert(decodePacketNumber(654360500, 49140, 3) == 654360564);
+/// ---
 // Spec: RFC 9000 Appendix A.3 - Packet Number Encoding and Decoding (covers E2)
 @nogc unittest
 {

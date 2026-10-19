@@ -510,14 +510,15 @@ WireError decodeTransportParams(const(ubyte)[] buf, Side peerSide,
         case TransportParameterId.preferredAddress:
             // RFC 9000 Section 18.2:
             // IPv4 (4) + IPv4 port (2) + IPv6 (16) + IPv6 port (2) + cid_len (1) + cid (cid_len) + stateless_reset_token (16)
-            // Minimum length: 4 + 2 + 16 + 2 + 1 + 0 + 16 = 41 bytes.
-            if (valSlice.length < 41)
+            // Minimum length: 4 + 2 + 16 + 2 + 1 + 1 + 16 = 42 bytes (the CID is never empty).
+            if (valSlice.length < 42)
             {
                 err = TransportErrorCode.transportParameterError;
                 return WireError.transportParameterError;
             }
             const ubyte cidLen = valSlice[24];
-            if (cidLen > MAX_CID_LEN || valSlice.length != 41 + cidLen)
+            // A zero-length connection ID is a violation too (Section 18.2, R-21).
+            if (cidLen == 0 || cidLen > MAX_CID_LEN || valSlice.length != 41 + cidLen)
             {
                 err = TransportErrorCode.transportParameterError;
                 return WireError.transportParameterError;
@@ -534,6 +535,24 @@ WireError decodeTransportParams(const(ubyte)[] buf, Side peerSide,
 }
 
 /// Example:
+/// ---
+/// TransportParameters inParams;
+/// inParams.maxIdleTimeout = 30_000;
+/// inParams.activeConnectionIdLimit = 4;
+/// const ubyte[8] scidBytes = [1, 2, 3, 4, 5, 6, 7, 8];
+/// inParams.hasInitialSourceConnectionId = true;
+/// inParams.initialSourceConnectionId = ConnectionId(scidBytes[]);
+///
+/// ubyte[256] wireBuf;
+/// size_t totalWireLen;
+/// assert(encodeTransportParams(inParams, Side.server, wireBuf[], totalWireLen) == WireError.none);
+///
+/// TransportParameters outParams;
+/// TransportErrorCode te;
+/// assert(decodeTransportParams(wireBuf[0 .. totalWireLen], Side.client, outParams, te) == WireError.none);
+/// assert(outParams.activeConnectionIdLimit == 4);
+/// assert(outParams.initialSourceConnectionId == ConnectionId(scidBytes[]));
+/// ---
 // Spec: RFC 9000 Section 18 - Transport Parameters TLV Round-Trip & GREASE Skipping (covers U1, U2, U3, E4, Scenario T4)
 @nogc unittest
 {
@@ -591,6 +610,21 @@ WireError decodeTransportParams(const(ubyte)[] buf, Side peerSide,
 }
 
 /// Example:
+/// ---
+/// ubyte[256] buf;
+/// TransportParameters tp;
+/// TransportErrorCode te;
+///
+/// WireWriter writer = WireWriter(buf[]);
+/// writer.writeVarInt(0x01);   // max_idle_timeout
+/// writer.writeVarInt(1);
+/// writer.writeU8(10);
+/// writer.writeVarInt(0x01);   // the same parameter again
+/// writer.writeVarInt(1);   // length 1
+/// writer.writeU8(20);
+/// assert(decodeTransportParams(writer.writtenSlice, Side.server, tp, te) == WireError.transportParameterError);
+/// assert(te == TransportErrorCode.transportParameterError);
+/// ---
 // Spec: RFC 9000 Section 18.2 - Bounds Validation, Duplicate IDs & Client Restrictions (covers W3, G4, Scenario W3)
 @nogc unittest
 {
@@ -725,12 +759,25 @@ WireError decodeTransportParams(const(ubyte)[] buf, Side peerSide,
             te) == WireError.transportParameterError);
     assert(te == TransportErrorCode.transportParameterError);
 
-    // Valid preferredAddress with 0-len CID: 4 + 2 + 16 + 2 + 1 + 0 + 16 = 41 bytes
+    // Spec: RFC 9000 Section 18.2 - "a server MUST NOT include a zero-length connection ID in
+    // this transport parameter. A client MUST treat a violation of these requirements as a
+    // connection error of type TRANSPORT_PARAMETER_ERROR" (R-21, W8)
     writer = WireWriter(buf[]);
     writer.writeVarInt(TransportParameterId.preferredAddress);
     writer.writeVarInt(41);
-    ubyte[41] validPref = 0;
-    validPref[24] = 0; // cidLen = 0
+    ubyte[41] zeroCidPref = 0;
+    zeroCidPref[24] = 0; // cidLen = 0
+    writer.writeBytes(zeroCidPref[]);
+    assert(decodeTransportParams(writer.writtenSlice, Side.server, tp,
+            te) == WireError.transportParameterError);
+    assert(te == TransportErrorCode.transportParameterError);
+
+    // Valid preferredAddress with a 1-byte CID: 4 + 2 + 16 + 2 + 1 + 1 + 16 = 42 bytes
+    writer = WireWriter(buf[]);
+    writer.writeVarInt(TransportParameterId.preferredAddress);
+    writer.writeVarInt(42);
+    ubyte[42] validPref = 0;
+    validPref[24] = 1; // cidLen = 1
     writer.writeBytes(validPref[]);
     assert(decodeTransportParams(writer.writtenSlice, Side.server, tp, te) == WireError.none);
 

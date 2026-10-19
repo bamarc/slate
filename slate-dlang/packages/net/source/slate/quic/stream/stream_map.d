@@ -45,6 +45,13 @@ public struct QuicStream
     bool stopSendingSent = false;
     bool resetQueued = false;
     bool stopSendingQueued = false;
+    /// High-water mark of the stream bytes already returned to connection flow control (by
+    /// reads, RESET_STREAM or `abandonRecv`). Every path credits only the bytes above it, so no
+    /// byte is credited twice (RFC 9000 Section 4.1).
+    ulong connCreditedOffset = 0;
+    /// The application gave up this receive side (`StreamMap.abandonRecv`): later bytes are
+    /// counted and credited as they arrive instead of being buffered.
+    bool recvAbandoned = false;
 
     this(StreamId id, ulong initialLocalWindow, ulong initialRemoteWindow) @safe @nogc nothrow
     {
@@ -84,6 +91,8 @@ public struct QuicStream
         this.stopSendingSent = other.stopSendingSent;
         this.resetQueued = other.resetQueued;
         this.stopSendingQueued = other.stopSendingQueued;
+        this.connCreditedOffset = other.connCreditedOffset;
+        this.recvAbandoned = other.recvAbandoned;
     }
 }
 
@@ -230,6 +239,21 @@ public struct StreamMap
     }
 
     /**
+     * Whether `sid` names a stream that was opened earlier and has since been reaped. Frames
+     * for such streams are stale retransmissions and are ignored (RFC 9000 Section 3.2,
+     * Section 13.3; plan D6). Only meaningful when `getStream(sid)` is null.
+     */
+    bool isReapedStream(StreamId sid) const @safe pure @nogc nothrow
+    {
+        ulong next;
+        if (sid.initiator == localSide)
+            next = sid.isBidirectional ? nextLocalBidiIndex : nextLocalUniIndex;
+        else
+            next = sid.isBidirectional ? nextExpectedPeerBidiIndex : nextExpectedPeerUniIndex;
+        return sid.streamIndex < next;
+    }
+
+    /**
      * Applies negotiated peer transport parameters to connection and stream flow controllers.
      */
     void applyPeerTransportParams(ref const TransportParameters peerParams) @trusted @nogc nothrow
@@ -268,6 +292,68 @@ public struct StreamMap
                 }
             }
         }
+    }
+
+    /**
+     * Accounts for `count` bytes the application consumed from `s` (stream and connection
+     * credit). Bytes of a stream the peer already reset or the application abandoned were
+     * credited to the connection then, so only the stream-level counter advances for them.
+     */
+    void onApplicationRead(ref QuicStream s, size_t count) @safe pure @nogc nothrow
+    {
+        if (count == 0)
+            return;
+        s.flowCtrl.onBytesRead(count);
+        creditConnection(s, s.flowCtrl.readOffset);
+    }
+
+    /**
+     * Returns the stream bytes below `target` that were not credited yet to connection flow
+     * control. `target` never exceeds what the stream received, so the connection's read offset
+     * cannot overtake the bytes it has received (a peer could otherwise inflate MAX_DATA).
+     */
+    private void creditConnection(ref QuicStream s, ulong target) @safe pure @nogc nothrow
+    {
+        if (target > s.flowCtrl.highestReceived)
+            target = s.flowCtrl.highestReceived;
+        if (target <= s.connCreditedOffset)
+            return;
+        connFlow.onBytesRead(cast(size_t)(target - s.connCreditedOffset));
+        s.connCreditedOffset = target;
+        assert(connFlow.readOffset <= connFlow.highestReceived,
+                "connection credit exceeds received bytes");
+    }
+
+    /**
+     * Gives up the receive side of `sid` (the application discards the stream, e.g. after a local
+     * reset): buffered bytes are freed and every byte received so far, and every byte that still
+     * arrives, is returned to stream and connection flow control exactly once (RFC 9000
+     * Section 4.1), so the connection window cannot leak and the stream can be reaped once its
+     * final size is known. Returns false when the stream is unknown or has no receive side.
+     */
+    bool abandonRecv(StreamId sid) @trusted @nogc nothrow
+    {
+        QuicStream* s = getStream(sid);
+        if (s is null || !sid.canReceive(localSide))
+            return false;
+        if (!s.recvAbandoned)
+        {
+            s.recvAbandoned = true;
+            s.recvBuf.abandon();
+            creditAbandoned(*s);
+        }
+        reapClosedStreams();
+        return true;
+    }
+
+    /// Returns the received-but-unread bytes of an abandoned stream to flow control, once.
+    private void creditAbandoned(ref QuicStream s) @safe pure @nogc nothrow
+    {
+        const ulong pending = s.flowCtrl.highestReceived > s.flowCtrl.readOffset
+            ? s.flowCtrl.highestReceived - s.flowCtrl.readOffset : 0;
+        if (pending > 0)
+            s.flowCtrl.onBytesRead(cast(size_t) pending);
+        creditConnection(s, s.flowCtrl.highestReceived);
     }
 
     /**
@@ -475,9 +561,11 @@ public struct StreamMap
         QuicStream* stream = getStream(sid);
         if (stream is null)
         {
-            // Must be peer-initiated
+            // Locally initiated: a reaped stream gets a stale retransmission (ignored); a
+            // stream that was never opened is a STREAM_STATE_ERROR (RFC 9000 Section 19.8).
             if (sid.initiator != peerSide)
-                return TransportErrorCode.streamStateError;
+                return isReapedStream(sid) ? TransportErrorCode.noError
+                    : TransportErrorCode.streamStateError;
 
             // Stream limit check
             const ulong maxAllowed = sid.isBidirectional ? localMaxStreamsBidi : localMaxStreamsUni;
@@ -542,6 +630,9 @@ public struct StreamMap
         if (connDelta > 0)
             connFlow.commitReceive(connFlow.highestReceived + connDelta);
 
+        if (stream.recvAbandoned)
+            creditAbandoned(*stream);
+
         // Update stream receive state
         if (stream.recvState == RecvStreamState.recv)
         {
@@ -556,6 +647,13 @@ public struct StreamMap
      * Processes an incoming RESET_STREAM frame from the peer.
      */
     TransportErrorCode onResetStreamFrame(ref const ResetStreamFrame frame) @trusted @nogc nothrow
+    {
+        bool ignored;
+        return onResetStreamFrame(frame, ignored);
+    }
+
+    /// ditto; `ignored` is set when the frame referenced an already reaped stream.
+    TransportErrorCode onResetStreamFrame(ref const ResetStreamFrame frame, out bool ignored) @trusted @nogc nothrow
     {
         if (frame.streamId > VARINT_MAX)
             return TransportErrorCode.frameEncodingError;
@@ -572,7 +670,12 @@ public struct StreamMap
         if (stream is null)
         {
             if (sid.initiator != peerSide)
-                return TransportErrorCode.streamStateError;
+            {
+                if (!isReapedStream(sid))
+                    return TransportErrorCode.streamStateError;
+                ignored = true;
+                return TransportErrorCode.noError;
+            }
 
             const ulong maxAllowed = sid.isBidirectional ? localMaxStreamsBidi : localMaxStreamsUni;
             const ulong idx = sid.streamIndex;
@@ -584,6 +687,7 @@ public struct StreamMap
             if (idx < nextExpected)
             {
                 // Stream was already closed/cleaned up
+                ignored = true;
                 return TransportErrorCode.noError;
             }
 
@@ -635,6 +739,13 @@ public struct StreamMap
         if (connDelta > 0)
             connFlow.commitReceive(connFlow.highestReceived + connDelta);
 
+        // RFC 9000 Section 4.1: data the application will never read still consumed connection
+        // credit; return `final size - bytes read` once, or the connection window leaks (R-13).
+        creditConnection(*stream, frame.finalSize);
+
+        if (stream.recvAbandoned)
+            creditAbandoned(*stream);
+
         stream.resetReceived = true;
         stream.applicationErrorCode = frame.applicationErrorCode;
         stream.recvState = RecvStreamState.resetRecvd;
@@ -646,6 +757,13 @@ public struct StreamMap
      * Processes an incoming STOP_SENDING frame from the peer.
      */
     TransportErrorCode onStopSendingFrame(ref const StopSendingFrame frame) @safe @nogc nothrow
+    {
+        bool ignored;
+        return onStopSendingFrame(frame, ignored);
+    }
+
+    /// ditto; `ignored` is set when the frame referenced an already reaped stream.
+    TransportErrorCode onStopSendingFrame(ref const StopSendingFrame frame, out bool ignored) @safe @nogc nothrow
     {
         if (frame.streamId > VARINT_MAX)
             return TransportErrorCode.frameEncodingError;
@@ -665,10 +783,16 @@ public struct StreamMap
                 const ulong nextLocal = sid.isBidirectional ? nextLocalBidiIndex : nextLocalUniIndex;
                 if (sid.streamIndex >= nextLocal)
                     return TransportErrorCode.streamStateError;
+                ignored = true;
                 return TransportErrorCode.noError;
             }
             else
             {
+                if (isReapedStream(sid))
+                {
+                    ignored = true;
+                    return TransportErrorCode.noError;
+                }
                 if (sid.streamIndex >= localMaxStreamsBidi)
                     return TransportErrorCode.streamLimitError;
 
@@ -731,6 +855,8 @@ public struct StreamMap
             }
             else
             {
+                if (isReapedStream(sid))
+                    return TransportErrorCode.noError;
                 if (sid.streamIndex >= localMaxStreamsBidi)
                     return TransportErrorCode.streamLimitError;
 
@@ -808,7 +934,10 @@ public struct StreamMap
                 const size_t connCredit = connFlow.sendCredit();
                 const size_t streamCredit = stream.flowCtrl.sendCredit();
                 const size_t credit = connCredit < streamCredit ? connCredit : streamCredit;
-                if (credit == 0 && !stream.sendBuf.finQueued)
+                // With no credit only a bare FIN (no unsent bytes) may still be sent; otherwise
+                // a blocked stream would emit empty STREAM frames forever (RFC 9000 Section 4.1).
+                if (credit == 0 && (!stream.sendBuf.finQueued
+                        || stream.sendBuf.unsentOffset < stream.sendBuf.writeOffset))
                     continue;
                 if (credit < availableLimit)
                     availableLimit = credit;
@@ -851,8 +980,10 @@ public struct StreamMap
         if (s.resetQueued || s.stopSendingQueued)
             return false;
 
-        const bool sendDone = (s.sendState == SendStreamState.resetRecvd || s.sendState == SendStreamState.resetSent
-                || s.sendState == SendStreamState.dataRecvd || s.sendBuf.isAllAcked());
+        // RFC 9000 Section 3.1: RESET_STREAM is retransmitted until acknowledged, so a stream in
+        // `resetSent` must stay in the table (R-14); only `resetRecvd` (acked) ends it.
+        const bool sendDone = (s.sendState == SendStreamState.resetRecvd || s.sendState == SendStreamState.dataRecvd
+                || (s.sendState != SendStreamState.resetSent && s.sendBuf.isAllAcked()));
 
         const bool recvDone = (s.recvState == RecvStreamState.resetRecvd || s.recvState == RecvStreamState.resetRead
                 || s.recvState == RecvStreamState.dataRead || (s.recvBuf.hasFinalSize
@@ -953,6 +1084,23 @@ public struct StreamMap
 }
 
 /// Example:
+/// ---
+/// StreamMap sm = StreamMap(Side.server, 100, 60, 60, 60, 2, 1);   // two peer bidi streams, one uni
+///
+/// // A STREAM frame on peer bidi stream 4 (index 1) implicitly opens stream 0 as well.
+/// ubyte[10] payload;
+/// StreamFrame sf4;
+/// sf4.streamId = 4;
+/// sf4.data = payload[];
+/// assert(sm.onStreamFrame(sf4) == TransportErrorCode.noError);
+/// assert(sm.streamCount == 2);
+///
+/// // Stream 8 (index 2) is past the advertised limit.
+/// StreamFrame sf8;
+/// sf8.streamId = 8;
+/// sf8.data = payload[];
+/// assert(sm.onStreamFrame(sf8) == TransportErrorCode.streamLimitError);
+/// ---
 // Spec: RFC 9000 Section 2.1, Section 3, Section 4 - StreamMap Concurrency, Implicit Opening, Directionality & Flow Control (Scenario T3, covers U1, U2, U3, E3, W1, W2, W3, F2, F3)
 @nogc unittest
 {
@@ -1033,6 +1181,16 @@ public struct StreamMap
 }
 
 /// Example:
+/// ---
+/// StreamMap sm1 = StreamMap(Side.client, 1000, 500, 500, 500, 10, 10, 10, 10);
+/// StreamId sid;
+/// assert(sm1.openLocalStream(StreamDirection.bidirectional, sid) == TransportErrorCode.noError);
+///
+/// StreamMap sm2;
+/// sm2.moveFrom(sm1);
+/// assert(sm1.streamCount == 0);                 // the source no longer owns the streams
+/// assert(sm2.streamCount == 1 && sm2.getStream(sid) !is null);
+/// ---
 // Spec: StreamMap Move Semantics and Memory Management (covers U2, G4)
 @nogc unittest
 {
@@ -1049,6 +1207,25 @@ public struct StreamMap
 }
 
 /// Example:
+/// ---
+/// StreamMap sm = StreamMap(Side.server, 100, 60, 60, 60, 4, 4);
+/// ubyte[30] bytes;
+/// StreamFrame sf;
+/// sf.streamId = 0;
+/// sf.data = bytes[];
+/// assert(sm.onStreamFrame(sf) == TransportErrorCode.noError);   // 30 bytes counted
+///
+/// ResetStreamFrame rst;
+/// rst.streamId = 0;
+/// rst.applicationErrorCode = 42;
+/// rst.finalSize = 50;
+/// assert(sm.onResetStreamFrame(rst) == TransportErrorCode.noError);
+/// assert(sm.onResetStreamFrame(rst) == TransportErrorCode.noError);   // idempotent, counted once
+/// assert(sm.connFlow.highestReceived == 50);
+///
+/// rst.finalSize = 51;   // a different final size is a connection error
+/// assert(sm.onResetStreamFrame(rst) == TransportErrorCode.finalSizeError);
+/// ---
 // Spec: RFC 9000 Section 3.2, Section 4.5 - Idempotent RESET_STREAM and Reordered STREAM Flow Control (covers HIGH-03)
 @nogc unittest
 {
@@ -1094,6 +1271,21 @@ public struct StreamMap
 }
 
 /// Example:
+/// ---
+/// StreamMap sm = StreamMap(Side.server, 1000, 200, 200, 200, 4, 4);
+/// MaxStreamDataFrame msd;
+/// msd.streamId = 4;                      // peer bidi stream that is not open yet: opened implicitly
+/// msd.maximumStreamData = 500;
+/// assert(sm.onMaxStreamDataFrame(msd) == TransportErrorCode.noError);
+/// assert(sm.streamCount == 2 && sm.getStream(StreamId(4)).flowCtrl.remoteMaxData == 500);
+///
+/// msd.streamId = VARINT_MAX + 1;         // not a valid stream ID
+/// assert(sm.onMaxStreamDataFrame(msd) == TransportErrorCode.frameEncodingError);
+/// msd.streamId = 3;                      // server uni stream: the peer cannot send on it
+/// assert(sm.onMaxStreamDataFrame(msd) == TransportErrorCode.streamStateError);
+/// msd.streamId = 9;                      // server bidi stream the server never opened
+/// assert(sm.onMaxStreamDataFrame(msd) == TransportErrorCode.streamStateError);   // an unopened peer-initiated stream is refused
+/// ---
 // Spec: RFC 9000 Section 3.2, Section 19.10 - Unopened Stream MAX_STREAM_DATA and Directionality (covers Defect 2, HIGH-05)
 @nogc unittest
 {
@@ -1132,6 +1324,24 @@ public struct StreamMap
 }
 
 /// Example:
+/// ---
+/// StreamMap sm = StreamMap(Side.client, 50, 50, 50, 50, 4, 4, 4, 4);
+/// sm.connFlow.updateRemoteMaxData(20);     // 20 bytes of connection credit
+/// StreamId sid, polledId;
+/// assert(sm.openLocalStream(StreamDirection.bidirectional, sid) == TransportErrorCode.noError);
+/// QuicStream* s = sm.getStream(sid);
+/// ubyte[20] data;
+/// assert(s.sendBuf.write(data[], false));
+/// TransmitChunk chunk;
+/// assert(sm.pollWritable(polledId, 100, chunk) && chunk.data.length == 20);   // all credit used
+///
+/// // A retransmission costs no credit; a bare FIN needs none either.
+/// s.sendBuf.onRangeLost(0, 10, false);
+/// assert(sm.pollWritable(polledId, 100, chunk) && chunk.offset == 0 && chunk.data.length == 10);
+/// assert(s.sendBuf.write(null, true));
+/// assert(sm.pollWritable(polledId, 100, chunk) && chunk.fin && chunk.data.length == 0);
+/// assert(s.sendState == SendStreamState.dataSent);
+/// ---
 // Spec: RFC 9000 Section 4.1, Section 3.1 - Retransmission Zero Flow-Control Charge and 0-byte FIN (covers Defect 3)
 @nogc unittest
 {
@@ -1176,6 +1386,19 @@ public struct StreamMap
 }
 
 /// Example:
+/// ---
+/// StreamMap sm = StreamMap(Side.server, 100, 50, 50, 50, 4, 4);
+/// ubyte[60] big;
+/// StreamFrame sf;
+/// sf.streamId = 4;
+/// sf.data = big[];                         // 60 bytes against a 50-byte stream limit
+/// assert(sm.onStreamFrame(sf) == TransportErrorCode.flowControlError);
+/// assert(sm.streamCount == 0);             // rejected atomically: no stream was opened
+///
+/// sf.offset = VARINT_MAX;                  // offset + length overflows the 2^62 - 1 limit
+/// assert(sm.onStreamFrame(sf) == TransportErrorCode.finalSizeError);
+/// assert(sm.streamCount == 0);
+/// ---
 // Spec: RFC 9000 Section 2.1, Section 4.5 - Atomic Frame Pre-validation (covers HIGH-05)
 @nogc unittest
 {
@@ -1205,6 +1428,19 @@ public struct StreamMap
 }
 
 /// Example:
+/// ---
+/// StreamMap sm = StreamMap(Side.client, 50, 50, 50, 50, 4, 4, 4, 4);
+/// StreamId sid;
+/// assert(sm.openLocalStream(StreamDirection.bidirectional, sid) == TransportErrorCode.noError);
+/// QuicStream* s = sm.getStream(sid);
+/// assert(!sm.hasPendingWritable);
+///
+/// s.resetQueued = true;                    // RESET_STREAM waiting to be sent
+/// assert(sm.hasPendingWritable);
+/// s.resetQueued = false;
+/// s.stopSendingQueued = true;              // STOP_SENDING waiting to be sent
+/// assert(sm.hasPendingWritable);   // ... and a queued STOP_SENDING too
+/// ---
 // Spec: RFC 9000 Section 3.2, Section 3.3 - Immediate Control Frame Transmission via hasPendingWritable (covers Scenario T3, U1, U3)
 @nogc unittest
 {
@@ -1228,6 +1464,26 @@ public struct StreamMap
 }
 
 /// Example:
+/// ---
+/// StreamMap sm = StreamMap(Side.client, 100_000, 10_000, 10_000, 10_000, 2000, 2000, 2000, 2000);
+/// sm.connFlow.updateRemoteMaxData(100_000);
+/// StreamId sid, polledSid;
+/// assert(sm.openLocalStream(StreamDirection.bidirectional, sid) == TransportErrorCode.noError);
+/// QuicStream* s = sm.getStream(sid);
+/// ubyte[100] data;
+/// assert(s.sendBuf.write(data[], false));
+/// TransmitChunk chunk;
+/// assert(sm.pollWritable(polledSid, 50, chunk) && chunk.data.length == 50);
+///
+/// // The peer asks to stop: a RESET_STREAM with the highest sent offset as final size is queued.
+/// StopSendingFrame ssf;
+/// ssf.streamId = sid.id;
+/// ssf.applicationErrorCode = 0xbeef;
+/// assert(sm.onStopSendingFrame(ssf) == TransportErrorCode.noError);
+/// Frame ctrl;
+/// assert(sm.pollControlFrame(ctrl) && ctrl.type == FrameType.resetStream);
+/// assert(ctrl.resetStream.applicationErrorCode == 0xbeef && ctrl.resetStream.finalSize == 50);
+/// ---
 // Spec: RFC 9000 Section 3.5, Section 4.5 - STOP_SENDING Response and Lifetime Sequential Stream Reaping (covers F-08, F-09, F-17)
 @nogc unittest
 {
@@ -1276,4 +1532,330 @@ public struct StreamMap
     }
     // Stream table should have successfully accommodated 1100 streams through closed stream reaping!
     assert(smSeq.streamCount <= MAX_CONCURRENT_STREAMS_CEILING);
+}
+
+/// Example:
+/// ---
+/// StreamMap sm = StreamMap(Side.client, 100_000, 10_000, 10_000, 10_000, 4, 4, 4, 4);
+/// StreamId sid;
+/// assert(sm.openLocalStream(StreamDirection.unidirectional, sid) == TransportErrorCode.noError);
+/// StreamFrame sf;
+/// sf.streamId = sid.id;                    // the peer must not send on our send-only stream
+/// assert(sm.onStreamFrame(sf) == TransportErrorCode.streamStateError);
+///
+/// // Everything sent and acknowledged: the stream is reaped, and the answer stays the same.
+/// sm.getStream(sid).sendState = SendStreamState.dataRecvd;
+/// assert(sm.reapClosedStreams() == 1 && sm.isReapedStream(sid));
+/// assert(sm.onStreamFrame(sf) == TransportErrorCode.streamStateError);   // reaped: the same answer
+///
+/// StopSendingFrame ssf;                    // STOP_SENDING is legal for a send-only stream
+/// ssf.streamId = sid.id;
+/// assert(sm.onStopSendingFrame(ssf) == TransportErrorCode.noError);   // a stale one is ignored
+/// ---
+// Spec: RFC 9000 Section 19.8 / Section 19.4 - a peer that sends STREAM or RESET_STREAM on a
+// stream the endpoint opened as send-only commits STREAM_STATE_ERROR; the direction check
+// precedes the reaped-stream shortcut (Round 2 item 7, verified: the check is already first)
+@nogc unittest
+{
+    StreamMap sm = StreamMap(Side.client, 100_000, 10_000, 10_000, 10_000, 4, 4, 4, 4);
+    StreamId sid;
+    assert(sm.openLocalStream(StreamDirection.unidirectional, sid) == TransportErrorCode.noError);
+
+    StreamFrame sf;
+    sf.streamId = sid.id;
+    ubyte[4] payload = [1, 2, 3, 4];
+    sf.data = payload[];
+    ResetStreamFrame rf;
+    rf.streamId = sid.id;
+    rf.finalSize = 0;
+    StopSendingFrame ssf;
+    ssf.streamId = sid.id;
+
+    // Live stream: invalid direction.
+    assert(sm.onStreamFrame(sf) == TransportErrorCode.streamStateError);
+    assert(sm.onResetStreamFrame(rf) == TransportErrorCode.streamStateError);
+
+    // Reap it (everything sent and acknowledged), then ask again.
+    QuicStream* s = sm.getStream(sid);
+    assert(s !is null);
+    s.sendState = SendStreamState.dataRecvd;
+    assert(sm.reapClosedStreams() == 1);
+    assert(sm.getStream(sid) is null && sm.isReapedStream(sid));
+    assert(sm.onStreamFrame(sf) == TransportErrorCode.streamStateError);
+    assert(sm.onResetStreamFrame(rf) == TransportErrorCode.streamStateError);
+
+    // STOP_SENDING is a legal frame for a send-only stream: a stale one is ignored.
+    assert(sm.onStopSendingFrame(ssf) == TransportErrorCode.noError);
+}
+
+/// Example:
+/// ---
+/// StreamMap sm = StreamMap(Side.server, 1000, 1000, 1000, 1000, 4, 4);
+/// ubyte[400] bytes;
+/// StreamFrame sf;
+/// sf.streamId = 0;
+/// sf.data = bytes[];
+/// assert(sm.onStreamFrame(sf) == TransportErrorCode.noError);
+///
+/// // The application reads 100 of the 400 bytes.
+/// QuicStream* s = sm.getStream(StreamId(0));
+/// ubyte[100] sink;
+/// bool fin;
+/// sm.onApplicationRead(*s, s.recvBuf.read(sink[], fin));
+///
+/// // The peer resets the stream with final size 600: the unread 500 bytes are credited back.
+/// ResetStreamFrame rst;
+/// rst.streamId = 0;
+/// rst.finalSize = 600;
+/// assert(sm.onResetStreamFrame(rst) == TransportErrorCode.noError);
+/// assert(sm.connFlow.readOffset == 600);          // MAX_DATA can follow
+/// assert(sm.connFlow.hasPendingMaxDataUpdate());
+/// assert(sm.onResetStreamFrame(rst) == TransportErrorCode.noError);   // duplicate
+/// assert(sm.connFlow.readOffset == 600);          // a duplicate credits nothing
+/// ---
+// Spec: RFC 9000 Section 4.1 / Section 4.5 - bytes that counted against connection flow control
+// are returned when the stream is reset (final size - bytes already read), exactly once (R-13, E5)
+@nogc unittest
+{
+    StreamMap sm = StreamMap(Side.server, 1000, 1000, 1000, 1000, 4, 4);
+    ubyte[400] chunk;
+    StreamFrame sf;
+    sf.streamId = 0;
+    sf.offset = 0;
+    sf.data = chunk[];
+    assert(sm.onStreamFrame(sf) == TransportErrorCode.noError);
+
+    // The application reads 100 bytes (credited through the normal path).
+    QuicStream* s = sm.getStream(StreamId(0));
+    assert(s !is null);
+    ubyte[100] sink;
+    bool fin;
+    const n = s.recvBuf.read(sink[], fin);
+    assert(n == 100);
+    sm.onApplicationRead(*s, n);
+    assert(sm.connFlow.readOffset == 100);
+    assert(!sm.connFlow.hasPendingMaxDataUpdate());
+
+    // Peer resets with final size 600: 500 bytes (600 - 100 read) are returned.
+    ResetStreamFrame rst;
+    rst.streamId = 0;
+    rst.finalSize = 600;
+    assert(sm.onResetStreamFrame(rst) == TransportErrorCode.noError);
+    assert(sm.connFlow.readOffset == 600);
+    assert(sm.connFlow.hasPendingMaxDataUpdate());
+
+    // A duplicate RESET_STREAM and a later read of buffered bytes must not credit again.
+    assert(sm.onResetStreamFrame(rst) == TransportErrorCode.noError);
+    assert(sm.connFlow.readOffset == 600);
+    const m = s.recvBuf.read(sink[], fin);
+    sm.onApplicationRead(*s, m);
+    assert(sm.connFlow.readOffset == 600);
+}
+
+/// Example:
+/// ---
+/// StreamMap sm = StreamMap(Side.client, 1000, 1000, 1000, 1000, 4, 4, 4, 4);
+/// StreamId sid;
+/// assert(sm.openLocalStream(StreamDirection.unidirectional, sid) == TransportErrorCode.noError);
+/// QuicStream* s = sm.getStream(sid);
+///
+/// s.sendState = SendStreamState.resetSent;        // RESET_STREAM sent, not yet acknowledged
+/// assert(sm.reapClosedStreams() == 0);            // must stay: it may need retransmission
+/// s.sendState = SendStreamState.resetRecvd;       // acknowledged
+/// assert(sm.reapClosedStreams() == 1 && sm.getStream(sid) is null);
+/// ---
+// Spec: RFC 9000 Section 3.1 (Sending Stream States: "Reset Sent" ends in "Reset Recvd" only once
+// the peer acknowledged RESET_STREAM) - the stream is not reaped while the frame is
+// unacknowledged, so a lost RESET_STREAM can still be retransmitted (R-14, S2)
+@nogc unittest
+{
+    StreamMap sm = StreamMap(Side.client, 1000, 1000, 1000, 1000, 4, 4, 4, 4);
+    StreamId sid;
+    assert(sm.openLocalStream(StreamDirection.unidirectional, sid) == TransportErrorCode.noError);
+    QuicStream* s = sm.getStream(sid);
+    assert(s !is null);
+    s.sendState = SendStreamState.resetSent;
+    s.resetQueued = false;
+    assert(sm.reapClosedStreams() == 0);
+    assert(sm.getStream(sid) !is null);
+
+    s.sendState = SendStreamState.resetRecvd;
+    assert(sm.reapClosedStreams() == 1);
+    assert(sm.getStream(sid) is null);
+}
+
+/// Example:
+/// ---
+/// StreamMap sm = StreamMap(Side.server, 600, 500, 500, 500, 4, 4, 4, 4);
+/// ubyte[300] bytes;
+/// StreamFrame f;
+/// f.streamId = 0;
+/// f.data = bytes[0 .. 100];
+/// assert(sm.onStreamFrame(f) == TransportErrorCode.noError);
+///
+/// assert(sm.abandonRecv(StreamId(0)));            // the application discards the stream
+/// assert(sm.connFlow.readOffset == 100);          // the buffered bytes are credited ...
+/// f.offset = 100;
+/// f.data = bytes[0 .. 200];
+/// assert(sm.onStreamFrame(f) == TransportErrorCode.noError);   // later bytes are credited too
+/// assert(sm.connFlow.readOffset == sm.connFlow.highestReceived);   // ... and so are later ones
+/// assert(sm.abandonRecv(StreamId(0)));
+/// assert(sm.connFlow.readOffset == 300);          // exactly once
+/// ---
+// Spec: RFC 9000 Section 4.1 "A receiver maintains a cumulative sum of bytes received on all
+// streams, which is used to check for violations of the advertised connection or stream data
+// limits." - bytes the application will never read must still return their connection credit
+// exactly once, and an abandoned receive side completes at its final size (PB-4, M2)
+@nogc unittest
+{
+    StreamMap sm = StreamMap(Side.server, 600, 500, 500, 500, 4, 4, 4, 4);
+    ubyte[300] chunk;
+    StreamFrame f;
+    f.streamId = 0;
+    f.offset = 0;
+    f.data = chunk[0 .. 100];
+    assert(sm.onStreamFrame(f) == TransportErrorCode.noError);
+    assert(sm.connFlow.highestReceived == 100 && sm.connFlow.readOffset == 0);
+
+    // Unknown streams and send-only streams have nothing to abandon.
+    assert(!sm.abandonRecv(StreamId(4)));
+    StreamId sendOnly;
+    assert(sm.openLocalStream(StreamDirection.unidirectional,
+            sendOnly) == TransportErrorCode.noError);
+    assert(!sm.abandonRecv(sendOnly));
+
+    assert(sm.abandonRecv(StreamId(0)));
+    QuicStream* s = sm.getStream(StreamId(0));
+    assert(s !is null && s.recvBuf.readableBytes == 0, "buffered bytes were discarded");
+    assert(sm.connFlow.readOffset == 100, "buffered bytes were credited");
+    ulong nextMax;
+    assert(!sm.connFlow.shouldSendMaxDataUpdate(nextMax),
+            "under half of the window consumed: no update yet");
+    assert(sm.abandonRecv(StreamId(0)));
+    assert(sm.connFlow.readOffset == 100, "abandoning twice must not credit twice");
+
+    // Bytes that arrive later are credited as they arrive, not buffered.
+    f.offset = 100;
+    f.data = chunk[0 .. 200];
+    assert(sm.onStreamFrame(f) == TransportErrorCode.noError);
+    assert(sm.connFlow.highestReceived == 300 && sm.connFlow.readOffset == 300);
+    assert(s.recvBuf.readableBytes == 0);
+    Frame fc;
+    assert(sm.pollFlowControlFrame(fc) && fc.type == FrameType.maxData,
+            "the returned credit is announced to the peer (MAX_DATA)");
+    // Retransmitted bytes do not credit again.
+    f.offset = 0;
+    f.data = chunk[0 .. 300];
+    assert(sm.onStreamFrame(f) == TransportErrorCode.noError);
+    assert(sm.connFlow.readOffset == 300);
+
+    // Final size rules still apply to an abandoned stream.
+    f.offset = 300;
+    f.data = chunk[0 .. 0];
+    f.fin = true;
+    assert(sm.onStreamFrame(f) == TransportErrorCode.noError);
+    ResetStreamFrame bad;
+    bad.streamId = 0;
+    bad.finalSize = 301;
+    assert(sm.onResetStreamFrame(bad) == TransportErrorCode.finalSizeError);
+
+    // Its receive side is done at the final size, so the stream (whose send side is done too)
+    // can be reaped; the peer's stream slot is returned.
+    assert(!sm.isStreamClosed(*s), "a bidirectional stream also needs its send side done");
+    s.sendState = SendStreamState.dataRecvd;
+    assert(sm.isStreamClosed(*s));
+    assert(sm.reapClosedStreams() == 1);
+    assert(sm.getStream(StreamId(0)) is null);
+
+    // A RESET_STREAM that raises the final size of an abandoned stream credits the difference.
+    f.streamId = 4;
+    f.offset = 0;
+    f.fin = false;
+    f.data = chunk[0 .. 50];
+    assert(sm.onStreamFrame(f) == TransportErrorCode.noError);
+    assert(sm.abandonRecv(StreamId(4)));
+    const before = sm.connFlow.readOffset;
+    ResetStreamFrame rst;
+    rst.streamId = 4;
+    rst.applicationErrorCode = 1;
+    rst.finalSize = 120;
+    assert(sm.onResetStreamFrame(rst) == TransportErrorCode.noError);
+    assert(sm.connFlow.readOffset == before + 70, "bytes up to the final size are credited once");
+    assert(sm.connFlow.readOffset == sm.connFlow.highestReceived);
+}
+
+/// Example:
+/// ---
+/// StreamMap sm = StreamMap(Side.server, 2000, 1000, 1000, 1000, 4, 4, 4, 4);
+/// ubyte[400] bytes;
+/// StreamFrame f;
+/// f.streamId = 0;
+/// f.data = bytes[];
+/// assert(sm.onStreamFrame(f) == TransportErrorCode.noError);
+///
+/// ResetStreamFrame rst;
+/// rst.streamId = 0;
+/// rst.finalSize = 400;
+/// assert(sm.onResetStreamFrame(rst) == TransportErrorCode.noError);   // credits final size - read
+/// assert(sm.abandonRecv(StreamId(0)));                                 // credits nothing more
+/// assert(sm.connFlow.readOffset == 400);
+/// assert(sm.connFlow.readOffset <= sm.connFlow.highestReceived);
+/// ---
+// Spec: RFC 9000 Section 4.1 "A receiver maintains a cumulative sum of bytes received on all
+// streams, which is used to check for violations of the advertised connection or stream data
+// limits." - the connection credit of a stream is bounded by the bytes it received, in either
+// order of RESET_STREAM and abandonRecv and after partial application reads (PB-4, M2)
+@nogc unittest
+{
+    foreach (resetFirst; [true, false])
+    {
+        foreach (partialRead; [0, 150])
+        {
+            StreamMap sm = StreamMap(Side.server, 2000, 1000, 1000, 1000, 4, 4, 4, 4);
+            ubyte[400] chunk;
+            StreamFrame f;
+            f.streamId = 0;
+            f.offset = 0;
+            f.data = chunk[0 .. 400];
+            assert(sm.onStreamFrame(f) == TransportErrorCode.noError);
+            QuicStream* s = sm.getStream(StreamId(0));
+            assert(s !is null);
+            if (partialRead > 0)
+            {
+                ubyte[150] sink;
+                bool fin;
+                const n = s.recvBuf.read(sink[], fin);
+                assert(n == partialRead);
+                sm.onApplicationRead(*s, n);
+                assert(sm.connFlow.readOffset == partialRead);
+            }
+            ResetStreamFrame rst;
+            rst.streamId = 0;
+            rst.applicationErrorCode = 7;
+            rst.finalSize = 400;
+            if (resetFirst)
+            {
+                assert(sm.onResetStreamFrame(rst) == TransportErrorCode.noError);
+                assert(sm.connFlow.readOffset == 400);
+                assert(sm.abandonRecv(StreamId(0)));
+            }
+            else
+            {
+                assert(sm.abandonRecv(StreamId(0)));
+                assert(sm.connFlow.readOffset == 400);
+                assert(sm.onResetStreamFrame(rst) == TransportErrorCode.noError);
+            }
+            assert(sm.connFlow.highestReceived == 400);
+            assert(sm.connFlow.readOffset == 400,
+                    "every byte is credited exactly once, in either order");
+            assert(sm.connFlow.readOffset <= sm.connFlow.highestReceived);
+            assert(s.connCreditedOffset == 400);
+
+            // Nothing is credited again by duplicates, late reads or a second abandon.
+            assert(sm.onResetStreamFrame(rst) == TransportErrorCode.noError);
+            assert(sm.abandonRecv(StreamId(0)));
+            sm.onApplicationRead(*s, 10);
+            assert(sm.connFlow.readOffset == 400);
+        }
+    }
 }
