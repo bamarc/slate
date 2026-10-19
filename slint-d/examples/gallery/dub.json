@@ -7,7 +7,7 @@
     "importPaths": ["source"],
     "dependencies": {
         "slint-d": {"path": "../.."},
-        "slate": {"path": "../../../slate-dlang"}
+        "slate:core": {"path": "../../../slate-dlang"}
     },
     "configurations": [
         {
@@ -17,8 +17,7 @@
             "name": "native",
             "targetType": "executable",
             "subConfigurations": {
-                "slint-d": "native",
-                "slate": "native"
+                "slint-d": "native"
             }
         }
     ]

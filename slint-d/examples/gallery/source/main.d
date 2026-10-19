@@ -14,7 +14,7 @@ module main;
 
 import std.stdio : writeln, writefln;
 import std.file : mkdirRecurse;
-import std.path : buildPath;
+import std.path : buildPath, dirName;
 import std.typecons : Nullable;
 
 import slint;
@@ -85,20 +85,26 @@ struct Gallery
 
 void main(string[] args)
 {
-    string showcaseUi = "/home/developer/projects/slate/slate-rust/examples/showcase/ui";
-    string outDir = args.length > 1 ? args[1]
-        : "/home/developer/projects/slate/renders/dlang-gallery";
-    mkdirRecurse(outDir);
+    string repoRoot = dirName(dirName(dirName(dirName(dirName(__FILE_FULL_PATH__)))));
+    string showcaseUi = buildPath(repoRoot, "reference", "slate-rust",
+            "examples", "showcase", "ui");
+    string outDir = buildPath(repoRoot, "renders", "dlang-gallery");
+    bool liveMode = false;
+    foreach (arg; args[1 .. $])
+    {
+        if (arg == "--live" || arg == "--interactive")
+            liveMode = true;
+        else
+            outDir = arg;
+    }
+    if (!liveMode)
+        mkdirRecurse(outDir);
 
-    // The showcase markup imports "../../ui/index.slint": like the Rust
-    // build's raw `../../../ui` include dir, the join base is the importing
-    // file's directory, so the include dir must denote slate-rust/ui (the
-    // ".." budget cancels out in the joined path, which the kernel resolves
-    // to the real root ui/). It need not exist itself.
+    // The showcase markup imports "../../ui/index.slint": the join base is the
+    // include directory, so passing a 2-level subdirectory of repoRoot lets the
+    // "../.." segments resolve cleanly to `<repoRoot>/ui/index.slint`.
     LoadOptions opts;
-    opts.includePaths = [
-        "/home/developer/projects/slate/slate-rust/ui", showcaseUi
-    ];
+    opts.includePaths = [buildPath(repoRoot, "slint-d", "examples"), showcaseUi];
     auto result = loadFile(showcaseUi ~ "/app.slint", opts);
     bool failed;
     foreach (d; result.diagnostics)
@@ -118,6 +124,11 @@ void main(string[] args)
 
     auto gallery = Gallery(def.create(), new ComputeController(), outDir);
     gallery.wire();
+    if (liveMode)
+    {
+        gallery.window.run();
+        return;
+    }
     gallery.window.show();
 
     // Every tab, dark (compute tab with staged 72% state like render.rs).

@@ -9,12 +9,14 @@ module main;
 
 import std.stdio : writeln, writefln;
 import std.conv : to;
+import std.path : buildPath, dirName;
 
 import slint;
 
 void main(string[] args)
 {
-    string uiDir = "/home/developer/projects/slate/ui";
+    string repoRoot = dirName(dirName(dirName(dirName(dirName(__FILE_FULL_PATH__)))));
+    string uiDir = buildPath(repoRoot, "ui");
     string shotPath;
     uint quitAfterMs = 6000;
     foreach (i, a; args[1 .. $])

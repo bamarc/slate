@@ -131,3 +131,7 @@ d-example:
 # Render the Slate showcase gallery from D offscreen into renders/dlang-gallery
 d-gallery out_dir="../../../renders/dlang-gallery": d-bridge
     cd slint-d/examples/gallery && LD_LIBRARY_PATH="$PWD/../../bridge/target/debug:${LD_LIBRARY_PATH:-}" SLINT_BACKEND=software dub run --config=native -- {{out_dir}}
+
+# Launch the interactive Slate showcase gallery window from D
+d-gallery-live: d-bridge
+    cd slint-d/examples/gallery && LD_LIBRARY_PATH="$PWD/../../bridge/target/debug:${LD_LIBRARY_PATH:-}" dub run --config=native -- --live
