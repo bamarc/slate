@@ -46,8 +46,8 @@ just lint
 
 ### Layer A: Antigravity IDE (Editor Surface)
 Because Antigravity IDE is built on VS Code, it natively runs Language Server Protocol (LSP) servers via extensions configured in [`.devcontainer/devcontainer.json`](../../.devcontainer/devcontainer.json):
-- **Dlang (`webfreak.code-d`)**: Uses `/home/developer/.local/bin/serve-d`, `dcd-server`, `dcd-client`, `dmd`, and `dub` to provide inline diagnostics, autocomplete, hover docs, code actions, and format-on-save (`dfmt`).
-- **Slint (`Slint.slint`)**: Uses `/home/developer/.local/bin/slint-lsp` for `.slint` syntax highlighting, component property completion, and live preview.
+- **Dlang (`webfreak.code-d`)**: Uses `~/.local/bin/serve-d`, `dcd-server`, `dcd-client`, `dmd`, and `dub` to provide inline diagnostics, autocomplete, hover docs, code actions, and format-on-save (`dfmt`).
+- **Slint (`Slint.slint`)**: Uses `~/.local/bin/slint-lsp` for `.slint` syntax highlighting, component property completion, and live preview.
 - **Rust Bridge (`rust-lang.rust-analyzer`)**: Provides LSP support for `slint-d/bridge/`.
 
 ### Layer B: Antigravity Agent Mode (`dlang-lsp` MCP Server & CLI)

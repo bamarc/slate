@@ -30,10 +30,11 @@ RAW_NAME="${2:-$(basename "$TARGET_ABS")}"
 APP_NAME="$(echo "$RAW_NAME" | tr '[:upper:]_' '[:lower:]-' | sed 's/[^a-z0-9-]//g')"
 [ -z "$APP_NAME" ] && APP_NAME="slate-counter-app"
 
-SLINT_D_PATH="${SLATE_ROOT}/slint-d"
-SLATE_DLANG_PATH="${SLATE_ROOT}/slate-dlang"
-BRIDGE_LIB_DIR="${SLATE_ROOT}/slint-d/bridge/target/debug"
-SLATE_LIB_DIR="${SLATE_ROOT}/slate-dlang/lib"
+SLATE_REL="$(python3 -c 'import os, sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$SLATE_ROOT" "$TARGET_ABS")"
+SLINT_D_REL="${SLATE_REL}/slint-d"
+SLATE_DLANG_REL="${SLATE_REL}/slate-dlang"
+BRIDGE_LIB_REL="${SLATE_REL}/slint-d/bridge/target/debug"
+SLATE_LIB_REL="${SLATE_REL}/slate-dlang/lib"
 
 mkdir -p "$TARGET_ABS/source"
 
@@ -49,14 +50,14 @@ cat > "$TARGET_ABS/dub.json" <<EOF
     "sourcePaths": ["source"],
     "importPaths": ["source"],
     "dependencies": {
-        "slint-d": {"path": "${SLINT_D_PATH}"},
-        "slate": {"path": "${SLATE_DLANG_PATH}"}
+        "slint-d": {"path": "${SLINT_D_REL}"},
+        "slate": {"path": "${SLATE_DLANG_REL}"}
     },
     "lflags-posix": [
-        "-L${HOME}/.local/lib",
-        "-L${SLATE_LIB_DIR}",
-        "-L${BRIDGE_LIB_DIR}",
-        "-rpath=${BRIDGE_LIB_DIR}"
+        "-L\$HOME/.local/lib",
+        "-L\$PACKAGE_DIR/${SLATE_LIB_REL}",
+        "-L\$PACKAGE_DIR/${BRIDGE_LIB_REL}",
+        "-rpath=\$PACKAGE_DIR/${BRIDGE_LIB_REL}"
     ],
     "configurations": [
         {
@@ -367,6 +368,15 @@ struct MainWindow
 
 void printMcpConfig(string sockPath = "", string token = "")
 {
+    import std.file : exists, getcwd;
+    import std.path : buildNormalizedPath, dirName;
+
+    string projectRoot = buildNormalizedPath(dirName(__FILE_FULL_PATH__), "..");
+    if (!exists(buildNormalizedPath(projectRoot, "dub.json")))
+        projectRoot = getcwd();
+    string bridgeLibDir = buildNormalizedPath(projectRoot, "${BRIDGE_LIB_REL}");
+    string slateLibDir = buildNormalizedPath(projectRoot, "${SLATE_LIB_REL}");
+
     if (sockPath.length > 0 && token.length > 0)
     {
         writefln(q"{
@@ -377,7 +387,7 @@ void printMcpConfig(string sockPath = "", string token = "")
       "args": [
         "run",
         "-q",
-        "--root=${TARGET_ABS}",
+        "--root=%s",
         "--",
         "--mcp-attach",
         "%s",
@@ -387,11 +397,11 @@ void printMcpConfig(string sockPath = "", string token = "")
     }
   }
 }
-}", sockPath, token);
+}", projectRoot, sockPath, token);
         return;
     }
 
-    writeln(q"{
+    writefln(q"{
 {
   "mcpServers": {
     "${APP_NAME}": {
@@ -399,19 +409,19 @@ void printMcpConfig(string sockPath = "", string token = "")
       "args": [
         "run",
         "-q",
-        "--root=${TARGET_ABS}",
+        "--root=%s",
         "--config=native",
         "--",
         "--mcp"
       ],
       "env": {
-        "LD_LIBRARY_PATH": "${BRIDGE_LIB_DIR}:${SLATE_LIB_DIR}",
+        "LD_LIBRARY_PATH": "%s:%s",
         "SLINT_BACKEND": "software"
       }
     }
   }
 }
-}");
+}", projectRoot, bridgeLibDir, slateLibDir);
 }
 
 void main(string[] args)
@@ -593,13 +603,12 @@ cat > "$TARGET_ABS/mcp_config.json" <<EOF
       "args": [
         "run",
         "-q",
-        "--root=${TARGET_ABS}",
         "--config=native",
         "--",
         "--mcp"
       ],
       "env": {
-        "LD_LIBRARY_PATH": "${BRIDGE_LIB_DIR}:${SLATE_LIB_DIR}",
+        "LD_LIBRARY_PATH": "${BRIDGE_LIB_REL}:${SLATE_LIB_REL}",
         "SLINT_BACKEND": "software"
       }
     }
@@ -639,10 +648,10 @@ Slate desktop application provisioned with a Counter, Increment/Reset buttons, a
 dub test
 
 # Launch native desktop window (with live MCP switch)
-LD_LIBRARY_PATH="${BRIDGE_LIB_DIR}:${SLATE_LIB_DIR}" dub run --config=native
+LD_LIBRARY_PATH="${BRIDGE_LIB_REL}:${SLATE_LIB_REL}" dub run --config=native
 
 # Render an offscreen PNG snapshot of the window
-LD_LIBRARY_PATH="${BRIDGE_LIB_DIR}:${SLATE_LIB_DIR}" SLINT_BACKEND=software dub run --config=native -- --shot preview.png
+LD_LIBRARY_PATH="${BRIDGE_LIB_REL}:${SLATE_LIB_REL}" SLINT_BACKEND=software dub run --config=native -- --shot preview.png
 
 # Print the MCP client config JSON
 dub run -- --mcp-config

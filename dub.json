@@ -13,7 +13,7 @@
         "slate": {"path": "./slate-dlang"}
     },
     "libs": ["curl", "ssl", "crypto"],
-    "lflags-posix": ["-L/home/developer/.local/lib", "-Lslate-dlang/lib", "-L/usr/local/lib"],
+    "lflags-posix": ["-L$HOME/.local/lib", "-L$PACKAGE_DIR/slate-dlang/lib", "-L/usr/local/lib"],
     "configurations": [
         {
             "name": "library",

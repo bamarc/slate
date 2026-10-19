@@ -152,14 +152,15 @@ install_binaries() {
 }
 
 install_configs_and_plugin() {
-    log "Ensuring ~/.local/lib shared library symlinks for slate:net..."
-    mkdir -p "${HOME}/.local/lib"
+    log "Ensuring ~/.local/lib and slate-dlang/lib shared library symlinks for slate:net..."
+    mkdir -p "${HOME}/.local/lib" "${WORKSPACE_ROOT}/slate-dlang/lib"
     for pair in "libcurl.so:libcurl.so.4" "libssl.so:libssl.so.3" "libcrypto.so:libcrypto.so.3"; do
         local link_name="${pair%%:*}"
         local target_name="${pair##*:}"
         for sysdir in /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu /usr/lib64 /usr/lib; do
-            if [ -e "${sysdir}/${target_name}" ] && [ ! -e "${HOME}/.local/lib/${link_name}" ]; then
+            if [ -e "${sysdir}/${target_name}" ]; then
                 ln -sfn "${sysdir}/${target_name}" "${HOME}/.local/lib/${link_name}"
+                ln -sfn "${sysdir}/${target_name}" "${WORKSPACE_ROOT}/slate-dlang/lib/${link_name}"
                 break
             fi
         done
